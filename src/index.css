@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@layer base {
+  html {
+    /* Prevent 300ms tap delay and double-tap zoom delay on mobile */
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    font-family: 'Prompt', 'Sarabun', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    text-rendering: optimizeSpeed;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  /* Optimize images decoding and avoid layout shifts */
+  img {
+    content-visibility: auto;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* GPU accelerated composite layer for sticky headers and modals */
+  .gpu-layer {
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+
+  /* Drastically reduces layout/paint cost for offscreen list items on low-spec phones */
+  .content-auto {
+    content-visibility: auto;
+    contain-intrinsic-size: 0 85px;
+  }
+
+  .content-auto-card {
+    content-visibility: auto;
+    contain-intrinsic-size: 0 140px;
+  }
+
+  /* Smooth momentum scrolling on iOS Safari and Android Chrome */
+  .touch-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+}
+
+/* Fallback & performance overrides for low-spec devices or reduced motion */
+@media (max-width: 768px) {
+  /* On mobile, disable heavy backdrop filters that cause severe GPU framerate drops */
+  .backdrop-blur-md,
+  .backdrop-blur-lg,
+  .backdrop-blur-xl {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+

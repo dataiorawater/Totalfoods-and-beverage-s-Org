@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="100%" height="100%">
+  <!-- Background transparent / white -->
+  <defs>
+    <!-- Clip path for inside circle -->
+    <clipPath id="innerCircleClip">
+      <circle cx="250" cy="180" r="126" />
+    </clipPath>
+  </defs>
+
+  <!-- Outer Ring of Emblem -->
+  <circle
+    cx="250"
+    cy="180"
+    r="134"
+    fill="#ffffff"
+    stroke="#1D5297"
+    stroke-width="22"
+  />
+
+  <!-- Inside Content clipped to inner circle -->
+  <g clip-path="url(#innerCircleClip)">
+    <!-- White inner base -->
+    <rect x="100" y="30" width="300" height="300" fill="#ffffff" />
+
+    <!-- Top-left light blue floating bubble / droplet -->
+    <circle cx="218" cy="122" r="18" fill="#5A88B7" />
+
+    <!-- Right / Upper fluid wave (Bright Ocean Blue) -->
+    <path
+      d="M 226 142
+         C 260 100, 310 110, 335 145
+         C 355 172, 350 215, 330 242
+         C 310 268, 260 270, 230 255
+         C 200 240, 205 170, 226 142 Z"
+      fill="#1B75BC"
+    />
+
+    <!-- Lower / Left fluid wave (Deep Royal Navy) -->
+    <path
+      d="M 145 155
+         C 165 140, 195 145, 220 170
+         C 255 205, 305 200, 325 240
+         C 300 280, 240 295, 195 285
+         C 155 275, 135 230, 140 185
+         C 142 170, 143 160, 145 155 Z"
+      fill="#12376A"
+    />
+
+    <!-- Fluid overlap layer creating depth -->
+    <path
+      d="M 220 170
+         C 245 155, 280 160, 300 185
+         C 318 208, 325 240, 300 265
+         C 275 285, 235 280, 220 260
+         C 195 228, 202 188, 220 170 Z"
+      fill="#174E93"
+      opacity="0.85"
+    />
+  </g>
+
+  <!-- Typography: TOTAL -->
+  <text
+    x="250"
+    y="382"
+    text-anchor="middle"
+    font-family="system-ui, -apple-system, 'Prompt', 'Montserrat', 'Segoe UI', Arial, sans-serif"
+    font-size="94"
+    font-weight="900"
+    letter-spacing="0.04em"
+    fill="#1D5297"
+  >
+    TOTAL
+  </text>
+
+  <!-- Typography: Foods & Beverage -->
+  <text
+    x="250"
+    y="435"
+    text-anchor="middle"
+    font-family="system-ui, -apple-system, 'Prompt', 'Montserrat', 'Segoe UI', Arial, sans-serif"
+    font-size="31"
+    font-weight="700"
+    letter-spacing="0.32em"
+    fill="#1D5297"
+  >
+    Foods &amp; Beverage
+  </text>
+</svg>

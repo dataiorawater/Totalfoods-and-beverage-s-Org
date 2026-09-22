@@ -1,0 +1,11 @@
+{
+  "name": "จัดการออเดอร์",
+  "description": "ระบบจัดการออเดอร์สินค้า TOTAL Foods & Beverage สรุปยอดขายรายวัน บันทึกลง Google Sheets และติดตามสถานะการจัดส่ง",
+  "requestFramePermissions": [
+    "geolocation",
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
