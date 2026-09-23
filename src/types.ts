@@ -3,6 +3,8 @@ export interface Route {
   id: string;
   name: string;
   salesrepName?: string;
+  salespersonId?: string;
+  visitDays?: string[]; // วันที่เข้าเยี่ยม เช่น ['จันทร์', 'พฤหัสบดี']
   notes?: string;
 }
 export type OrderStatus = 'pending' | 'confirmed' | 'delivering' | 'completed' | 'cancelled';
@@ -38,7 +40,10 @@ export interface Customer {
   name: string;
   phone: string;
   address: string;
-  routeName?: string; // NEW: สายการเข้าเยี่ยม
+  routeName?: string; // สายการเข้าเยี่ยม
+  routeId?: string;
+  salespersonName?: string;
+  visitDays?: string[]; // วันที่เข้าเยี่ยม เช่น ['จันทร์', 'พฤหัสบดี']
   mapsUrl: string;
   latitude?: number;
   longitude?: number;

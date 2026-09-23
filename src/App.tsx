@@ -9,6 +9,7 @@ import {
   LineSettings,
   StoreCheckIn,
   Route,
+  Expense,
 } from './types';
 import {
   INITIAL_ORDERS,
@@ -71,6 +72,7 @@ import {
   AlertCircle,
   X,
   ChevronDown,
+  RefreshCw,
 } from 'lucide-react';
 
 // Helper to parse dates that might be in Thai format (DD/MM/YYYY) or ISO
@@ -408,6 +410,7 @@ export default function App() {
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [isNewCustomerOpen, setIsNewCustomerOpen] = useState(false);
   const [preselectedCustomerForOrder, setPreselectedCustomerForOrder] = useState<Customer | null>(null);
+  const [preselectedCustomerForCheckIn, setPreselectedCustomerForCheckIn] = useState<Customer | null>(null);
   const [isRoleSwitcherOpen, setIsRoleSwitcherOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectedOrderForDetail, setSelectedOrderForDetail] = useState<Order | null>(null);
@@ -494,134 +497,140 @@ export default function App() {
 
   
 
-  // Sync / ensure tabs on Google Sheets when spreadsheetId is available
+  // Master function: Load all data from database (Google Sheets)
+  const loadAllDataFromDatabase = useCallback(async (options?: {
+    isLogin?: boolean;
+    onProgress?: (message: string, progressPercent?: number) => void;
+  }): Promise<{ success: boolean; message: string }> => {
+    if (!sheetsConfig?.spreadsheetId) {
+      options?.onProgress?.('พร้อมใช้งาน (โหมดออฟไลน์)', 100);
+      return { success: true, message: 'Offline mode active' };
+    }
+
+    setIsLoadingData(true);
+    options?.onProgress?.('กำลังเชื่อมต่อฐานข้อมูล Google Sheets...', 15);
+
+    try {
+      // 1. Auto-repair tabs and headers in background
+      ensureAllSheetsTabs(sheetsConfig.spreadsheetId, sheetsConfig.sheetName)
+        .catch(e => console.warn('ensureAllSheetsTabs error:', e));
+
+      options?.onProgress?.('กำลังดึงข้อมูลทั้งหมดจากฐานข้อมูล...', 35);
+
+      // 2. Try bulk fetch first (fastest, single roundtrip)
+      let sheetOrders: Order[] | null = null;
+      let sheetUsers: StaffUser[] | null = null;
+      let sheetProducts: Product[] | null = null;
+      let sheetCustomers: Customer[] | null = null;
+      let sheetRoutes: Route[] | null = null;
+      let sheetCheckIns: StoreCheckIn[] | null = null;
+      let sheetExpenses: Expense[] | null = null;
+
+      try {
+        const bulkData = await fetchAllDataBulk(sheetsConfig.spreadsheetId, sheetsConfig.sheetName);
+        if (bulkData) {
+          sheetOrders = bulkData.orders;
+          sheetUsers = bulkData.users;
+          sheetProducts = bulkData.products;
+          sheetCustomers = bulkData.customers;
+          sheetRoutes = bulkData.routes;
+          if (Array.isArray(bulkData.checkIns)) sheetCheckIns = bulkData.checkIns;
+          if (Array.isArray(bulkData.expenses)) sheetExpenses = bulkData.expenses;
+        }
+      } catch (bulkErr: any) {
+        console.warn('Bulk fetch not supported or failed, falling back to parallel fetch:', bulkErr?.message || bulkErr);
+      }
+
+      options?.onProgress?.('กำลังตรวจสอบและอัปเดตข้อมูลแยกแท็บ...', 60);
+
+      // 3. If any tables are missing from bulk, fetch in parallel
+      const needsOrders = !sheetOrders;
+      const needsUsers = !sheetUsers;
+      const needsProducts = !sheetProducts;
+      const needsCustomers = !sheetCustomers;
+      const needsRoutes = !sheetRoutes;
+      const needsCheckIns = !sheetCheckIns;
+      const needsExpenses = !sheetExpenses;
+
+      const [ordersRes, usersRes, productsRes, customersRes, routesRes, checkInsRes, expensesRes] = await Promise.allSettled([
+        needsOrders ? fetchOrdersFromSheet(sheetsConfig) : Promise.resolve(sheetOrders),
+        needsUsers ? fetchUsersFromSheets(sheetsConfig.spreadsheetId) : Promise.resolve(sheetUsers),
+        needsProducts ? fetchProductsFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetProducts),
+        needsCustomers ? fetchCustomersFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetCustomers),
+        needsRoutes ? fetchRoutesFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetRoutes),
+        needsCheckIns ? fetchCheckInsFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetCheckIns),
+        needsExpenses ? fetchExpensesFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetExpenses),
+      ]);
+
+      options?.onProgress?.('กำลังประมวลผลข้อมูลและเตรียมระบบ...', 85);
+
+      if (ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value)) {
+        const cleanOrders = sanitizeOrderData(ordersRes.value);
+        setOrders(cleanOrders);
+        safeSave('iora_orders', cleanOrders);
+      }
+      if (usersRes.status === 'fulfilled' && Array.isArray(usersRes.value) && usersRes.value.length > 0) {
+        setStaffList(usersRes.value);
+        safeSave('iora_staff_list', usersRes.value);
+        const matched = usersRes.value.find(
+          (u: StaffUser) => u?.email?.toLowerCase() === currentUser?.email?.toLowerCase()
+        );
+        if (matched && currentUser && (matched.role !== currentUser.role || matched.name !== currentUser.name)) {
+          setCurrentUser(prev => ({
+            ...prev,
+            role: matched.role,
+            name: matched.name,
+          }));
+        }
+      }
+      if (productsRes.status === 'fulfilled' && Array.isArray(productsRes.value)) {
+        setProducts(productsRes.value);
+        safeSave('iora_products', productsRes.value);
+      }
+      if (customersRes.status === 'fulfilled' && Array.isArray(customersRes.value)) {
+        const cleanCustomers = sanitizeCustomerData(customersRes.value);
+        setCustomers(cleanCustomers);
+        safeSave('iora_customers', cleanCustomers);
+      }
+      if (routesRes.status === 'fulfilled' && Array.isArray(routesRes.value)) {
+        setRoutes(routesRes.value);
+        safeSave('iora_routes', routesRes.value);
+      }
+      if (checkInsRes.status === 'fulfilled' && Array.isArray(checkInsRes.value)) {
+        setCheckIns(checkInsRes.value);
+        safeSave('iora_checkins', checkInsRes.value);
+      }
+      if (expensesRes.status === 'fulfilled' && Array.isArray(expensesRes.value)) {
+        setExpenses(expensesRes.value);
+        safeSave('iora_expenses', expensesRes.value);
+      }
+
+      options?.onProgress?.('ข้อมูลทั้งหมดพร้อมใช้งานเรียบร้อยแล้ว!', 100);
+      return { success: true, message: 'Sync completed' };
+    } catch (err: any) {
+      if (err.message === 'GAS_HTML_LOGIN_REQUIRED' || err.message === 'HTML_RESPONSE') {
+        console.warn('[Auto-sync] GAS returned HTML login page. Set "Who has access" to "Anyone" in Apps Script.');
+      } else if (err.message === 'UNAUTHENTICATED') {
+        console.warn('Session expired. Logging out.');
+        logoutGoogle().then(() => {
+          setCurrentUser(null);
+        });
+      } else {
+        console.warn('[Auto-sync notice]', err?.message || err);
+      }
+      options?.onProgress?.('ใช้ข้อมูลที่บันทึกล่าสุดในเครื่อง', 100);
+      return { success: false, message: err?.message || 'Sync failed' };
+    } finally {
+      setIsLoadingData(false);
+    }
+  }, [sheetsConfig, currentUser]);
+
+  // Initial mount sync: If user is already logged in or spreadsheet is configured
   useEffect(() => {
     if (sheetsConfig?.spreadsheetId) {
-      setIsLoadingData(true);
-      const doSync = async () => {
-        try {
-          // Auto-repair order headers if outdated and ensure standard tabs
-          await ensureAllSheetsTabs(sheetsConfig.spreadsheetId, sheetsConfig.sheetName).catch(e => console.warn('ensureAllSheetsTabs error:', e));
-
-          // 1. ลองดึงข้อมูลทั้งหมดรวดเดียว (ถ้า GAS รองรับ)
-          let sheetOrders, sheetUsers, sheetProducts, sheetCustomers, sheetRoutes;
-          try {
-            const bulkData = await fetchAllDataBulk(sheetsConfig.spreadsheetId, sheetsConfig.sheetName);
-            if (bulkData) {
-              sheetOrders = bulkData.orders;
-              sheetUsers = bulkData.users;
-              sheetProducts = bulkData.products;
-              sheetCustomers = bulkData.customers;
-              sheetRoutes = bulkData.routes;
-            } else {
-              throw new Error('Bulk fetch failed or unsupported');
-            }
-          } catch (bulkErr: any) {
-            if (bulkErr.message && (bulkErr.message.includes('Failed to fetch') || bulkErr.message === 'HTML_RESPONSE' || bulkErr.message === 'GAS_HTML_LOGIN_REQUIRED' || bulkErr.message === 'GAS_FAILED_TO_FETCH')) {
-              throw bulkErr; // Skip fallback if it's a network/CORS/HTML error
-            }
-            // 2. ถ้าไม่รองรับ ให้ Fallback ไปดึงทีละแท็บแบบเดิม
-            [sheetOrders, sheetUsers, sheetProducts, sheetCustomers, sheetRoutes] = await Promise.all([
-              fetchOrdersFromSheet(sheetsConfig).catch(err => {
-                if (err?.message === 'UNAUTHENTICATED') throw err;
-                console.warn('Sync orders failed:', err);
-                return null;
-              }),
-              fetchUsersFromSheets(sheetsConfig.spreadsheetId).catch(err => {
-                if (err?.message === 'UNAUTHENTICATED') throw err;
-                console.warn('Sync users failed:', err);
-                return null;
-              }),
-              fetchProductsFromSheet(sheetsConfig.spreadsheetId).catch(err => {
-                if (err?.message === 'UNAUTHENTICATED') throw err;
-                console.warn('Sync products failed:', err);
-                return null;
-              }),
-              fetchCustomersFromSheet(sheetsConfig.spreadsheetId).catch(err => {
-                if (err?.message === 'UNAUTHENTICATED') throw err;
-                console.warn('Sync customers failed:', err);
-                return null;
-              }),
-              fetchRoutesFromSheet(sheetsConfig.spreadsheetId).catch(err => {
-                if (err?.message === 'UNAUTHENTICATED') throw err;
-                console.warn('Sync routes failed:', err);
-                return null;
-              }),
-            ]);
-            
-            // Try fetching checkins individually regardless
-            try {
-              const fetchedCheckIns = await fetchCheckInsFromSheet(sheetsConfig.spreadsheetId);
-              if (Array.isArray(fetchedCheckIns)) {
-                setCheckIns(fetchedCheckIns);
-              }
-            } catch (err) {
-              console.warn('Sync checkins failed:', err);
-            }
-            try {
-              const fetchedExpenses = await fetchExpensesFromSheet(sheetsConfig.spreadsheetId);
-              if (Array.isArray(fetchedExpenses)) {
-                setExpenses(fetchedExpenses);
-              }
-            } catch (err) {
-              console.warn('Sync expenses failed:', err);
-            }
-          }
-
-          try {
-            const fetchedCheckIns = await fetchCheckInsFromSheet(sheetsConfig.spreadsheetId);
-            if (Array.isArray(fetchedCheckIns)) {
-              setCheckIns(fetchedCheckIns);
-            }
-          } catch (err) {
-            console.warn('Sync checkins failed:', err);
-          }
-          try {
-            const fetchedExpenses = await fetchExpensesFromSheet(sheetsConfig.spreadsheetId);
-            if (Array.isArray(fetchedExpenses)) {
-              setExpenses(fetchedExpenses);
-            }
-          } catch (err) {
-            console.warn('Sync expenses failed:', err);
-          }
-          if (Array.isArray(sheetOrders)) setOrders(sanitizeOrderData(sheetOrders));
-          if (Array.isArray(sheetUsers) && sheetUsers.length > 0) {
-            setStaffList(sheetUsers);
-            const matched = sheetUsers.find(
-              (u) => u?.email?.toLowerCase() === currentUser?.email?.toLowerCase()
-            );
-            if (matched && currentUser && (matched.role !== currentUser.role || matched.name !== currentUser.name)) {
-              setCurrentUser((prev) => ({
-                ...prev,
-                role: matched.role,
-                name: matched.name,
-              }));
-            }
-          }
-          if (Array.isArray(sheetProducts)) setProducts(sheetProducts);
-          if (Array.isArray(sheetCustomers)) setCustomers(sanitizeCustomerData(sheetCustomers));
-          if (Array.isArray(sheetRoutes)) setRoutes(sheetRoutes);
-        } catch (err: any) {
-          if (err.message === 'GAS_HTML_LOGIN_REQUIRED' || err.message === 'HTML_RESPONSE') {
-            console.warn('[Auto-sync] GAS returned HTML login page. Set "Who has access" to "Anyone" in Apps Script.');
-          } else if (err.message === 'GAS_FAILED_TO_FETCH' || (err.message && err.message.includes('Failed to fetch'))) {
-            console.warn('[Auto-sync] GAS connection failed to fetch.');
-          } else if (err.message === 'UNAUTHENTICATED') {
-            console.warn('Session expired. Logging out.');
-            logoutGoogle().then(() => {
-              setCurrentUser(null);
-            });
-          } else {
-            console.warn('[Auto-sync notice]', err?.message || err);
-          }
-        } finally {
-          setIsLoadingData(false);
-        }
-      };
-
-      doSync();
+      loadAllDataFromDatabase();
     }
-  }, [sheetsConfig?.spreadsheetId, true]);
+  }, [sheetsConfig?.spreadsheetId, loadAllDataFromDatabase]);
 
   // Set / Update user password
   const handleUpdateUserPassword = async (email: string, newPass: string): Promise<boolean> => {
@@ -651,7 +660,25 @@ export default function App() {
   // Login Handler
   const handleLoginAttempt = async (email: string, pass: string): Promise<{success: boolean, message?: string}> => {
     try {
-      const matchedUser = staffList.find(u => String(u?.email || '').trim().toLowerCase() === email.trim().toLowerCase());
+      let currentStaffList = staffList;
+      const cleanEmail = email.trim().toLowerCase();
+      let matchedUser = currentStaffList.find(u => String(u?.email || '').trim().toLowerCase() === cleanEmail);
+
+      // Pre-check with database if user not found in local cache
+      if (!matchedUser && sheetsConfig?.spreadsheetId) {
+        try {
+          const freshUsers = await fetchUsersFromSheets(sheetsConfig.spreadsheetId);
+          if (Array.isArray(freshUsers) && freshUsers.length > 0) {
+            setStaffList(freshUsers);
+            safeSave('iora_staff_list', freshUsers);
+            currentStaffList = freshUsers;
+            matchedUser = freshUsers.find(u => String(u?.email || '').trim().toLowerCase() === cleanEmail);
+          }
+        } catch (e) {
+          console.warn('Pre-login staff check failed, using local cache:', e);
+        }
+      }
+
       if (!matchedUser) {
         return { success: false, message: `ไม่พบอีเมล "${email}" ในระบบ` };
       }
@@ -667,7 +694,13 @@ export default function App() {
 
       const finalUser = { ...matchedUser, lastLogin: new Date().toISOString() };
       setCurrentUser(finalUser);
-      // We don't setIsLoggedIn(true) here anymore, let LoginScreen trigger it after popup
+      safeSave('iora_current_user', finalUser);
+
+      // Record login in background
+      if (sheetsConfig?.spreadsheetId) {
+        recordUserLoginInSheet(sheetsConfig.spreadsheetId, finalUser.email).catch(() => {});
+      }
+
       return { success: true };
     } catch(err: any) {
       return { success: false, message: err.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ' };
@@ -1114,10 +1147,15 @@ export default function App() {
         <LoginScreen
           staffList={staffList}
           onLoginAttempt={handleLoginAttempt}
+          onPerformFullSync={loadAllDataFromDatabase}
           onUpdatePassword={handleUpdateUserPassword}
           sheetsConnected={!!sheetsConfig?.spreadsheetId}
           isLoadingData={isLoadingData}
-          onLoginComplete={() => { setIsLoggedIn(true); setActiveTab('dashboard'); }}
+          onLoginComplete={() => {
+            setIsLoggedIn(true);
+            setActiveTab('dashboard');
+            showToast('success', 'เข้าสู่ระบบสำเร็จ', 'โหลดข้อมูลระบบทั้งหมดพร้อมใช้งานเรียบร้อยแล้ว');
+          }}
         />
       </div>
     );
@@ -1204,10 +1242,28 @@ export default function App() {
             <span className="text-slate-300 hidden sm:block">|</span>
             <span className="text-[10px] sm:text-xs text-slate-500 font-medium hidden sm:block">ระบบจัดการออเดอร์สินค้า</span>
             {sheetsConfig?.spreadsheetId ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-                <span className="hidden sm:inline">Google Sheets Online</span><span className="sm:hidden">Online</span>
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                  <span className="hidden sm:inline">Google Sheets Online</span><span className="sm:hidden">Online</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    showToast('info', 'กำลังซิงค์ฐานข้อมูล', 'กำลังดึงข้อมูลอัปเดตล่าสุดทั้งหมดจาก Google Sheets...');
+                    const res = await loadAllDataFromDatabase();
+                    if (res.success) {
+                      showToast('success', 'ซิงค์สำเร็จ', 'ข้อมูลระบบทั้งหมดเป็นปัจจุบันพร้อมใช้งานแล้ว');
+                    }
+                  }}
+                  disabled={isLoadingData}
+                  className="p-1 sm:px-2 sm:py-0.5 rounded-lg text-[11px] font-semibold text-slate-600 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 transition-colors inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                  title="คลิกเพื่อดึงข้อมูลทั้งหมดจากฐานข้อมูลใหม่"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingData ? 'animate-spin text-blue-600' : 'text-slate-500'}`} />
+                  <span className="hidden md:inline">{isLoadingData ? 'กำลังซิงค์...' : 'รีเฟรชฐานข้อมูล'}</span>
+                </button>
+              </div>
             ) : (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
@@ -1267,6 +1323,7 @@ export default function App() {
               customers={customers}
               currentUser={currentUser}
               routes={routes}
+              staffList={staffList}
               onManageRoutes={() => setActiveTab('routes')}
               onSaveCustomer={handleSaveCustomer}
               onRefreshCustomers={handleRefreshCustomers}
@@ -1274,19 +1331,27 @@ export default function App() {
                 setPreselectedCustomerForOrder(cust);
                 setActiveTab('new_order');
               }}
+              onNavigateToCheckIn={(cust) => {
+                setPreselectedCustomerForCheckIn(cust);
+                setActiveTab('checkin');
+              }}
               sheetsConnected={!!sheetsConfig?.spreadsheetId}
-          
             />
           ) : activeTab === 'checkin' ? (
             <StoreCheckInView
               customers={customers}
               checkIns={checkIns}
               currentUser={currentUser}
+              routes={routes}
+              staffList={staffList}
               onSaveCheckIn={handleSaveCheckIn}
               onOpenOrderForCustomer={(cust) => {
                 setPreselectedCustomerForOrder(cust);
                 setActiveTab('new_order');
               }}
+              onManageRoutes={() => setActiveTab('routes')}
+              preselectedCustomerForCheckIn={preselectedCustomerForCheckIn}
+              onClearPreselectedCustomer={() => setPreselectedCustomerForCheckIn(null)}
               sheetsConnected={!!sheetsConfig?.spreadsheetId}
             />
           ) : activeTab === 'expenses' ? (

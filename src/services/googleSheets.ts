@@ -366,12 +366,14 @@ export const fetchRoutesFromSheet = async (id: string): Promise<Route[]> => {
     id: row[0] ? String(row[0]) : 'row-' + idx,
     name: row[1] || '',
     salesrepName: row[2] || '',
-    notes: row[3] || ''
+    notes: row[3] || '',
+    visitDays: row[4] ? String(row[4]).split(',').map((s: string) => s.trim()).filter(Boolean) : []
   }));
 };
 
 export const saveRouteToSheet = async (id: string, r: Route) => {
-  const rowData = [r.id || Date.now().toString(), r.name || '', r.salesrepName || '', r.notes || ''];
+  const visitDaysStr = Array.isArray(r.visitDays) ? r.visitDays.join(', ') : '';
+  const rowData = [r.id || Date.now().toString(), r.name || '', r.salesrepName || '', r.notes || '', visitDaysStr];
   const existing = await fetchRoutesFromSheet(id);
   const found = existing.find(x => x.id === r.id);
   if (found && (found as any).sheetsRowIndex) {
@@ -1003,6 +1005,7 @@ export const parseRoutes = (values: any[]): Route[] => {
     name: String(row[1] || ''),
     salesrepName: String(row[2] || ''),
     notes: String(row[3] || ''),
+    visitDays: row[4] ? String(row[4]).split(',').map((s: string) => s.trim()).filter(Boolean) : []
   }));
 };
 
@@ -1048,6 +1051,47 @@ export const parseProducts = (values: any[]): Product[] => {
   }));
 };
 
+export const parseCheckIns = (values: any[]): import('../types').StoreCheckIn[] => {
+  if (!values || values.length <= 1) return [];
+  return values.slice(1).map((row: any) => ({
+    id: row[0] ? String(row[0]) : '',
+    createdAt: row[1] ? String(row[1]) : '',
+    timestampStr: row[2] ? String(row[2]) : '',
+    storeName: row[3] ? String(row[3]) : '',
+    customerPhone: row[4] !== undefined && row[4] !== null ? String(row[4]) : '',
+    address: row[5] ? String(row[5]) : '',
+    salespersonId: row[6] ? String(row[6]) : '',
+    salespersonName: row[6] ? String(row[6]) : '',
+    latitude: parseFloat(row[7]) || 0,
+    longitude: parseFloat(row[8]) || 0,
+    mapsUrl: row[9] ? String(row[9]) : '',
+    photoUrl: row[10] ? String(row[10]) : '',
+    notes: row[11] ? String(row[11]) : '',
+    distanceMeters: row[12] ? parseInt(row[12]) : undefined,
+  }));
+};
+
+export const parseExpenses = (values: any[]): Expense[] => {
+  if (!values || values.length <= 1) return [];
+  return values.slice(1).map((row: any) => ({
+    id: row[0] ? String(row[0]) : '',
+    createdAt: row[1] || '',
+    date: row[2] || '',
+    salespersonId: row[3] || '',
+    salespersonName: row[4] || '',
+    expenseType: row[5] || '',
+    amount: parseFloat(row[6]) || 0,
+    receiptUrl: row[7] || '',
+    note: row[8] || '',
+    status: row[9] || '',
+    startMileage: row[10] !== undefined && row[10] !== '' && !isNaN(Number(row[10])) ? Number(row[10]) : undefined,
+    endMileage: row[11] !== undefined && row[11] !== '' && !isNaN(Number(row[11])) ? Number(row[11]) : undefined,
+    distance: row[12] !== undefined && row[12] !== '' && !isNaN(Number(row[12])) ? Number(row[12]) : undefined,
+    startMileagePhoto: row[13] || '',
+    endMileagePhoto: row[14] || '',
+  }));
+};
+
 export const fetchAllDataBulk = async (spreadsheetId: string, customOrderSheet?: string) => {
   const res = await gasRequest(spreadsheetId, 'getAllData');
   if (!res) return null;
@@ -1075,14 +1119,18 @@ export const fetchAllDataBulk = async (spreadsheetId: string, customOrderSheet?:
   const productsVal = findSheetValues(PRODUCTS_TAB_NAME, ['products', 'สินค้า', 'รายการสินค้า']);
   const customersVal = findSheetValues(CUSTOMERS_TAB_NAME, ['customers', 'ลูกค้า', 'รายชื่อลูกค้า']);
   const routesVal = findSheetValues(ROUTES_TAB_NAME, ['routes', 'Route', 'สายวิ่ง', 'สายส่ง']);
+  const checkinsVal = findSheetValues(CHECKIN_TAB_NAME, ['checkins', 'checkin', 'เช็คอิน', 'ประวัติเช็คอิน']);
+  const expensesVal = findSheetValues(EXPENSES_TAB_NAME, ['expenses', 'expense', 'ค่าใช้จ่าย', 'บิลน้ำมัน']);
 
-  if (ordersVal || usersVal || productsVal || customersVal || routesVal) {
+  if (ordersVal || usersVal || productsVal || customersVal || routesVal || checkinsVal || expensesVal) {
     return {
       users: usersVal ? parseUsers(usersVal) : [],
       orders: ordersVal ? parseOrdersFromValues(ordersVal) : [],
       products: productsVal ? parseProducts(productsVal) : [],
       customers: customersVal ? parseCustomers(customersVal) : [],
       routes: routesVal ? parseRoutes(routesVal) : [],
+      checkIns: checkinsVal ? parseCheckIns(checkinsVal) : null,
+      expenses: expensesVal ? parseExpenses(expensesVal) : null,
     };
   }
   return null;
@@ -1090,23 +1138,7 @@ export const fetchAllDataBulk = async (spreadsheetId: string, customOrderSheet?:
 
 export const fetchCheckInsFromSheet = async (spreadsheetId: string): Promise<import('../types').StoreCheckIn[]> => {
   const res = await gasRequest(spreadsheetId, 'getData', CHECKIN_TAB_NAME);
-  if (!res || !res.values || res.values.length <= 1) return [];
-  
-  return res.values.slice(1).map((row: any) => ({
-    id: row[0] ? String(row[0]) : '',
-    createdAt: row[1] ? String(row[1]) : '',
-    timestampStr: row[2] ? String(row[2]) : '',
-    storeName: row[3] ? String(row[3]) : '',
-    customerPhone: row[4] !== undefined && row[4] !== null ? String(row[4]) : '',
-    address: row[5] ? String(row[5]) : '',
-    salespersonName: row[6] ? String(row[6]) : '',
-    latitude: parseFloat(row[7]) || 0,
-    longitude: parseFloat(row[8]) || 0,
-    mapsUrl: row[9] ? String(row[9]) : '',
-    photoUrl: row[10] ? String(row[10]) : '',
-    notes: row[11] ? String(row[11]) : '',
-    distanceMeters: row[12] ? parseInt(row[12]) : undefined,
-  }));
+  return parseCheckIns(res?.values || []);
 };
 
 // EXPENSES
@@ -1133,23 +1165,5 @@ export const syncExpenseToSheets = async (id: string, e: Expense) => {
 
 export const fetchExpensesFromSheet = async (spreadsheetId: string): Promise<Expense[]> => {
   const res = await gasRequest(spreadsheetId, 'getData', EXPENSES_TAB_NAME);
-  if (!res || !res.values || res.values.length <= 1) return [];
-  
-  return res.values.slice(1).map((row: any) => ({
-    id: row[0] ? String(row[0]) : '',
-    createdAt: row[1] || '',
-    date: row[2] || '',
-    salespersonId: row[3] || '',
-    salespersonName: row[4] || '',
-    expenseType: row[5] || '',
-    amount: parseFloat(row[6]) || 0,
-    receiptUrl: row[7] || '',
-    note: row[8] || '',
-    status: row[9] || '',
-    startMileage: row[10] !== undefined && row[10] !== '' && !isNaN(Number(row[10])) ? Number(row[10]) : undefined,
-    endMileage: row[11] !== undefined && row[11] !== '' && !isNaN(Number(row[11])) ? Number(row[11]) : undefined,
-    distance: row[12] !== undefined && row[12] !== '' && !isNaN(Number(row[12])) ? Number(row[12]) : undefined,
-    startMileagePhoto: row[13] || '',
-    endMileagePhoto: row[14] || '',
-  }));
+  return parseExpenses(res?.values || []);
 };

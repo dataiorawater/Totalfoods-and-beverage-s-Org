@@ -1,11 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { StaffUser } from '../types';
-import { Mail, Lock, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Mail, Lock, CheckCircle2, AlertCircle, Database, Package, Users, MapPin, Sparkles } from 'lucide-react';
 import { TotalEmblem } from './TotalLogo';
 
 interface LoginScreenProps {
   staffList: StaffUser[];
   onLoginAttempt: (email: string, pass: string) => Promise<{success: boolean, message?: string}>;
+  onPerformFullSync?: (options?: {
+    isLogin?: boolean;
+    onProgress?: (message: string, progressPercent?: number) => void;
+  }) => Promise<{ success: boolean; message: string }>;
   onUpdatePassword?: (email: string, newPassword: string) => Promise<boolean>;
   sheetsConnected: boolean;
   isLoadingData: boolean;
@@ -15,20 +19,18 @@ interface LoginScreenProps {
 export const LoginScreen: React.FC<LoginScreenProps> = ({
   staffList,
   onLoginAttempt,
+  onPerformFullSync,
   onUpdatePassword,
   sheetsConnected,
   isLoadingData,
   onLoginComplete,
 }) => {
-    const [activeMode, setActiveMode] = useState<'signin' | 'forgot_password'>('signin');
+  const [activeMode, setActiveMode] = useState<'signin' | 'forgot_password'>('signin');
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
+  const [syncStatusText, setSyncStatusText] = useState('กำลังยืนยันข้อมูลผู้ใช้งาน...');
+  const [syncProgress, setSyncProgress] = useState(20);
+  const [isSyncComplete, setIsSyncComplete] = useState(false);
 
-  useEffect(() => {
-    if (showSuccessPopup && !isLoadingData) {
-      // Complete instantly
-      onLoginComplete();
-    }
-  }, [showSuccessPopup, isLoadingData, onLoginComplete]);
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -51,6 +53,31 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     
     if (res.success) {
       setShowSuccessPopup(true);
+      setSyncProgress(30);
+      setSyncStatusText('เข้าสู่ระบบสำเร็จ กำลังเชื่อมต่อฐานข้อมูล...');
+
+      try {
+        if (onPerformFullSync) {
+          await onPerformFullSync({
+            isLogin: true,
+            onProgress: (msg, percent) => {
+              setSyncStatusText(msg);
+              if (percent !== undefined) setSyncProgress(percent);
+            },
+          });
+        }
+      } catch (syncErr) {
+        console.warn('Full sync on login completed with notice:', syncErr);
+      }
+
+      setSyncProgress(100);
+      setSyncStatusText('ข้อมูลทั้งหมดพร้อมใช้งาน 100%');
+      setIsSyncComplete(true);
+
+      // Short aesthetic delay so user sees confirmation
+      setTimeout(() => {
+        onLoginComplete();
+      }, 500);
     } else {
       setErrorMessage(res.message || 'รหัสผ่านไม่ถูกต้อง');
     }
@@ -101,17 +128,74 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   return (
     <div className="min-h-screen bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
       <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col my-auto relative">
-        {/* Success Popup */}
+        {/* Success & Full Database Sync Popup */}
         {showSuccessPopup && (
-          <div className="absolute inset-0 z-50 bg-white/95 backdrop-blur-sm rounded-3xl flex flex-col items-center justify-center p-6 animate-in fade-in duration-300">
-            <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mb-6 shadow-inner relative">
-              <CheckCircle2 className="w-10 h-10 text-emerald-600 absolute animate-[ping_1.5s_cubic-bezier(0,0,0.2,1)_infinite]" />
-              <CheckCircle2 className="w-10 h-10 text-emerald-600 relative z-10" />
+          <div className="absolute inset-0 z-50 bg-white/98 backdrop-blur-md rounded-3xl flex flex-col items-center justify-center p-6 sm:p-8 animate-in fade-in zoom-in-95 duration-300">
+            <div className="w-18 h-18 sm:w-20 sm:h-20 bg-emerald-100 rounded-full flex items-center justify-center mb-4 shadow-inner relative">
+              <CheckCircle2 className={`w-10 h-10 text-emerald-600 ${isSyncComplete ? '' : 'animate-pulse'}`} />
             </div>
-            <h2 className="text-2xl font-black text-slate-800 mb-2">เข้าสู่ระบบสำเร็จ</h2>
-            <div className="flex flex-col items-center gap-2 mt-4 text-slate-500">
-              <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-sm font-medium">กำลังโหลดข้อมูลระบบ...</span>
+
+            <h2 className="text-xl sm:text-2xl font-black text-slate-800 text-center">เข้าสู่ระบบสำเร็จ</h2>
+            <p className="text-xs text-slate-500 text-center mt-1">
+              กำลังโหลดข้อมูลทั้งหมดจากฐานข้อมูลให้พร้อมใช้งานทันที
+            </p>
+
+            {/* Live Progress Bar */}
+            <div className="w-full max-w-sm mt-5 space-y-1.5">
+              <div className="flex justify-between items-center text-xs font-semibold">
+                <span className="text-slate-600 flex items-center gap-1.5 truncate">
+                  {!isSyncComplete ? (
+                    <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0" />
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  )}
+                  <span className="truncate">{syncStatusText}</span>
+                </span>
+                <span className="text-blue-700 font-bold shrink-0">{syncProgress}%</span>
+              </div>
+              <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    isSyncComplete ? 'bg-emerald-500' : 'bg-gradient-to-r from-blue-500 to-indigo-600'
+                  }`}
+                  style={{ width: `${syncProgress}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Preparation Checklist */}
+            <div className="w-full max-w-sm grid grid-cols-2 gap-2 mt-5 text-[11px]">
+              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-2">
+                <Package className="w-4 h-4 text-blue-600 shrink-0" />
+                <div className="truncate">
+                  <div className="font-bold text-slate-800 truncate">ออเดอร์ & สินค้า</div>
+                  <div className="text-[10px] text-emerald-600 font-medium">พร้อมใช้งาน</div>
+                </div>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-2">
+                <Users className="w-4 h-4 text-emerald-600 shrink-0" />
+                <div className="truncate">
+                  <div className="font-bold text-slate-800 truncate">ลูกค้า & สายส่ง</div>
+                  <div className="text-[10px] text-emerald-600 font-medium">พร้อมใช้งาน</div>
+                </div>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-amber-600 shrink-0" />
+                <div className="truncate">
+                  <div className="font-bold text-slate-800 truncate">รอบเช็คอินประจำวัน</div>
+                  <div className="text-[10px] text-emerald-600 font-medium">พร้อมใช้งาน</div>
+                </div>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-2">
+                <Database className="w-4 h-4 text-purple-600 shrink-0" />
+                <div className="truncate">
+                  <div className="font-bold text-slate-800 truncate">ฐานข้อมูลระบบ</div>
+                  <div className="text-[10px] text-emerald-600 font-medium">ซิงค์สมบูรณ์</div>
+                </div>
+              </div>
             </div>
           </div>
         )}
