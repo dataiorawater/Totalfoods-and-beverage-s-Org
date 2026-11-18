@@ -10,6 +10,10 @@ import {
   StoreCheckIn,
   Route,
   Expense,
+  DepositRecord,
+  HiredVehicleTripRecord,
+  VehicleMaintenanceRecord,
+  DailyRouteSchedule,
 } from './types';
 import {
   INITIAL_ORDERS,
@@ -18,6 +22,9 @@ import {
   INITIAL_CUSTOMERS,
   DEFAULT_SHEETS_CONFIG,
   DEFAULT_LINE_SETTINGS,
+  INITIAL_HIRED_VEHICLES,
+  INITIAL_MAINTENANCE_RECORDS,
+  INITIAL_ROUTES,
 } from './data/mockData';
 
 import {
@@ -43,6 +50,16 @@ import {
   fetchCheckInsFromSheet,
   syncExpenseToSheets,
   fetchExpensesFromSheet,
+  syncDepositToSheets,
+  updateDepositInSheet,
+  fetchDepositsFromSheet,
+  syncHiredVehicleTripToSheets,
+  updateHiredVehicleTripInSheet,
+  fetchHiredVehicleTripsFromSheet,
+  syncMaintenanceToSheets,
+  updateMaintenanceInSheet,
+  deleteMaintenanceFromSheet,
+  fetchMaintenanceFromSheet,
 } from './services/googleSheets';
 import { logoutGoogle } from './services/auth';
 import { sendLineNotification } from './services/lineNotify';
@@ -64,6 +81,10 @@ import { ExportReportView } from './components/ExportReportView';
 import { SettingsModal } from './components/SettingsModal';
 import { RoleSwitcherModal } from './components/RoleSwitcherModal';
 import { UserManagementView } from './components/UserManagementView';
+import { LogisticsManagementView } from './components/LogisticsManagementView';
+import { DepositManagementView } from './components/DepositManagementView';
+import { HiredVehicleExpensesView } from './components/HiredVehicleExpensesView';
+import { VehicleMaintenanceView } from './components/VehicleMaintenanceView';
 import { LoginScreen } from './components/LoginScreen';
 import { ConfirmModal } from './components/ConfirmModal';
 
@@ -314,7 +335,27 @@ export default function App() {
     return INITIAL_PRODUCTS;
   });
 
-  const [routes, setRoutes] = useState<Route[]>([]);
+  const [routes, setRoutes] = useState<Route[]>(() => {
+    const saved = localStorage.getItem('iora_routes');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+    return INITIAL_ROUTES;
+  });
+
+  const [dailySchedules, setDailySchedules] = useState<Record<string, DailyRouteSchedule>>(() => {
+    const saved = localStorage.getItem('iora_call_plan_daily_schedule');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') return parsed;
+      } catch (e) {}
+    }
+    return {};
+  });
   const [checkIns, setCheckIns] = useState<import('./types').StoreCheckIn[]>(() => {
     const saved = localStorage.getItem('iora_checkins');
     if (saved) {
@@ -366,7 +407,40 @@ export default function App() {
     return sanitizeCustomerData(INITIAL_CUSTOMERS);
   });
 
-  const [activeTab, setActiveTab] = useState<'orders' | 'dashboard' | 'customers' | 'checkin' | 'expenses' | 'users' | 'routes' | 'export' | 'new_order'>('dashboard');
+  const [deposits, setDeposits] = useState<DepositRecord[]>(() => {
+    const saved = localStorage.getItem('iora_deposits');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (e) {}
+    }
+    return [];
+  });
+
+  const [hiredVehicles, setHiredVehicles] = useState<HiredVehicleTripRecord[]>(() => {
+    const saved = localStorage.getItem('iora_hired_vehicles');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+    return INITIAL_HIRED_VEHICLES;
+  });
+
+  const [maintenanceRecords, setMaintenanceRecords] = useState<VehicleMaintenanceRecord[]>(() => {
+    const saved = localStorage.getItem('iora_vehicle_maintenance');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+    return INITIAL_MAINTENANCE_RECORDS;
+  });
+
+  const [activeTab, setActiveTab] = useState<'orders' | 'dashboard' | 'customers' | 'checkin' | 'expenses' | 'users' | 'routes' | 'export' | 'new_order' | 'logistics' | 'deposits' | 'hired_vehicles' | 'maintenance'>('dashboard');
 
   // 2. Integration Configs
   const [sheetsConfig, setSheetsConfig] = useState<SheetsConfig>(() => {
@@ -480,6 +554,26 @@ export default function App() {
   }, [expenses]);
 
   useEffect(() => {
+    safeSave('iora_deposits', deposits);
+  }, [deposits]);
+
+  useEffect(() => {
+    safeSave('iora_hired_vehicles', hiredVehicles);
+  }, [hiredVehicles]);
+
+  useEffect(() => {
+    safeSave('iora_vehicle_maintenance', maintenanceRecords);
+  }, [maintenanceRecords]);
+
+  useEffect(() => {
+    safeSave('iora_routes', routes);
+  }, [routes]);
+
+  useEffect(() => {
+    safeSave('iora_call_plan_daily_schedule', dailySchedules);
+  }, [dailySchedules]);
+
+  useEffect(() => {
     safeSave('iora_current_user', currentUser);
   }, [currentUser]);
 
@@ -525,6 +619,9 @@ export default function App() {
       let sheetRoutes: Route[] | null = null;
       let sheetCheckIns: StoreCheckIn[] | null = null;
       let sheetExpenses: Expense[] | null = null;
+      let sheetDeposits: DepositRecord[] | null = null;
+      let sheetHiredVehicles: HiredVehicleTripRecord[] | null = null;
+      let sheetMaintenance: VehicleMaintenanceRecord[] | null = null;
 
       try {
         const bulkData = await fetchAllDataBulk(sheetsConfig.spreadsheetId, sheetsConfig.sheetName);
@@ -536,6 +633,9 @@ export default function App() {
           sheetRoutes = bulkData.routes;
           if (Array.isArray(bulkData.checkIns)) sheetCheckIns = bulkData.checkIns;
           if (Array.isArray(bulkData.expenses)) sheetExpenses = bulkData.expenses;
+          if (Array.isArray((bulkData as any).deposits)) sheetDeposits = (bulkData as any).deposits;
+          if (Array.isArray((bulkData as any).hiredVehicles)) sheetHiredVehicles = (bulkData as any).hiredVehicles;
+          if (Array.isArray((bulkData as any).maintenanceRecords)) sheetMaintenance = (bulkData as any).maintenanceRecords;
         }
       } catch (bulkErr: any) {
         console.warn('Bulk fetch not supported or failed, falling back to parallel fetch:', bulkErr?.message || bulkErr);
@@ -551,8 +651,11 @@ export default function App() {
       const needsRoutes = !sheetRoutes;
       const needsCheckIns = !sheetCheckIns;
       const needsExpenses = !sheetExpenses;
+      const needsDeposits = !sheetDeposits;
+      const needsHiredVehicles = !sheetHiredVehicles;
+      const needsMaintenance = !sheetMaintenance;
 
-      const [ordersRes, usersRes, productsRes, customersRes, routesRes, checkInsRes, expensesRes] = await Promise.allSettled([
+      const [ordersRes, usersRes, productsRes, customersRes, routesRes, checkInsRes, expensesRes, depositsRes, hiredRes, mntRes] = await Promise.allSettled([
         needsOrders ? fetchOrdersFromSheet(sheetsConfig) : Promise.resolve(sheetOrders),
         needsUsers ? fetchUsersFromSheets(sheetsConfig.spreadsheetId) : Promise.resolve(sheetUsers),
         needsProducts ? fetchProductsFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetProducts),
@@ -560,6 +663,9 @@ export default function App() {
         needsRoutes ? fetchRoutesFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetRoutes),
         needsCheckIns ? fetchCheckInsFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetCheckIns),
         needsExpenses ? fetchExpensesFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetExpenses),
+        needsDeposits ? fetchDepositsFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetDeposits),
+        needsHiredVehicles ? fetchHiredVehicleTripsFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetHiredVehicles),
+        needsMaintenance ? fetchMaintenanceFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetMaintenance),
       ]);
 
       options?.onProgress?.('กำลังประมวลผลข้อมูลและเตรียมระบบ...', 85);
@@ -604,6 +710,19 @@ export default function App() {
         setExpenses(expensesRes.value);
         safeSave('iora_expenses', expensesRes.value);
       }
+      if (depositsRes.status === 'fulfilled' && Array.isArray(depositsRes.value)) {
+        setDeposits(depositsRes.value);
+        safeSave('iora_deposits', depositsRes.value);
+      }
+      if (hiredRes.status === 'fulfilled' && Array.isArray(hiredRes.value) && hiredRes.value.length > 0) {
+        setHiredVehicles(hiredRes.value);
+        safeSave('iora_hired_vehicles', hiredRes.value);
+      }
+      if (mntRes.status === 'fulfilled' && Array.isArray(mntRes.value) && mntRes.value.length > 0) {
+        setMaintenanceRecords(mntRes.value);
+        safeSave('iora_vehicle_maintenance', mntRes.value);
+      }
+
 
       options?.onProgress?.('ข้อมูลทั้งหมดพร้อมใช้งานเรียบร้อยแล้ว!', 100);
       return { success: true, message: 'Sync completed' };
@@ -1045,10 +1164,18 @@ export default function App() {
         await saveRouteToSheet(sheetsConfig.spreadsheetId, routeData);
         const fetched = await fetchRoutesFromSheet(sheetsConfig.spreadsheetId);
         setRoutes(fetched);
+        safeSave('iora_routes', fetched);
         showToast('success', 'บันทึกสำเร็จ', 'อัปเดตข้อมูลสายการเข้าเยี่ยมแล้ว');
         return true;
       }
-      return false;
+      setRoutes((prev) => {
+        const idx = prev.findIndex((r) => r.id === routeData.id);
+        const updated = idx >= 0 ? prev.map((r, i) => (i === idx ? routeData : r)) : [...prev, routeData];
+        safeSave('iora_routes', updated);
+        return updated;
+      });
+      showToast('success', 'บันทึกสำเร็จ', 'บันทึกข้อมูลสายการเข้าเยี่ยมในระบบแล้ว');
+      return true;
     } catch (e: any) {
       showToast('error', 'ข้อผิดพลาด', e.message);
       return false;
@@ -1064,16 +1191,45 @@ export default function App() {
         await deleteRouteFromSheet(sheetsConfig.spreadsheetId, routeId);
         const fetched = await fetchRoutesFromSheet(sheetsConfig.spreadsheetId);
         setRoutes(fetched);
+        safeSave('iora_routes', fetched);
         showToast('success', 'ลบสำเร็จ', 'ลบข้อมูลสายการเข้าเยี่ยมแล้ว');
         return true;
       }
-      return false;
+      setRoutes((prev) => {
+        const updated = prev.filter((r) => r.id !== routeId);
+        safeSave('iora_routes', updated);
+        return updated;
+      });
+      showToast('success', 'ลบสำเร็จ', 'ลบข้อมูลสายการเข้าเยี่ยมแล้ว');
+      return true;
     } catch (e: any) {
       showToast('error', 'ข้อผิดพลาด', e.message);
       return false;
     } finally {
       setIsLoadingData(false);
     }
+  };
+
+  const handleSaveDailySchedule = (dateStr: string, schedule: DailyRouteSchedule) => {
+    setDailySchedules((prev) => {
+      const updated = { ...prev, [dateStr]: schedule };
+      safeSave('iora_call_plan_daily_schedule', updated);
+      return updated;
+    });
+  };
+
+  const handleBatchSaveDailySchedules = (schedules: Record<string, DailyRouteSchedule>) => {
+    setDailySchedules(schedules);
+    safeSave('iora_call_plan_daily_schedule', schedules);
+  };
+
+  const handleDeleteDailySchedule = (dateStr: string) => {
+    setDailySchedules((prev) => {
+      const updated = { ...prev };
+      delete updated[dateStr];
+      safeSave('iora_call_plan_daily_schedule', updated);
+      return updated;
+    });
   };
 
   const handleRefreshCustomers = async () => {
@@ -1104,6 +1260,137 @@ export default function App() {
       })
       .reduce((sum, o) => sum + (o.netAmount || 0), 0);
   }, [orders]);
+
+  // Pending deliveries count for Navbar badge
+  const pendingDeliveriesCount = useMemo(() => {
+    return orders.filter(
+      (o) => o.status === 'pending' || o.status === 'confirmed' || o.status === 'delivering'
+    ).length;
+  }, [orders]);
+
+  // Active deposits count for Navbar badge
+  const activeDepositsCount = useMemo(() => {
+    return deposits.filter(
+      (d) => d.status === 'active' || d.status === 'partial_refunded'
+    ).length;
+  }, [deposits]);
+
+  // Deposit Management Handlers
+  const handleSaveDeposit = async (newDeposit: DepositRecord) => {
+    setDeposits((prev) => [newDeposit, ...prev]);
+    safeSave('iora_deposits', [newDeposit, ...deposits]);
+    showToast('success', 'บันทึกสำเร็จ', `บันทึกรับเงินประกัน ${newDeposit.depositNumber} เรียบร้อยแล้ว`);
+
+    if (sheetsConfig?.spreadsheetId) {
+      syncDepositToSheets(sheetsConfig.spreadsheetId, newDeposit).catch((e) => {
+        console.warn('Sync deposit error:', e);
+      });
+    }
+  };
+
+  const handleUpdateDeposit = async (updatedDeposit: DepositRecord) => {
+    setDeposits((prev) => prev.map((d) => (d.id === updatedDeposit.id ? updatedDeposit : d)));
+    const updatedList = deposits.map((d) => (d.id === updatedDeposit.id ? updatedDeposit : d));
+    safeSave('iora_deposits', updatedList);
+    showToast('success', 'อัปเดตสำเร็จ', `บันทึกรายการคืนเงินประกัน ${updatedDeposit.depositNumber} เรียบร้อยแล้ว`);
+
+    if (sheetsConfig?.spreadsheetId) {
+      updateDepositInSheet(sheetsConfig.spreadsheetId, updatedDeposit).catch((e) => {
+        console.warn('Update deposit error:', e);
+      });
+    }
+  };
+
+  const handleDeleteDeposit = async (depositId: string) => {
+    setDeposits((prev) => prev.filter((d) => d.id !== depositId));
+    const filtered = deposits.filter((d) => d.id !== depositId);
+    safeSave('iora_deposits', filtered);
+    showToast('success', 'ลบสำเร็จ', 'ลบรายการเงินประกันเรียบร้อยแล้ว');
+  };
+
+  // Pending hired payouts count for Navbar badge
+  const pendingHiredPayoutsCount = useMemo(() => {
+    return hiredVehicles.filter((h) => h.payoutStatus === 'pending').length;
+  }, [hiredVehicles]);
+
+  // Hired Vehicle Handlers
+  const handleSaveHiredTrip = async (newTrip: HiredVehicleTripRecord) => {
+    setHiredVehicles((prev) => [newTrip, ...prev]);
+    const updatedList = [newTrip, ...hiredVehicles];
+    safeSave('iora_hired_vehicles', updatedList);
+    showToast('success', 'บันทึกสำเร็จ', `บันทึกรอบวิ่งของ ${newTrip.vehiclePlate} เรียบร้อยแล้ว`);
+
+    if (sheetsConfig?.spreadsheetId) {
+      syncHiredVehicleTripToSheets(sheetsConfig.spreadsheetId, newTrip).catch((e) => {
+        console.warn('Sync hired vehicle trip error:', e);
+      });
+    }
+  };
+
+  const handleUpdateHiredTrip = async (updatedTrip: HiredVehicleTripRecord) => {
+    setHiredVehicles((prev) => prev.map((t) => (t.id === updatedTrip.id ? updatedTrip : t)));
+    const updatedList = hiredVehicles.map((t) => (t.id === updatedTrip.id ? updatedTrip : t));
+    safeSave('iora_hired_vehicles', updatedList);
+    showToast('success', 'อัปเดตสำเร็จ', `บันทึกข้อมูลรถ ${updatedTrip.vehiclePlate} เรียบร้อยแล้ว`);
+
+    if (sheetsConfig?.spreadsheetId) {
+      updateHiredVehicleTripInSheet(sheetsConfig.spreadsheetId, updatedTrip).catch((e) => {
+        console.warn('Update hired vehicle trip error:', e);
+      });
+    }
+  };
+
+  const handleDeleteHiredTrip = async (tripId: string) => {
+    setHiredVehicles((prev) => prev.filter((t) => t.id !== tripId));
+    const filtered = hiredVehicles.filter((t) => t.id !== tripId);
+    safeSave('iora_hired_vehicles', filtered);
+    showToast('success', 'ลบสำเร็จ', 'ลบรายการรอบวิ่งงานเรียบร้อยแล้ว');
+  };
+
+  // Active / in-progress maintenance count for Navbar badge
+  const activeMaintenanceCount = useMemo(() => {
+    return maintenanceRecords.filter((m) => m.status !== 'completed').length;
+  }, [maintenanceRecords]);
+
+  // Vehicle Maintenance Handlers
+  const handleSaveMaintenance = async (newRecord: VehicleMaintenanceRecord) => {
+    setMaintenanceRecords((prev) => [newRecord, ...prev]);
+    const updatedList = [newRecord, ...maintenanceRecords];
+    safeSave('iora_vehicle_maintenance', updatedList);
+    showToast('success', 'บันทึกสำเร็จ', `บันทึกงานบำรุงรักษาของ ${newRecord.vehiclePlate} เรียบร้อยแล้ว`);
+
+    if (sheetsConfig?.spreadsheetId) {
+      syncMaintenanceToSheets(sheetsConfig.spreadsheetId, newRecord).catch((e) => {
+        console.warn('Sync maintenance error:', e);
+      });
+    }
+  };
+
+  const handleUpdateMaintenance = async (updatedRecord: VehicleMaintenanceRecord) => {
+    setMaintenanceRecords((prev) => prev.map((m) => (m.id === updatedRecord.id ? updatedRecord : m)));
+    const updatedList = maintenanceRecords.map((m) => (m.id === updatedRecord.id ? updatedRecord : m));
+    safeSave('iora_vehicle_maintenance', updatedList);
+    showToast('success', 'อัปเดตสำเร็จ', `บันทึกข้อมูลงานซ่อม ${updatedRecord.vehiclePlate} เรียบร้อยแล้ว`);
+
+    if (sheetsConfig?.spreadsheetId) {
+      updateMaintenanceInSheet(sheetsConfig.spreadsheetId, updatedRecord).catch((e) => {
+        console.warn('Update maintenance error:', e);
+      });
+    }
+  };
+
+  const handleDeleteMaintenance = async (recordId: string) => {
+    setMaintenanceRecords((prev) => prev.filter((m) => m.id !== recordId));
+    const filtered = maintenanceRecords.filter((m) => m.id !== recordId);
+    safeSave('iora_vehicle_maintenance', filtered);
+    showToast('success', 'ลบสำเร็จ', 'ลบรายการบำรุงรักษาเรียบร้อยแล้ว');
+
+    if (sheetsConfig?.spreadsheetId) {
+      deleteMaintenanceFromSheet(sheetsConfig.spreadsheetId, recordId).catch((e) => {
+        console.warn('Delete maintenance error:', e);
+      });
+    }
+  };
 
   // If user is not logged in, render the login screen
   if (!isLoggedIn) {
@@ -1214,6 +1501,10 @@ export default function App() {
         orderCount={orders.length}
         customerCount={customers.length}
         todaySalesAmount={todaySalesAmount}
+        deliveryCount={pendingDeliveriesCount}
+        depositCount={activeDepositsCount}
+        hiredVehicleCount={pendingHiredPayoutsCount}
+        maintenanceCount={activeMaintenanceCount}
       />
 
       {/* Main Content Area */}
@@ -1353,6 +1644,10 @@ export default function App() {
               preselectedCustomerForCheckIn={preselectedCustomerForCheckIn}
               onClearPreselectedCustomer={() => setPreselectedCustomerForCheckIn(null)}
               sheetsConnected={!!sheetsConfig?.spreadsheetId}
+              dailySchedules={dailySchedules}
+              onSaveDailySchedule={handleSaveDailySchedule}
+              onBatchSaveDailySchedules={handleBatchSaveDailySchedules}
+              onDeleteDailySchedule={handleDeleteDailySchedule}
             />
           ) : activeTab === 'expenses' ? (
             <ExpenseManagementView
@@ -1381,6 +1676,52 @@ export default function App() {
               orders={orders}
               staffList={staffList}
               checkIns={checkIns}
+            />
+          ) : activeTab === 'logistics' ? (
+            <LogisticsManagementView
+              orders={orders}
+              currentUser={currentUser}
+              staffList={staffList}
+              routes={routes}
+              onUpdateStatus={handleUpdateStatus}
+              onUpdateOrder={handleUpdateOrder}
+              onSelectOrder={(ord) => setSelectedOrderForDetail(ord)}
+              onRefreshOrders={handleRefreshFromSheets}
+              sheetsConnected={!!sheetsConfig?.spreadsheetId}
+            />
+          ) : activeTab === 'deposits' ? (
+            <DepositManagementView
+              deposits={deposits}
+              currentUser={currentUser}
+              customers={customers}
+              routes={routes}
+              onSaveDeposit={handleSaveDeposit}
+              onUpdateDeposit={handleUpdateDeposit}
+              onDeleteDeposit={handleDeleteDeposit}
+              sheetsConnected={!!sheetsConfig?.spreadsheetId}
+            />
+          ) : activeTab === 'hired_vehicles' ? (
+            <HiredVehicleExpensesView
+              trips={hiredVehicles}
+              orders={orders}
+              currentUser={currentUser}
+              staffList={staffList}
+              routes={routes}
+              onSaveTrip={handleSaveHiredTrip}
+              onUpdateTrip={handleUpdateHiredTrip}
+              onDeleteTrip={handleDeleteHiredTrip}
+              sheetsConnected={!!sheetsConfig?.spreadsheetId}
+            />
+          ) : activeTab === 'maintenance' ? (
+            <VehicleMaintenanceView
+              records={maintenanceRecords}
+              currentUser={currentUser}
+              staffList={staffList}
+              routes={routes}
+              onSaveRecord={handleSaveMaintenance}
+              onUpdateRecord={handleUpdateMaintenance}
+              onDeleteRecord={handleDeleteMaintenance}
+              sheetsConnected={!!sheetsConfig?.spreadsheetId}
             />
           ) : activeTab === 'new_order' ? (
             <OrderFormModal
@@ -1422,6 +1763,8 @@ export default function App() {
               orders={orders}
               currentUser={currentUser}
               onOpenNewOrder={() => { setEditingOrder(null); setActiveTab('new_order'); }}
+              onNavigateToLogistics={() => setActiveTab('logistics')}
+              onNavigateToMaintenance={() => setActiveTab('maintenance')}
             />
           )}
         </main>

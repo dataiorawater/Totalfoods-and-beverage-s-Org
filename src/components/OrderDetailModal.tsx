@@ -20,6 +20,7 @@ import {
   Gift,
   RotateCcw,
   Compass,
+  Receipt,
 } from 'lucide-react';
 import { getLineShareUrl } from '../services/lineNotify';
 
@@ -481,6 +482,12 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                   {order.orderNumber}
                 </h2>
                 {getStatusBadge(order.status)}
+                {order.requireTaxInvoice && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-2xs">
+                    <Receipt className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>ออกใบกำกับภาษี</span>
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 ลงออเดอร์เมื่อ: {formatThaiDateTimeFull(order.createdAt)}
@@ -801,6 +808,73 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               </span>
             </div>
           </div>
+
+          {/* Tax Invoice Details Section if requested */}
+          {order.requireTaxInvoice && (
+            <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50/40 space-y-2.5">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h4 className="text-xs font-bold text-indigo-900 flex items-center gap-1.5 uppercase tracking-wide">
+                  <Receipt className="w-4 h-4 text-indigo-600" />
+                  <span>ข้อมูลสำหรับการออกใบกำกับภาษีเต็มรูป (Tax Invoice)</span>
+                </h4>
+                <span className="text-[11px] font-bold text-indigo-700 bg-indigo-100/80 px-2 py-0.5 rounded-full border border-indigo-200">
+                  {order.taxInvoiceDetails?.branchType === 'branch'
+                    ? `สาขาที่ ${order.taxInvoiceDetails.branchNumber || '-'}`
+                    : 'สำนักงานใหญ่'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                <div>
+                  <span className="text-slate-500 block">ชื่อผู้เสียภาษี / บริษัท:</span>
+                  <strong className="text-slate-900 text-sm">
+                    {order.taxInvoiceDetails?.companyName || order.customerName}
+                  </strong>
+                </div>
+
+                <div>
+                  <span className="text-slate-500 block">เลขประจำตัวผู้เสียภาษี (Tax ID):</span>
+                  <strong className="text-slate-900 font-mono text-sm">
+                    {order.taxInvoiceDetails?.taxId || '-'}
+                  </strong>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <span className="text-slate-500 block">ที่อยู่ตามใบกำกับภาษี:</span>
+                  <span className="text-slate-800">
+                    {order.taxInvoiceDetails?.address || order.location?.address || '-'}
+                  </span>
+                </div>
+
+                {order.taxInvoiceDetails?.email && (
+                  <div>
+                    <span className="text-slate-500 block">อีเมล e-Tax Invoice:</span>
+                    <span className="text-slate-800 font-medium">
+                      {order.taxInvoiceDetails.email}
+                    </span>
+                  </div>
+                )}
+
+                {order.taxInvoiceDetails?.phone && (
+                  <div>
+                    <span className="text-slate-500 block">เบอร์ติดต่อฝ่ายบัญชี:</span>
+                    <span className="text-slate-800 font-medium">
+                      {order.taxInvoiceDetails.phone}
+                    </span>
+                  </div>
+                )}
+
+                {order.taxInvoiceDetails?.note && (
+                  <div className="sm:col-span-2">
+                    <span className="text-slate-500 block">หมายเหตุภาษี:</span>
+                    <span className="text-indigo-800 italic">
+                      {order.taxInvoiceDetails.note}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer Actions */}

@@ -55,6 +55,10 @@ export const formatLineOrderMessage = (order: Order): string => {
       order.freebies.map((fb, idx) => `  ${idx + 1}. [แถมฟรี] ${fb.name} x${fb.quantity} ${fb.unit || 'ชิ้น'}${fb.note ? ` (${fb.note})` : ''}`).join('\n')
     : '';
 
+  const taxInvoiceLine = order.requireTaxInvoice
+    ? `\n📄 ใบกำกับภาษี: ขอใบกำกับภาษีเต็มรูป (${order.taxInvoiceDetails?.companyName || order.customerName}${order.taxInvoiceDetails?.taxId ? ` / Tax ID: ${order.taxInvoiceDetails.taxId}` : ''})`
+    : '';
+
   return `
 🔔 [ออเดอร์ใหม่] ${order.orderNumber}
 ━━━━━━━━━━━━━━━━━━
@@ -68,7 +72,7 @@ ${itemsText}${freebiesText}
 💰 ยอดรวม: ${(order.totalAmount ?? 0).toLocaleString()} ฿
 🏷️ ส่วนลด: ${order.discount ? `${(order.discount ?? 0).toLocaleString()} ฿` : '0 ฿'}
 💵 ยอดสุทธิ: ${(order.netAmount ?? 0).toLocaleString()} ฿
-💳 ชำระโดย: ${paymentText}
+💳 ชำระโดย: ${paymentText}${taxInvoiceLine}
 📝 หมายเหตุ: ${order.note || '-'}
 📍 พิกัดนำทาง: ${order.location?.mapsUrl || 'ไม่ได้ระบุ'}
 📌 สถานะ: ${getStatusLabelThai(order.status)}

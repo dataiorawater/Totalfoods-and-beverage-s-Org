@@ -87,8 +87,8 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // Call Plan & Daily Route Filters
-  const [filterMode, setFilterMode] = useState<'today' | 'all' | 'by_route' | 'by_day'>('today');
+  // Call Plan & Daily Route Filters (default to 'all' so customer directory & search work immediately across all customers)
+  const [filterMode, setFilterMode] = useState<'today' | 'all' | 'by_route' | 'by_day'>('all');
   const [selectedDay, setSelectedDay] = useState<ThaiDay>(todayThai);
   const [selectedRouteId, setSelectedRouteId] = useState<string>('all');
   const [selectedSales, setSelectedSales] = useState<string>(
@@ -141,6 +141,43 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     ).length;
   }, [customers, todayThai, selectedSales, currentUser, routes]);
 
+  // Robust search matcher across customer fields (prevents empty digit string from matching all customers)
+  const matchesCustomerSearch = (c: Customer, query: string): boolean => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+
+    const tokens = q.split(/\s+/).filter(Boolean);
+    const nameStr = String(c?.name || '').toLowerCase();
+    const addrStr = String(c?.address || '').toLowerCase();
+    const routeStr = String(c?.routeName || '').toLowerCase();
+    const routeIdStr = String(c?.routeId || '').toLowerCase();
+    const salesStr = String(c?.salespersonName || '').toLowerCase();
+    const notesStr = String(c?.notes || '').toLowerCase();
+    const phoneRaw = String(c?.phone || '').toLowerCase();
+    const phoneDigits = phoneRaw.replace(/[^0-9]/g, '');
+
+    return tokens.every((token) => {
+      const tokenDigits = token.replace(/[^0-9]/g, '');
+      const matchesText =
+        nameStr.includes(token) ||
+        addrStr.includes(token) ||
+        routeStr.includes(token) ||
+        routeIdStr.includes(token) ||
+        salesStr.includes(token) ||
+        notesStr.includes(token) ||
+        phoneRaw.includes(token);
+      const matchesDigits = tokenDigits.length > 0 && phoneDigits.includes(tokenDigits);
+      return matchesText || matchesDigits;
+    });
+  };
+
+  // Count matches across all customers when searching
+  const allSearchMatchedCount = useMemo(() => {
+    if (!customers || customers.length === 0) return 0;
+    if (!searchQuery.trim()) return customers.length;
+    return customers.filter((c) => matchesCustomerSearch(c, searchQuery)).length;
+  }, [customers, searchQuery]);
+
   // Filtered customer list
   const filteredCustomers = useMemo(() => {
     if (!customers || customers.length === 0) return [];
@@ -174,15 +211,8 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     }
 
     // Text search
-    const q = searchQuery.trim().toLowerCase();
-    if (q) {
-      list = list.filter(
-        (c) =>
-          String(c?.name || '').toLowerCase().includes(q) ||
-          String(c?.phone || '').replace(/[^0-9]/g, '').includes(q.replace(/[^0-9]/g, '')) ||
-          String(c?.address || '').toLowerCase().includes(q) ||
-          String(c?.routeName || '').toLowerCase().includes(q)
-      );
+    if (searchQuery.trim()) {
+      list = list.filter((c) => matchesCustomerSearch(c, searchQuery));
     }
 
     return list;
@@ -670,70 +700,72 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
               </div>
             </div>
 
-            {/* Sub-Filters: Salesperson & Specific Route / Day selectors */}
-            <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2.5">
-              
-              {/* Sales Rep Selector */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">เซลล์ผู้ดูแล:</span>
-                <select
-                  value={selectedSales}
-                  onChange={(e) => setSelectedSales(e.target.value)}
-                  className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 font-medium text-slate-700 focus:bg-white"
-                >
-                  <option value="all">ทั้งหมด (ทุกเซลล์)</option>
-                  {salesOptions.map((s) => (
-                    <option key={s} value={s}>
-                      {s} {currentUser?.name === s ? '(คุณ)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* By Route Dropdown */}
-              {filterMode === 'by_route' && (
+            {/* Sub-Filters: Salesperson & Specific Route / Day selectors (shown when filtering by plan/route/day) */}
+            {filterMode !== 'all' && (
+              <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2.5">
+                
+                {/* Sales Rep Selector */}
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">เลือกสาย:</span>
+                  <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">เซลล์ผู้ดูแล:</span>
                   <select
-                    value={selectedRouteId}
-                    onChange={(e) => setSelectedRouteId(e.target.value)}
-                    className="text-xs bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg px-2.5 py-1 font-semibold focus:bg-white"
+                    value={selectedSales}
+                    onChange={(e) => setSelectedSales(e.target.value)}
+                    className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 font-medium text-slate-700 focus:bg-white"
                   >
-                    <option value="all">ทุกสายการเข้าเยี่ยม</option>
-                    {routes.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.id}: {r.name} {r.salesrepName ? `(${r.salesrepName})` : ''}
+                    <option value="all">ทั้งหมด (ทุกเซลล์)</option>
+                    {salesOptions.map((s) => (
+                      <option key={s} value={s}>
+                        {s} {currentUser?.name === s ? '(คุณ)' : ''}
                       </option>
                     ))}
                   </select>
                 </div>
-              )}
 
-              {/* By Day Pills Selector */}
-              {filterMode === 'by_day' && (
-                <div className="flex items-center gap-1 flex-wrap">
-                  <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap mr-0.5">เลือกวัน:</span>
-                  {THAI_DAYS.map((day) => {
-                    const isCurrent = selectedDay === day;
-                    const colors = THAI_DAY_COLORS[day];
-                    return (
-                      <button
-                        key={day}
-                        type="button"
-                        onClick={() => setSelectedDay(day)}
-                        className={`px-2 py-0.5 text-xs rounded-md border font-semibold transition-all cursor-pointer ${
-                          isCurrent
-                            ? `${colors.bg} ${colors.text} ${colors.border} ring-2 ${colors.ring}`
-                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        {day}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                {/* By Route Dropdown */}
+                {filterMode === 'by_route' && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">เลือกสาย:</span>
+                    <select
+                      value={selectedRouteId}
+                      onChange={(e) => setSelectedRouteId(e.target.value)}
+                      className="text-xs bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg px-2.5 py-1 font-semibold focus:bg-white"
+                    >
+                      <option value="all">ทุกสายการเข้าเยี่ยม</option>
+                      {routes.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.id}: {r.name} {r.salesrepName ? `(${r.salesrepName})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* By Day Pills Selector */}
+                {filterMode === 'by_day' && (
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap mr-0.5">เลือกวัน:</span>
+                    {THAI_DAYS.map((day) => {
+                      const isCurrent = selectedDay === day;
+                      const colors = THAI_DAY_COLORS[day];
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() => setSelectedDay(day)}
+                          className={`px-2 py-0.5 text-xs rounded-md border font-semibold transition-all cursor-pointer ${
+                            isCurrent
+                              ? `${colors.bg} ${colors.text} ${colors.border} ring-2 ${colors.ring}`
+                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {day}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Daily Call Plan Banner Status */}
             {(filterMode === 'today' || filterMode === 'by_day') && (
@@ -775,23 +807,43 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
             )}
 
             {/* Search Input */}
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="ค้นหาชื่อร้านค้า, เบอร์โทร, สาย หรือที่อยู่..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-              />
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5 pointer-events-none" />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="text-[11px] text-slate-400 hover:text-slate-600 absolute right-2.5 top-2 cursor-pointer font-bold"
-                >
-                  ✕
-                </button>
+            <div className="space-y-1.5">
+              <div className="relative">
+                <input
+                  id="customer-search-input"
+                  type="text"
+                  aria-label="ค้นหาลูกค้า"
+                  placeholder="ค้นหาชื่อร้านค้า, เบอร์โทร, สาย หรือที่อยู่..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-9 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all text-slate-800 placeholder:text-slate-400"
+                />
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    aria-label="ล้างคำค้นหา"
+                    className="w-6 h-6 flex items-center justify-center rounded-full text-xs text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer font-bold transition-colors"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {searchQuery.trim() && filterMode !== 'all' && allSearchMatchedCount > filteredCustomers.length && (
+                <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800">
+                  <span>
+                    พบทั้งหมด <strong>{allSearchMatchedCount}</strong> รายในฐานข้อมูลลูกค้า (แสดงเฉพาะในตัวกรองนี้ {filteredCustomers.length} ราย)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setFilterMode('all')}
+                    className="font-bold text-blue-700 hover:text-blue-900 underline shrink-0 cursor-pointer"
+                  >
+                    ค้นหาจากลูกค้าทั้งหมด
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -804,26 +856,41 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
               </div>
               <div>
                 <h4 className="text-sm font-bold text-slate-800">
-                  {filterMode === 'today'
+                  {searchQuery.trim()
+                    ? `ไม่พบรายชื่อลูกค้าที่ตรงกับ "${searchQuery.trim()}"`
+                    : filterMode === 'today'
                     ? `ไม่มีรายชื่อลูกค้าในสายเข้าเยี่ยมวัน${todayThai}`
                     : 'ไม่พบรายชื่อลูกค้าตามเงื่อนไขที่เลือก'}
                 </h4>
                 <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-                  {searchQuery
-                    ? 'ลองปรับคำค้นหาใหม่อีกครั้ง หรือล้างคำค้นหา'
+                  {searchQuery.trim()
+                    ? filterMode !== 'all' && allSearchMatchedCount > 0
+                      ? `พบ ${allSearchMatchedCount} รายในฐานข้อมูลลูกค้าทั้งหมด กดปุ่มด้านล่างเพื่อแสดงผลการค้นหาจากลูกค้าทั้งหมด`
+                      : 'ลองปรับคำค้นหาใหม่อีกครั้ง หรือล้างคำค้นหา'
                     : filterMode === 'today'
                     ? `ยังไม่มีลูกค้าที่ผูกกับสายที่เข้าเยี่ยมในวัน${todayThai} คุณสามารถกดดู "ลูกค้าทั้งหมด" หรือกด "ตั้งค่าสาย" เพื่อกำหนดวันเข้าเยี่ยม`
                     : 'สามารถกรอกฟอร์มด้านซ้ายเพื่อเพิ่มลูกค้าใหม่ หรือเลือกดูตัวกรองอื่น'}
                 </p>
               </div>
-              <div className="flex items-center justify-center gap-2 pt-1">
+              <div className="flex items-center justify-center gap-2 pt-1 flex-wrap">
+                {searchQuery.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer"
+                  >
+                    ล้างคำค้นหา
+                  </button>
+                )}
                 {filterMode !== 'all' && (
                   <button
                     type="button"
                     onClick={() => setFilterMode('all')}
-                    className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer"
+                    className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold rounded-xl cursor-pointer"
                   >
-                    ดูรายชื่อลูกค้าทั้งหมด ({customers.length} ร้าน)
+                    {searchQuery.trim() && allSearchMatchedCount > 0
+                      ? `ดูผลค้นหาในลูกค้าทั้งหมด (${allSearchMatchedCount} ราย)`
+                      : `ดูรายชื่อลูกค้าทั้งหมด (${customers.length} ร้าน)`}
                   </button>
                 )}
                 <button

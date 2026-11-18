@@ -59,6 +59,7 @@ export const exportOrdersToExcel = (
       'ส่วนลด (บาท)': ord.discount || 0,
       'ยอดเงินสุทธิ (บาท)': ord.netAmount,
       'วิธีชำระเงิน': ord.paymentMethod === 'transfer' ? 'โอนเงิน' : ord.paymentMethod === 'credit' ? 'เครดิต' : 'เงินสด',
+      'ใบกำกับภาษี': ord.requireTaxInvoice ? `ต้องการ (${ord.taxInvoiceDetails?.companyName || ord.customerName}${ord.taxInvoiceDetails?.taxId ? ` เลขผู้เสียภาษี: ${ord.taxInvoiceDetails.taxId}` : ''}${ord.taxInvoiceDetails?.branchType === 'branch' ? ` สาขา: ${ord.taxInvoiceDetails.branchNumber || '-'}` : ' (สนง.ใหญ่)'})` : 'ไม่ต้องการ',
       'สถานะการจัดส่ง': getStatusLabelThai(ord.status),
       'หมายเหตุ': ord.note || '-',
       'ที่อยู่ / พิกัด Google Maps': ord.location.mapsUrl || ord.location.address || '-',

@@ -1,4 +1,4 @@
-import { Order, OrderItem, FreebieItem, Route, StaffUser, Product, Customer, StoreCheckIn, Expense } from '../types';
+import { Order, OrderItem, FreebieItem, Route, StaffUser, Product, Customer, StoreCheckIn, Expense, DepositRecord, HiredVehicleTripRecord, VehicleMaintenanceRecord } from '../types';
 
 export const USERS_TAB_NAME = 'Users';
 export const ORDERS_TAB_NAME = 'Orders';
@@ -7,6 +7,9 @@ export const CUSTOMERS_TAB_NAME = 'Customers';
 export const ROUTES_TAB_NAME = 'routes';
 export const CHECKIN_TAB_NAME = 'CheckIn';
 export const EXPENSES_TAB_NAME = 'Expenses';
+export const DEPOSITS_TAB_NAME = 'Deposits';
+export const HIRED_VEHICLES_TAB_NAME = 'HiredVehicles';
+export const MAINTENANCE_TAB_NAME = 'VehicleMaintenance';
 
 // หัวคอลัมภ์มาตรฐาน 18 คอลัมน์สำหรับฐานข้อมูลออเดอร์ ตรงกับโครงสร้างข้อมูล 100%
 export const ORDER_HEADERS_CANONICAL = [
@@ -282,6 +285,93 @@ export const ensureAllSheetsTabs = async (spreadsheetId: string, customOrderShee
         'distance',
         'startMileagePhoto',
         'endMileagePhoto',
+      ],
+    },
+    {
+      name: DEPOSITS_TAB_NAME,
+      headers: [
+        'id',
+        'depositNumber',
+        'createdAt',
+        'customerId',
+        'customerName',
+        'customerPhone',
+        'customerAddress',
+        'routeName',
+        'itemType',
+        'quantity',
+        'unitPrice',
+        'totalAmount',
+        'refundedAmount',
+        'deductedAmount',
+        'status',
+        'paymentMethod',
+        'receivedBy',
+        'refundedAt',
+        'refundedBy',
+        'refundReason',
+        'notes',
+        'slipPhotoUrl',
+      ],
+    },
+    {
+      name: HIRED_VEHICLES_TAB_NAME,
+      headers: [
+        'id',
+        'date',
+        'vehiclePlate',
+        'vehicleType',
+        'driverName',
+        'driverPhone',
+        'routeName',
+        'tripNumber',
+        'dropCount',
+        'totalUnitsDelivered',
+        'baseTripRate',
+        'dropRate',
+        'totalDropFee',
+        'unitRate',
+        'totalUnitFee',
+        'fuelAllowance',
+        'overtimeOrSpecialFee',
+        'deductions',
+        'deductionReason',
+        'grossAmount',
+        'taxWithholdingPercent',
+        'taxWithholdingAmount',
+        'netPayout',
+        'payoutStatus',
+        'paidAt',
+        'paidBy',
+        'paymentMethod',
+        'paymentRef',
+        'notes',
+      ],
+    },
+    {
+      name: MAINTENANCE_TAB_NAME,
+      headers: [
+        'id',
+        'date',
+        'vehiclePlate',
+        'vehicleType',
+        'driverName',
+        'currentMileage',
+        'serviceCategory',
+        'title',
+        'description',
+        'serviceCenter',
+        'invoiceNumber',
+        'costParts',
+        'costLabor',
+        'costOther',
+        'totalCost',
+        'status',
+        'nextServiceMileage',
+        'nextServiceDate',
+        'recordedBy',
+        'notes',
+        'receiptPhotoUrl',
       ],
     },
   ];
@@ -902,6 +992,14 @@ const buildOrderRowsData = (o: Order) => {
     allItems.push({ name: '-', quantity: 0, type: 'none' });
   }
 
+  let noteWithTax = o.note || '';
+  if (o.requireTaxInvoice) {
+    const taxTag = `[ขอใบกำกับภาษี: ${o.taxInvoiceDetails?.companyName || o.customerName}${o.taxInvoiceDetails?.taxId ? ` TaxID:${o.taxInvoiceDetails.taxId}` : ''}${o.taxInvoiceDetails?.branchType === 'branch' ? ` สาขา:${o.taxInvoiceDetails.branchNumber || '-'}` : ''}]`;
+    if (!noteWithTax.includes('ขอใบกำกับภาษี')) {
+      noteWithTax = noteWithTax ? `${noteWithTax} ${taxTag}` : taxTag;
+    }
+  }
+
   const rows = [];
   for (let i = 0; i < allItems.length; i++) {
     const item = allItems[i];
@@ -920,7 +1018,7 @@ const buildOrderRowsData = (o: Order) => {
       o.discount || 0, // 11: ส่วนลด
       o.netAmount, // 12: ยอดเงินสุทธิ
       pay, // 13: วิธีชำระเงิน
-      o.note || '', // 14: หมายเหตุ
+      noteWithTax, // 14: หมายเหตุ (รวมข้อมูลใบกำกับภาษี)
       o.location?.mapsUrl || '', // 15: พิกัดแผนที่
       st, // 16: สถานะ
       o.updatedAt || new Date().toISOString(), // 17: อัปเดตล่าสุด
@@ -1121,8 +1219,11 @@ export const fetchAllDataBulk = async (spreadsheetId: string, customOrderSheet?:
   const routesVal = findSheetValues(ROUTES_TAB_NAME, ['routes', 'Route', 'สายวิ่ง', 'สายส่ง']);
   const checkinsVal = findSheetValues(CHECKIN_TAB_NAME, ['checkins', 'checkin', 'เช็คอิน', 'ประวัติเช็คอิน']);
   const expensesVal = findSheetValues(EXPENSES_TAB_NAME, ['expenses', 'expense', 'ค่าใช้จ่าย', 'บิลน้ำมัน']);
+  const depositsVal = findSheetValues(DEPOSITS_TAB_NAME, ['deposits', 'deposit', 'เงินประกัน', 'มัดจำถัง', 'เงินมัดจำ']);
+  const hiredVehiclesVal = findSheetValues(HIRED_VEHICLES_TAB_NAME, ['hiredvehicles', 'hired_vehicles', 'ค่าใช้จ่ายรถจ้าง', 'รถจ้าง', 'hired', 'ค่าจ้างรถ']);
+  const maintenanceVal = findSheetValues(MAINTENANCE_TAB_NAME, ['vehiclemaintenance', 'maintenance', 'บำรุงรักษา', 'บันทึกบำรุงรักษา', 'ซ่อมบำรุง', 'ประวัติซ่อม']);
 
-  if (ordersVal || usersVal || productsVal || customersVal || routesVal || checkinsVal || expensesVal) {
+  if (ordersVal || usersVal || productsVal || customersVal || routesVal || checkinsVal || expensesVal || depositsVal || hiredVehiclesVal || maintenanceVal) {
     return {
       users: usersVal ? parseUsers(usersVal) : [],
       orders: ordersVal ? parseOrdersFromValues(ordersVal) : [],
@@ -1131,9 +1232,127 @@ export const fetchAllDataBulk = async (spreadsheetId: string, customOrderSheet?:
       routes: routesVal ? parseRoutes(routesVal) : [],
       checkIns: checkinsVal ? parseCheckIns(checkinsVal) : null,
       expenses: expensesVal ? parseExpenses(expensesVal) : null,
+      deposits: depositsVal ? parseDeposits(depositsVal) : null,
+      hiredVehicles: hiredVehiclesVal ? parseHiredVehicleTrips(hiredVehiclesVal) : null,
+      maintenanceRecords: maintenanceVal ? parseMaintenanceRecords(maintenanceVal) : null,
     };
   }
   return null;
+};
+
+export const parseDeposits = (values: any[]): DepositRecord[] => {
+  if (!values || values.length <= 1) return [];
+  return values.slice(1).map((row: any, idx: number) => {
+    const rawStatus = String(row[14] || '').toLowerCase().trim();
+    let status: 'active' | 'refunded' | 'forfeited' | 'partial_refunded' = 'active';
+    if (rawStatus.includes('คืนบางส่วน') || rawStatus === 'partial_refunded') status = 'partial_refunded';
+    else if (rawStatus.includes('คืนแล้ว') || rawStatus === 'refunded') status = 'refunded';
+    else if (rawStatus.includes('ยึด') || rawStatus.includes('ชำรุด') || rawStatus === 'forfeited') status = 'forfeited';
+
+    let pay: 'cash' | 'transfer' | 'credit' = 'cash';
+    const rawPay = String(row[15] || '').toLowerCase();
+    if (rawPay.includes('โอน')) pay = 'transfer';
+    else if (rawPay.includes('เครดิต')) pay = 'credit';
+
+    return {
+      sheetsRowIndex: idx + 2,
+      id: row[0] ? String(row[0]) : `dep-${idx + 1}`,
+      depositNumber: row[1] ? String(row[1]) : `DEP-${String(idx + 1).padStart(4, '0')}`,
+      createdAt: row[2] ? String(row[2]) : new Date().toISOString(),
+      customerId: row[3] ? String(row[3]) : undefined,
+      customerName: String(row[4] || ''),
+      customerPhone: row[5] !== undefined && row[5] !== null ? String(row[5]) : '',
+      customerAddress: row[6] ? String(row[6]) : '',
+      routeName: row[7] ? String(row[7]) : '',
+      itemType: row[8] ? String(row[8]) : 'ถังน้ำ PC 18.9L',
+      quantity: parseInt(row[9], 10) || 1,
+      unitPrice: parseFloat(row[10]) || 0,
+      totalAmount: parseFloat(row[11]) || 0,
+      refundedAmount: row[12] ? parseFloat(row[12]) || 0 : 0,
+      deductedAmount: row[13] ? parseFloat(row[13]) || 0 : 0,
+      status,
+      paymentMethod: pay,
+      receivedBy: row[16] ? String(row[16]) : '',
+      refundedAt: row[17] ? String(row[17]) : undefined,
+      refundedBy: row[18] ? String(row[18]) : undefined,
+      refundReason: row[19] ? String(row[19]) : undefined,
+      notes: row[20] ? String(row[20]) : undefined,
+      slipPhotoUrl: row[21] ? String(row[21]) : undefined,
+      syncedToSheets: true,
+    };
+  });
+};
+
+export const fetchDepositsFromSheet = async (spreadsheetId: string): Promise<DepositRecord[]> => {
+  const res = await gasRequest(spreadsheetId, 'getData', DEPOSITS_TAB_NAME);
+  return parseDeposits(res?.values || []);
+};
+
+export const syncDepositToSheets = async (spreadsheetId: string, d: DepositRecord) => {
+  const rowData = [
+    d.id,
+    d.depositNumber,
+    d.createdAt,
+    d.customerId || '',
+    d.customerName || '',
+    d.customerPhone || '',
+    d.customerAddress || '',
+    d.routeName || '',
+    d.itemType || '',
+    d.quantity,
+    d.unitPrice,
+    d.totalAmount,
+    d.refundedAmount || 0,
+    d.deductedAmount || 0,
+    d.status === 'refunded' ? 'คืนแล้ว' : d.status === 'forfeited' ? 'ยึด/หักชำรุด' : d.status === 'partial_refunded' ? 'คืนบางส่วน' : 'ถือครองเงินประกัน',
+    d.paymentMethod === 'transfer' ? 'โอนเงิน' : d.paymentMethod === 'credit' ? 'เครดิต' : 'เงินสด',
+    d.receivedBy || '',
+    d.refundedAt || '',
+    d.refundedBy || '',
+    d.refundReason || '',
+    d.notes || '',
+    d.slipPhotoUrl || '',
+  ];
+  await gasRequest(spreadsheetId, 'appendRow', DEPOSITS_TAB_NAME, undefined, rowData);
+};
+
+export const updateDepositInSheet = async (spreadsheetId: string, d: DepositRecord) => {
+  const rowData = [
+    d.id,
+    d.depositNumber,
+    d.createdAt,
+    d.customerId || '',
+    d.customerName || '',
+    d.customerPhone || '',
+    d.customerAddress || '',
+    d.routeName || '',
+    d.itemType || '',
+    d.quantity,
+    d.unitPrice,
+    d.totalAmount,
+    d.refundedAmount || 0,
+    d.deductedAmount || 0,
+    d.status === 'refunded' ? 'คืนแล้ว' : d.status === 'forfeited' ? 'ยึด/หักชำรุด' : d.status === 'partial_refunded' ? 'คืนบางส่วน' : 'ถือครองเงินประกัน',
+    d.paymentMethod === 'transfer' ? 'โอนเงิน' : d.paymentMethod === 'credit' ? 'เครดิต' : 'เงินสด',
+    d.receivedBy || '',
+    d.refundedAt || '',
+    d.refundedBy || '',
+    d.refundReason || '',
+    d.notes || '',
+    d.slipPhotoUrl || '',
+  ];
+  if (d.sheetsRowIndex) {
+    await gasRequest(spreadsheetId, 'updateRow', DEPOSITS_TAB_NAME, d.sheetsRowIndex, rowData);
+  } else {
+    // Find row by id
+    const existing = await fetchDepositsFromSheet(spreadsheetId);
+    const found = existing.find((x) => x.id === d.id);
+    if (found && found.sheetsRowIndex) {
+      await gasRequest(spreadsheetId, 'updateRow', DEPOSITS_TAB_NAME, found.sheetsRowIndex, rowData);
+    } else {
+      await gasRequest(spreadsheetId, 'appendRow', DEPOSITS_TAB_NAME, undefined, rowData);
+    }
+  }
 };
 
 export const fetchCheckInsFromSheet = async (spreadsheetId: string): Promise<import('../types').StoreCheckIn[]> => {
@@ -1167,3 +1386,287 @@ export const fetchExpensesFromSheet = async (spreadsheetId: string): Promise<Exp
   const res = await gasRequest(spreadsheetId, 'getData', EXPENSES_TAB_NAME);
   return parseExpenses(res?.values || []);
 };
+
+// HIRED VEHICLES (ค่าใช้จ่ายรถจ้าง)
+export const parseHiredVehicleTrips = (values: any[]): HiredVehicleTripRecord[] => {
+  if (!values || values.length <= 1) return [];
+  return values.slice(1).map((row: any, idx: number) => {
+    const rawStatus = String(row[23] || '').toLowerCase().trim();
+    const payoutStatus: 'pending' | 'paid' = rawStatus.includes('จ่ายแล้ว') || rawStatus === 'paid' ? 'paid' : 'pending';
+
+    let payMethod: 'transfer' | 'cash' = 'transfer';
+    const rawPay = String(row[26] || '').toLowerCase();
+    if (rawPay.includes('สด') || rawPay === 'cash') payMethod = 'cash';
+
+    return {
+      sheetsRowIndex: idx + 2,
+      id: row[0] ? String(row[0]) : `trip-${idx + 1}`,
+      date: row[1] ? String(row[1]) : new Date().toISOString().slice(0, 10),
+      vehiclePlate: row[2] ? String(row[2]) : '',
+      vehicleType: row[3] ? String(row[3]) : 'รถร่วมบริการ',
+      driverName: row[4] ? String(row[4]) : '',
+      driverPhone: row[5] ? String(row[5]) : '',
+      routeName: row[6] ? String(row[6]) : '',
+      tripNumber: parseInt(row[7], 10) || 1,
+      dropCount: parseInt(row[8], 10) || 0,
+      totalUnitsDelivered: parseInt(row[9], 10) || 0,
+      baseTripRate: parseFloat(row[10]) || 0,
+      dropRate: parseFloat(row[11]) || 0,
+      totalDropFee: parseFloat(row[12]) || 0,
+      unitRate: parseFloat(row[13]) || 0,
+      totalUnitFee: parseFloat(row[14]) || 0,
+      fuelAllowance: parseFloat(row[15]) || 0,
+      overtimeOrSpecialFee: parseFloat(row[16]) || 0,
+      deductions: parseFloat(row[17]) || 0,
+      deductionReason: row[18] ? String(row[18]) : '',
+      grossAmount: parseFloat(row[19]) || 0,
+      taxWithholdingPercent: parseFloat(row[20]) || 0,
+      taxWithholdingAmount: parseFloat(row[21]) || 0,
+      netPayout: parseFloat(row[22]) || 0,
+      payoutStatus,
+      paidAt: row[24] ? String(row[24]) : undefined,
+      paidBy: row[25] ? String(row[25]) : undefined,
+      paymentMethod: payMethod,
+      paymentRef: row[27] ? String(row[27]) : '',
+      notes: row[28] ? String(row[28]) : '',
+      syncedToSheets: true,
+    };
+  });
+};
+
+export const fetchHiredVehicleTripsFromSheet = async (spreadsheetId: string): Promise<HiredVehicleTripRecord[]> => {
+  const res = await gasRequest(spreadsheetId, 'getData', HIRED_VEHICLES_TAB_NAME);
+  return parseHiredVehicleTrips(res?.values || []);
+};
+
+export const syncHiredVehicleTripToSheets = async (spreadsheetId: string, trip: HiredVehicleTripRecord) => {
+  const rowData = [
+    trip.id,
+    trip.date,
+    trip.vehiclePlate,
+    trip.vehicleType || '',
+    trip.driverName,
+    trip.driverPhone || '',
+    trip.routeName || '',
+    trip.tripNumber || 1,
+    trip.dropCount,
+    trip.totalUnitsDelivered,
+    trip.baseTripRate,
+    trip.dropRate,
+    trip.totalDropFee,
+    trip.unitRate,
+    trip.totalUnitFee,
+    trip.fuelAllowance,
+    trip.overtimeOrSpecialFee,
+    trip.deductions,
+    trip.deductionReason || '',
+    trip.grossAmount,
+    trip.taxWithholdingPercent,
+    trip.taxWithholdingAmount,
+    trip.netPayout,
+    trip.payoutStatus === 'paid' ? 'จ่ายแล้ว' : 'รอทำจ่าย',
+    trip.paidAt || '',
+    trip.paidBy || '',
+    trip.paymentMethod === 'cash' ? 'เงินสด' : 'โอนเงิน',
+    trip.paymentRef || '',
+    trip.notes || '',
+  ];
+  await gasRequest(spreadsheetId, 'appendRow', HIRED_VEHICLES_TAB_NAME, undefined, rowData);
+};
+
+export const updateHiredVehicleTripInSheet = async (spreadsheetId: string, trip: HiredVehicleTripRecord) => {
+  const rowData = [
+    trip.id,
+    trip.date,
+    trip.vehiclePlate,
+    trip.vehicleType || '',
+    trip.driverName,
+    trip.driverPhone || '',
+    trip.routeName || '',
+    trip.tripNumber || 1,
+    trip.dropCount,
+    trip.totalUnitsDelivered,
+    trip.baseTripRate,
+    trip.dropRate,
+    trip.totalDropFee,
+    trip.unitRate,
+    trip.totalUnitFee,
+    trip.fuelAllowance,
+    trip.overtimeOrSpecialFee,
+    trip.deductions,
+    trip.deductionReason || '',
+    trip.grossAmount,
+    trip.taxWithholdingPercent,
+    trip.taxWithholdingAmount,
+    trip.netPayout,
+    trip.payoutStatus === 'paid' ? 'จ่ายแล้ว' : 'รอทำจ่าย',
+    trip.paidAt || '',
+    trip.paidBy || '',
+    trip.paymentMethod === 'cash' ? 'เงินสด' : 'โอนเงิน',
+    trip.paymentRef || '',
+    trip.notes || '',
+  ];
+  if (trip.sheetsRowIndex) {
+    await gasRequest(spreadsheetId, 'updateRow', HIRED_VEHICLES_TAB_NAME, trip.sheetsRowIndex, rowData);
+  } else {
+    const all = await fetchHiredVehicleTripsFromSheet(spreadsheetId);
+    const found = all.find((t) => t.id === trip.id);
+    if (found && found.sheetsRowIndex) {
+      await gasRequest(spreadsheetId, 'updateRow', HIRED_VEHICLES_TAB_NAME, found.sheetsRowIndex, rowData);
+    } else {
+      await gasRequest(spreadsheetId, 'appendRow', HIRED_VEHICLES_TAB_NAME, undefined, rowData);
+    }
+  }
+};
+
+export const deleteHiredVehicleTripFromSheet = async (spreadsheetId: string, tripId: string) => {
+  const all = await fetchHiredVehicleTripsFromSheet(spreadsheetId);
+  const found = all.find((t) => t.id === tripId);
+  if (found && found.sheetsRowIndex) {
+    const emptyRow = new Array(29).fill('');
+    await gasRequest(spreadsheetId, 'updateRow', HIRED_VEHICLES_TAB_NAME, found.sheetsRowIndex, emptyRow);
+  }
+};
+
+// VEHICLE MAINTENANCE (บันทึกบำรุงรักษารถ)
+export const parseMaintenanceRecords = (values: any[]): VehicleMaintenanceRecord[] => {
+  if (!values || values.length <= 1) return [];
+  return values.slice(1).map((row: any, idx: number) => {
+    const rawStatus = String(row[15] || '').toLowerCase().trim();
+    let status: 'completed' | 'in_progress' | 'scheduled' = 'completed';
+    if (rawStatus.includes('กำลัง') || rawStatus.includes('progress')) {
+      status = 'in_progress';
+    } else if (rawStatus.includes('นัด') || rawStatus.includes('sched')) {
+      status = 'scheduled';
+    } else if (rawStatus.includes('เสร็จ') || rawStatus.includes('comp') || rawStatus.includes('สำเร็จ')) {
+      status = 'completed';
+    }
+
+    const rawCat = String(row[6] || '').toLowerCase().trim();
+    let serviceCategory: VehicleMaintenanceRecord['serviceCategory'] = 'periodic_service';
+    if (rawCat.includes('oil') || rawCat.includes('น้ำมันเครื่อง')) serviceCategory = 'oil_change';
+    else if (rawCat.includes('tire') || rawCat.includes('brake') || rawCat.includes('ยาง') || rawCat.includes('เบรก')) serviceCategory = 'tires_brakes';
+    else if (rawCat.includes('batt') || rawCat.includes('ไฟ') || rawCat.includes('แบต')) serviceCategory = 'battery_electrical';
+    else if (rawCat.includes('susp') || rawCat.includes('แหนบ') || rawCat.includes('ช่วงล่าง') || rawCat.includes('โช้ค')) serviceCategory = 'suspension_chassis';
+    else if (rawCat.includes('cool') || rawCat.includes('air') || rawCat.includes('แอร์') || rawCat.includes('หม้อน้ำ')) serviceCategory = 'cooling_aircon';
+    else if (rawCat.includes('emerg') || rawCat.includes('ฉุกเฉิน') || rawCat.includes('ยก')) serviceCategory = 'emergency_repair';
+    else if (rawCat.includes('tax') || rawCat.includes('ตรอ') || rawCat.includes('ภาษี') || rawCat.includes('พ.ร.บ')) serviceCategory = 'inspection_tax';
+    else if (rawCat.includes('other') || rawCat.includes('อื่น')) serviceCategory = 'other';
+    else serviceCategory = 'periodic_service';
+
+    const costParts = parseFloat(row[11]) || 0;
+    const costLabor = parseFloat(row[12]) || 0;
+    const costOther = parseFloat(row[13]) || 0;
+    const totalCost = parseFloat(row[14]) || (costParts + costLabor + costOther);
+
+    return {
+      sheetsRowIndex: idx + 2,
+      id: row[0] ? String(row[0]) : `mnt-${idx + 1}`,
+      date: row[1] ? String(row[1]) : new Date().toISOString().slice(0, 10),
+      vehiclePlate: String(row[2] || ''),
+      vehicleType: row[3] ? String(row[3]) : undefined,
+      driverName: row[4] ? String(row[4]) : undefined,
+      currentMileage: parseFloat(row[5]) || 0,
+      serviceCategory,
+      title: String(row[7] || ''),
+      description: row[8] ? String(row[8]) : undefined,
+      serviceCenter: String(row[9] || ''),
+      invoiceNumber: row[10] ? String(row[10]) : undefined,
+      costParts,
+      costLabor,
+      costOther,
+      totalCost,
+      status,
+      nextServiceMileage: row[16] ? parseFloat(row[16]) || undefined : undefined,
+      nextServiceDate: row[17] ? String(row[17]) : undefined,
+      recordedBy: row[18] ? String(row[18]) : 'เจ้าหน้าที่',
+      notes: row[19] ? String(row[19]) : undefined,
+      receiptPhotoUrl: row[20] ? String(row[20]) : undefined,
+      syncedToSheets: true,
+    };
+  });
+};
+
+export const fetchMaintenanceFromSheet = async (spreadsheetId: string): Promise<VehicleMaintenanceRecord[]> => {
+  const res = await gasRequest(spreadsheetId, 'getData', MAINTENANCE_TAB_NAME);
+  return parseMaintenanceRecords(res?.values || []);
+};
+
+export const syncMaintenanceToSheets = async (spreadsheetId: string, mnt: VehicleMaintenanceRecord) => {
+  const rowData = [
+    mnt.id,
+    mnt.date,
+    mnt.vehiclePlate,
+    mnt.vehicleType || '',
+    mnt.driverName || '',
+    mnt.currentMileage || 0,
+    mnt.serviceCategory,
+    mnt.title,
+    mnt.description || '',
+    mnt.serviceCenter || '',
+    mnt.invoiceNumber || '',
+    mnt.costParts || 0,
+    mnt.costLabor || 0,
+    mnt.costOther || 0,
+    mnt.totalCost || 0,
+    mnt.status === 'completed' ? 'เสร็จสิ้น' : mnt.status === 'in_progress' ? 'กำลังดำเนินการ' : 'นัดหมายล่วงหน้า',
+    mnt.nextServiceMileage || '',
+    mnt.nextServiceDate || '',
+    mnt.recordedBy || '',
+    mnt.notes || '',
+    mnt.receiptPhotoUrl || '',
+  ];
+  if (mnt.sheetsRowIndex) {
+    await gasRequest(spreadsheetId, 'updateRow', MAINTENANCE_TAB_NAME, mnt.sheetsRowIndex, rowData);
+  } else {
+    await gasRequest(spreadsheetId, 'appendRow', MAINTENANCE_TAB_NAME, undefined, rowData);
+  }
+};
+
+export const updateMaintenanceInSheet = async (spreadsheetId: string, mnt: VehicleMaintenanceRecord) => {
+  const rowData = [
+    mnt.id,
+    mnt.date,
+    mnt.vehiclePlate,
+    mnt.vehicleType || '',
+    mnt.driverName || '',
+    mnt.currentMileage || 0,
+    mnt.serviceCategory,
+    mnt.title,
+    mnt.description || '',
+    mnt.serviceCenter || '',
+    mnt.invoiceNumber || '',
+    mnt.costParts || 0,
+    mnt.costLabor || 0,
+    mnt.costOther || 0,
+    mnt.totalCost || 0,
+    mnt.status === 'completed' ? 'เสร็จสิ้น' : mnt.status === 'in_progress' ? 'กำลังดำเนินการ' : 'นัดหมายล่วงหน้า',
+    mnt.nextServiceMileage || '',
+    mnt.nextServiceDate || '',
+    mnt.recordedBy || '',
+    mnt.notes || '',
+    mnt.receiptPhotoUrl || '',
+  ];
+  if (mnt.sheetsRowIndex) {
+    await gasRequest(spreadsheetId, 'updateRow', MAINTENANCE_TAB_NAME, mnt.sheetsRowIndex, rowData);
+  } else {
+    const all = await fetchMaintenanceFromSheet(spreadsheetId);
+    const found = all.find((m) => m.id === mnt.id);
+    if (found && found.sheetsRowIndex) {
+      await gasRequest(spreadsheetId, 'updateRow', MAINTENANCE_TAB_NAME, found.sheetsRowIndex, rowData);
+    } else {
+      await gasRequest(spreadsheetId, 'appendRow', MAINTENANCE_TAB_NAME, undefined, rowData);
+    }
+  }
+};
+
+export const deleteMaintenanceFromSheet = async (spreadsheetId: string, mntId: string) => {
+  const all = await fetchMaintenanceFromSheet(spreadsheetId);
+  const found = all.find((m) => m.id === mntId);
+  if (found && found.sheetsRowIndex) {
+    const emptyRow = new Array(22).fill('');
+    await gasRequest(spreadsheetId, 'updateRow', MAINTENANCE_TAB_NAME, found.sheetsRowIndex, emptyRow);
+  }
+};
+
+

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { TotalEmblem } from './TotalLogo';
-import { Order, OrderItem, Product, StaffUser, Customer, FreebieItem } from '../types';
+import { Order, OrderItem, Product, StaffUser, Customer, FreebieItem, TaxInvoiceDetails } from '../types';
 import {
   X,
   Plus,
@@ -29,6 +29,7 @@ import {
   Building,
   Lock,
   Gift,
+  Receipt,
 } from 'lucide-react';
 
 interface OrderFormModalProps {
@@ -40,7 +41,7 @@ interface OrderFormModalProps {
   editingOrder?: Order | null;
   onClose: () => void;
   onSubmitOrder: (orderData: Omit<Order, 'id' | 'orderNumber' | 'syncedToSheets'>) => Promise<void>;
-  onUpdateOrder?: (orderId: string, orderData: Partial<Order>) => Promise<void>;
+  onUpdateOrder?: ((order: Order) => Promise<void>) | ((orderId: string, orderData: Partial<Order>) => Promise<void>);
   onRefreshProducts?: () => Promise<void>;
   onRefreshCustomers?: () => Promise<void>;
   sheetsConnected?: boolean;
@@ -163,6 +164,15 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
     }
     setLastSelectedCustomer(c);
     setShowNameSuggestions(false);
+    if (!taxCompanyName || taxCompanyName === customerName) {
+      setTaxCompanyName(c.name ? String(c.name) : '');
+    }
+    if (!taxAddress || taxAddress === address) {
+      setTaxAddress(c.address ? String(c.address) : '');
+    }
+    if (!taxPhone || taxPhone === customerPhone) {
+      setTaxPhone(c.phone ? String(c.phone) : '');
+    }
   };
 
   useEffect(() => {
@@ -212,8 +222,19 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
   const [note, setNote] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'transfer' | 'cash'>('transfer');
 
-  // 7. Discount
+  // Discount
   const [discount, setDiscount] = useState<number>(0);
+
+  // 7. ติ๊กเลือกออกใบกำกับภาษี (Tax Invoice)
+  const [requireTaxInvoice, setRequireTaxInvoice] = useState<boolean>(false);
+  const [taxCompanyName, setTaxCompanyName] = useState<string>('');
+  const [taxId, setTaxId] = useState<string>('');
+  const [taxBranchType, setTaxBranchType] = useState<'headquarters' | 'branch'>('headquarters');
+  const [taxBranchNumber, setTaxBranchNumber] = useState<string>('');
+  const [taxAddress, setTaxAddress] = useState<string>('');
+  const [taxPhone, setTaxPhone] = useState<string>('');
+  const [taxEmail, setTaxEmail] = useState<string>('');
+  const [taxNote, setTaxNote] = useState<string>('');
 
   // Customer Location (Auto filled from selected customer)
   const [address, setAddress] = useState('');
@@ -276,6 +297,17 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
       setLatitude(editingOrder.location?.latitude);
       setLongitude(editingOrder.location?.longitude);
       setMapsUrl(editingOrder.location?.mapsUrl || '');
+
+      // Tax Invoice prefill
+      setRequireTaxInvoice(!!editingOrder.requireTaxInvoice);
+      setTaxCompanyName(editingOrder.taxInvoiceDetails?.companyName || editingOrder.customerName || '');
+      setTaxId(editingOrder.taxInvoiceDetails?.taxId || '');
+      setTaxBranchType(editingOrder.taxInvoiceDetails?.branchType || 'headquarters');
+      setTaxBranchNumber(editingOrder.taxInvoiceDetails?.branchNumber || '');
+      setTaxAddress(editingOrder.taxInvoiceDetails?.address || editingOrder.location?.address || '');
+      setTaxPhone(editingOrder.taxInvoiceDetails?.phone || editingOrder.customerPhone || '');
+      setTaxEmail(editingOrder.taxInvoiceDetails?.email || '');
+      setTaxNote(editingOrder.taxInvoiceDetails?.note || '');
     } else if (!initialCustomer) {
       // Clean slate for new order
       setCustomerName('');
@@ -293,6 +325,17 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
       setRequestedDeliveryDate(getTomorrowDate());
       setDeliveryTimeSlot('anytime');
       setCustomDeliveryTime('');
+
+      // Tax Invoice reset
+      setRequireTaxInvoice(false);
+      setTaxCompanyName('');
+      setTaxId('');
+      setTaxBranchType('headquarters');
+      setTaxBranchNumber('');
+      setTaxAddress('');
+      setTaxPhone('');
+      setTaxEmail('');
+      setTaxNote('');
     }
   }, [editingOrder, isOpen, initialCustomer]);
 
@@ -487,8 +530,20 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
         finalMapsUrl = `https://maps.google.com/?q=${encodeURIComponent(cleanAddress)}`;
       }
 
+      const taxInvoiceDetailsObj: TaxInvoiceDetails | undefined = requireTaxInvoice ? {
+        companyName: taxCompanyName.trim() || cleanCustName,
+        taxId: taxId.trim(),
+        branchType: taxBranchType,
+        branchNumber: taxBranchType === 'branch' ? (taxBranchNumber.trim() || '00001') : '00000',
+        address: taxAddress.trim() || cleanAddress,
+        phone: taxPhone.trim() || cleanCustPhone,
+        email: taxEmail.trim(),
+        note: taxNote.trim(),
+      } : undefined;
+
       if (editingOrder && onUpdateOrder) {
-        await onUpdateOrder(editingOrder.id, {
+        const updatedFullOrder: Order = {
+          ...editingOrder,
           customerName: cleanCustName,
           customerPhone: cleanCustPhone,
           salespersonName: cleanSalesperson,
@@ -500,13 +555,22 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
           netAmount,
           note: cleanNote,
           paymentMethod,
+          requireTaxInvoice,
+          taxInvoiceDetails: taxInvoiceDetailsObj,
           location: {
             address: cleanAddress,
             latitude,
             longitude,
             mapsUrl: finalMapsUrl,
           },
-        });
+          updatedAt: new Date().toISOString(),
+        };
+
+        if ((onUpdateOrder as any).length === 2) {
+          await (onUpdateOrder as any)(editingOrder.id, updatedFullOrder);
+        } else {
+          await (onUpdateOrder as any)(updatedFullOrder);
+        }
         onClose();
         return;
       }
@@ -526,6 +590,8 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
         netAmount,
         note: cleanNote,
         paymentMethod,
+        requireTaxInvoice,
+        taxInvoiceDetails: taxInvoiceDetailsObj,
         location: {
           address: cleanAddress,
           latitude,
@@ -1528,6 +1594,242 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
             </div>
           </div>
 
+          {/* Section 7: ติ๊กเลือกออกใบกำกับภาษี (Tax Invoice) */}
+          <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/80 shadow-xs space-y-3.5">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-800 flex items-center justify-center text-xs font-bold">
+                  7
+                </span>
+                ติ๊กเลือกออกใบกำกับภาษี
+              </h3>
+              {requireTaxInvoice && (
+                <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200 flex items-center gap-1 shadow-2xs">
+                  <Receipt className="w-3.5 h-3.5 text-indigo-600" />
+                  ขอใบกำกับภาษีเต็มรูป
+                </span>
+              )}
+            </div>
+
+            {/* Checkbox Card for Tax Invoice Selection */}
+            <div
+              onClick={() => {
+                const nextVal = !requireTaxInvoice;
+                setRequireTaxInvoice(nextVal);
+                if (nextVal) {
+                  if (!taxCompanyName) setTaxCompanyName(customerName);
+                  if (!taxAddress) setTaxAddress(address);
+                  if (!taxPhone) setTaxPhone(customerPhone);
+                }
+              }}
+              className={`p-3.5 rounded-xl border-2 transition-all cursor-pointer flex items-start gap-3 select-none ${
+                requireTaxInvoice
+                  ? 'bg-indigo-50/70 border-indigo-500 shadow-xs ring-2 ring-indigo-500/20'
+                  : 'bg-slate-50 border-slate-200 hover:border-slate-300 hover:bg-slate-100/70'
+              }`}
+            >
+              <div className="pt-0.5 shrink-0">
+                <input
+                  type="checkbox"
+                  id="order-require-tax-invoice"
+                  checked={requireTaxInvoice}
+                  onChange={(e) => {
+                    const nextVal = e.target.checked;
+                    setRequireTaxInvoice(nextVal);
+                    if (nextVal) {
+                      if (!taxCompanyName) setTaxCompanyName(customerName);
+                      if (!taxAddress) setTaxAddress(address);
+                      if (!taxPhone) setTaxPhone(customerPhone);
+                    }
+                  }}
+                  className="w-5 h-5 text-indigo-600 rounded-md border-slate-300 focus:ring-indigo-500 cursor-pointer accent-indigo-600"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <label
+                  htmlFor="order-require-tax-invoice"
+                  className="text-sm font-bold text-slate-900 cursor-pointer block flex items-center gap-2 flex-wrap"
+                >
+                  <span>ต้องการให้ออกใบกำกับภาษี (Tax Invoice)</span>
+                  {requireTaxInvoice && (
+                    <span className="text-[10px] text-emerald-700 bg-emerald-100/80 px-2 py-0.2 rounded-full font-bold">
+                      เลือกแล้ว
+                    </span>
+                  )}
+                </label>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  ทำเครื่องหมายถูกที่ช่องนี้หากลูกค้าต้องการใบกำกับภาษีเต็มรูป เพื่อให้ฝ่ายบัญชีและคลังสินค้าออกเอกสารพร้อมสินค้า
+                </p>
+              </div>
+            </div>
+
+            {/* Additional Tax Details Fields when Checked */}
+            {requireTaxInvoice && (
+              <div className="pt-3 border-t border-slate-100 space-y-3.5 animate-in fade-in duration-150">
+                <div className="p-2.5 rounded-lg bg-indigo-50/50 border border-indigo-100 flex items-center gap-2 text-xs text-indigo-900">
+                  <Receipt className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <span>
+                    กรุณากรอกข้อมูลสำหรับออกใบกำกับภาษีให้ครบถ้วนถูกต้อง เพื่อความถูกต้องตามกฎหมายสรรพากร
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      ชื่อบริษัท / ผู้เสียภาษี / ร้านค้า <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={taxCompanyName}
+                      onChange={(e) => setTaxCompanyName(e.target.value)}
+                      placeholder="เช่น บจก. พลังงานไทย หรือ นายสมชาย ร่ำรวย"
+                      className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium text-slate-800"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      เลขประจำตัวผู้เสียภาษีอากร (13 หลัก)
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={13}
+                      value={taxId}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/[^0-9]/g, '');
+                        setTaxId(digits);
+                      }}
+                      placeholder="เช่น 0105558012345"
+                      className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono font-medium text-slate-800"
+                    />
+                    {taxId && taxId.length !== 13 && (
+                      <span className="text-[11px] text-amber-600 mt-0.5 block">
+                        ระบุแล้ว {taxId.length}/13 หลัก
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Branch type & Branch number */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      ประเภทสาขา
+                    </label>
+                    <div className="flex items-center gap-3 pt-0.5">
+                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-700 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="taxBranchType"
+                          value="headquarters"
+                          checked={taxBranchType === 'headquarters'}
+                          onChange={() => setTaxBranchType('headquarters')}
+                          className="text-indigo-600 focus:ring-indigo-500 accent-indigo-600"
+                        />
+                        <span>สำนักงานใหญ่ (Head Office)</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-700 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="taxBranchType"
+                          value="branch"
+                          checked={taxBranchType === 'branch'}
+                          onChange={() => setTaxBranchType('branch')}
+                          className="text-indigo-600 focus:ring-indigo-500 accent-indigo-600"
+                        />
+                        <span>สาขา</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {taxBranchType === 'branch' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        รหัสสาขา / เลขที่สาขา
+                      </label>
+                      <input
+                        type="text"
+                        value={taxBranchNumber}
+                        onChange={(e) => setTaxBranchNumber(e.target.value)}
+                        placeholder="เช่น 00001 หรือ สาขาบางนา"
+                        className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-medium text-slate-800"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Tax Address */}
+                <div>
+                  <div className="flex items-center justify-between mb-1 flex-wrap gap-1">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      ที่อยู่สำหรับออกใบกำกับภาษี
+                    </label>
+                    {address && (
+                      <button
+                        type="button"
+                        onClick={() => setTaxAddress(address)}
+                        className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer underline flex items-center gap-1"
+                      >
+                        <span>คัดลอกจากสถานที่จัดส่ง</span>
+                      </button>
+                    )}
+                  </div>
+                  <textarea
+                    rows={2}
+                    value={taxAddress}
+                    onChange={(e) => setTaxAddress(e.target.value)}
+                    placeholder="เลขที่ หมู่บ้าน/อาคาร ถนน แขวง/ตำบล เขต/อำเภอ จังหวัด รหัสไปรษณีย์"
+                    className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800"
+                  />
+                </div>
+
+                {/* Email for e-Tax and Phone */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      อีเมลสำหรับรับ e-Tax Invoice (ถ้ามี)
+                    </label>
+                    <input
+                      type="email"
+                      value={taxEmail}
+                      onChange={(e) => setTaxEmail(e.target.value)}
+                      placeholder="accountant@company.com"
+                      className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-slate-800"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      เบอร์โทรติดต่อสำหรับใบกำกับภาษี
+                    </label>
+                    <input
+                      type="tel"
+                      value={taxPhone}
+                      onChange={(e) => setTaxPhone(e.target.value)}
+                      placeholder="เช่น 02-123-4567 หรือ 081-234-5678"
+                      className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-slate-800"
+                    />
+                  </div>
+                </div>
+
+                {/* Additional Tax Note */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    หมายเหตุเพิ่มเติมสำหรับใบกำกับภาษี
+                  </label>
+                  <input
+                    type="text"
+                    value={taxNote}
+                    onChange={(e) => setTaxNote(e.target.value)}
+                    placeholder="เช่น ส่งใบกำกับภาษีพร้อมสินค้า, แนบใบเสนอราคาด้วย"
+                    className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-slate-800"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Form Actions */}
           <div className="pt-4 mt-2 sm:mt-4 border-t border-slate-200 flex flex-col-reverse sm:flex-row items-center justify-end gap-2 sm:gap-3 shrink-0">
             <button
@@ -1628,6 +1930,23 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                   <span className="text-xs font-semibold text-slate-500">รอบการจัดส่ง / หมายเหตุ</span>
                   <p className="text-sm text-slate-800 line-clamp-2">{note.trim() || '-'}</p>
                 </div>
+              </div>
+
+              {/* Tax Invoice Info in Confirmation */}
+              <div className="p-2.5 rounded-lg border text-xs flex items-center justify-between gap-2 bg-slate-50 border-slate-200">
+                <span className="font-semibold text-slate-600 flex items-center gap-1.5">
+                  <Receipt className="w-4 h-4 text-slate-500" />
+                  <span>การออกใบกำกับภาษี:</span>
+                </span>
+                {requireTaxInvoice ? (
+                  <span className="font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md text-right">
+                    ต้องการ ({taxCompanyName || customerName}{taxId ? ` • ${taxId}` : ''})
+                  </span>
+                ) : (
+                  <span className="text-slate-500">
+                    ไม่ออกใบกำกับภาษี
+                  </span>
+                )}
               </div>
             </div>
             

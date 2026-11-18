@@ -11,6 +11,7 @@ import {
   Award,
   ChevronRight,
   ArrowUpRight,
+  Wrench,
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -18,6 +19,8 @@ interface DashboardViewProps {
   currentUser: StaffUser;
   onOpenExportExcel?: () => void;
   onOpenNewOrder: () => void;
+  onNavigateToLogistics?: () => void;
+  onNavigateToMaintenance?: () => void;
 }
 
 
@@ -46,6 +49,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   orders,
   currentUser,
   onOpenNewOrder,
+  onNavigateToLogistics,
+  onNavigateToMaintenance,
 }) => {
   const [period, setPeriod] = useState<'today' | '7days' | 'month' | 'all'>('7days');
 
@@ -281,16 +286,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Card 4: Delivery Dispatch Status */}
-        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
+        <div
+          onClick={onNavigateToLogistics}
+          className={`bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between ${
+            onNavigateToLogistics ? 'cursor-pointer hover:border-amber-400 hover:shadow-md transition-all group' : ''
+          }`}
+          title={onNavigateToLogistics ? 'คลิกเพื่อไปที่เมนูโลจิสติกส์ จัดการแผนงานจัดส่ง' : undefined}
+        >
           <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-500 font-medium">สถานะการจัดส่ง</span>
-            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+            <span className="text-xs text-slate-500 font-medium group-hover:text-amber-800 transition-colors">
+              สถานะการจัดส่ง (โลจิสติกส์)
+            </span>
+            <div className="w-8 h-8 rounded-lg bg-amber-50 group-hover:bg-amber-100 text-amber-600 flex items-center justify-center transition-colors">
               <Truck className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3">
-            <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-              {pendingDeliveries} <span className="text-xs font-normal text-amber-600 font-medium">รอจัดส่ง</span>
+            <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight flex items-center justify-between">
+              <span>
+                {pendingDeliveries} <span className="text-xs font-normal text-amber-600 font-medium">รอจัดส่ง</span>
+              </span>
+              {onNavigateToLogistics && (
+                <span className="text-[10px] font-bold text-amber-800 bg-amber-50 group-hover:bg-amber-100 px-2 py-0.5 rounded-lg border border-amber-200 transition-colors">
+                  แผนจัดส่ง &rarr;
+                </span>
+              )}
             </div>
             <span className="text-[11px] text-emerald-600 font-medium mt-1 flex items-center gap-1">
               <CheckCircle2 className="w-3 h-3" />
@@ -299,6 +319,38 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Fleet Maintenance Budget Overview Shortcut Banner (Manager Focus) */}
+      {onNavigateToMaintenance && (
+        <div
+          onClick={onNavigateToMaintenance}
+          className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-700/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer hover:shadow-md hover:border-blue-400 transition-all group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-600/80 group-hover:bg-blue-600 flex items-center justify-center text-white shrink-0 shadow-xs transition-colors">
+              <Wrench className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-bold text-white tracking-tight">
+                  แดชบอร์ดงบประมาณบำรุงรักษารถยนต์ (Vehicle Maintenance Budget)
+                </h4>
+                <span className="text-[10px] font-bold bg-blue-500/30 text-blue-200 border border-blue-400/30 px-2 py-0.5 rounded-full">
+                  Fleet Analytics
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-0.5">
+                ดูกราฟเปรียบเทียบค่าใช้จ่ายรายเดือนและรายคันรถ สัดส่วนค่าอะไหล่ vs ค่าแรง และการวิเคราะห์ต้นทุน/กม.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+            <span className="text-xs font-bold text-blue-200 group-hover:text-white flex items-center gap-1 transition-colors">
+              เปิดแดชบอร์ดงบประมาณ &rarr;
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Main Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

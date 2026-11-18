@@ -20,20 +20,34 @@ import {
   Check,
   Filter,
   User,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
+  Plus,
+  Trash2,
+  Edit3,
 } from 'lucide-react';
-import { Customer, StaffUser, StoreCheckIn, Route } from '../types';
+import { Customer, StaffUser, StoreCheckIn, Route, DailyRouteSchedule } from '../types';
 import { calculateDistanceMeters, formatDistance, extractCustomerCoords, compressImageFile } from '../utils/geoUtils';
 import {
   THAI_DAYS,
   ThaiDay,
   THAI_DAY_COLORS,
   getTodayThaiDay,
+  getTodayDateIso,
+  formatDateIso,
+  formatThaiDate,
+  getThaiDayFromDate,
+  getEffectiveRoutesForDate,
+  isCustomerInDatePlan,
   isCustomerInDailyPlan,
   isCustomerInRoute,
   doesRouteRunOnDay,
   doesRouteBelongToSales,
   getSalesDailyRoutes,
+  getRouteColor,
 } from '../utils/callPlanUtils';
+import { CallPlanCalendarModal } from './CallPlanCalendarModal';
 
 interface StoreCheckInViewProps {
   customers: Customer[];
@@ -48,6 +62,10 @@ interface StoreCheckInViewProps {
   onClearPreselectedCustomer?: () => void;
   sheetsConnected: boolean;
   onRefreshSheets?: () => Promise<void>;
+  dailySchedules?: Record<string, DailyRouteSchedule>;
+  onSaveDailySchedule?: (dateStr: string, schedule: DailyRouteSchedule) => void;
+  onBatchSaveDailySchedules?: (schedules: Record<string, DailyRouteSchedule>) => void;
+  onDeleteDailySchedule?: (dateStr: string) => void;
 }
 
 export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
@@ -63,6 +81,10 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
   onClearPreselectedCustomer,
   sheetsConnected,
   onRefreshSheets,
+  dailySchedules: propsDailySchedules,
+  onSaveDailySchedule: propsOnSaveDailySchedule,
+  onBatchSaveDailySchedules: propsOnBatchSaveDailySchedules,
+  onDeleteDailySchedule: propsOnDeleteDailySchedule,
 }) => {
   // 1. Geolocation State
   const [currentLat, setCurrentLat] = useState<number | null>(null);
@@ -72,9 +94,64 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
   const [locationError, setLocationError] = useState<string | null>(null);
   const [lastLocationUpdateTime, setLastLocationUpdateTime] = useState<string>('');
 
-  // 2. Call Plan & Daily Route Filter State
-  type CallPlanFilterMode = 'today' | 'all' | 'by_route' | 'by_day';
-  const [callPlanMode, setCallPlanMode] = useState<CallPlanFilterMode>('today');
+  // 2. Call Plan Daily Schedules State (Persisted in localStorage)
+  const [localDailySchedules, setLocalDailySchedules] = useState<Record<string, DailyRouteSchedule>>(() => {
+    if (propsDailySchedules && Object.keys(propsDailySchedules).length > 0) return propsDailySchedules;
+    const saved = localStorage.getItem('iora_call_plan_daily_schedule');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') return parsed;
+      } catch (e) {}
+    }
+    return {};
+  });
+
+  const activeDailySchedules = (propsDailySchedules && Object.keys(propsDailySchedules).length > 0)
+    ? propsDailySchedules
+    : localDailySchedules;
+
+  const handleSaveDailySchedule = (dateStr: string, schedule: DailyRouteSchedule) => {
+    setLocalDailySchedules((prev) => {
+      const updated = { ...prev, [dateStr]: schedule };
+      localStorage.setItem('iora_call_plan_daily_schedule', JSON.stringify(updated));
+      return updated;
+    });
+    if (propsOnSaveDailySchedule) {
+      propsOnSaveDailySchedule(dateStr, schedule);
+    }
+  };
+
+  const handleBatchSaveDailySchedules = (schedules: Record<string, DailyRouteSchedule>) => {
+    setLocalDailySchedules(schedules);
+    localStorage.setItem('iora_call_plan_daily_schedule', JSON.stringify(schedules));
+    if (propsOnBatchSaveDailySchedules) {
+      propsOnBatchSaveDailySchedules(schedules);
+    }
+  };
+
+  const handleDeleteDailySchedule = (dateStr: string) => {
+    setLocalDailySchedules((prev) => {
+      const updated = { ...prev };
+      delete updated[dateStr];
+      localStorage.setItem('iora_call_plan_daily_schedule', JSON.stringify(updated));
+      return updated;
+    });
+    if (propsOnDeleteDailySchedule) {
+      propsOnDeleteDailySchedule(dateStr);
+    }
+  };
+
+  // 3. Date Selection & Simulated Calendar Modal State
+  const [selectedDate, setSelectedDate] = useState<string>(() => getTodayDateIso());
+  const [isCalendarModalOpen, setIsCalendarModalOpen] = useState<boolean>(false);
+  const [isQuickDayEditorOpen, setIsQuickDayEditorOpen] = useState<boolean>(false);
+  const [quickEditingRouteIds, setQuickEditingRouteIds] = useState<string[]>([]);
+  const [quickEditingNotes, setQuickEditingNotes] = useState<string>('');
+
+  // 4. Call Plan Mode & Filters
+  type CallPlanFilterMode = 'date' | 'all' | 'by_route' | 'by_day';
+  const [callPlanMode, setCallPlanMode] = useState<CallPlanFilterMode>('date');
   const [selectedDay, setSelectedDay] = useState<ThaiDay>(getTodayThaiDay());
   const [selectedRouteId, setSelectedRouteId] = useState<string>('all');
   const [selectedSales, setSelectedSales] = useState<string>(
@@ -202,7 +279,72 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
 
   // Call Plan & Daily Route Calculations
   const todayThai = useMemo(() => getTodayThaiDay(), []);
-  const currentViewDay = callPlanMode === 'today' ? todayThai : selectedDay;
+  const selectedDateThaiDay = useMemo(() => getThaiDayFromDate(selectedDate), [selectedDate]);
+  const isSelectedDateToday = useMemo(() => selectedDate === getTodayDateIso(), [selectedDate]);
+
+  // Date Navigation handlers
+  const handlePrevDay = () => {
+    const [y, m, d] = selectedDate.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    dateObj.setDate(dateObj.getDate() - 1);
+    setSelectedDate(formatDateIso(dateObj));
+  };
+
+  const handleNextDay = () => {
+    const [y, m, d] = selectedDate.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    dateObj.setDate(dateObj.getDate() + 1);
+    setSelectedDate(formatDateIso(dateObj));
+  };
+
+  const handleSetToday = () => {
+    setSelectedDate(getTodayDateIso());
+  };
+
+  const handleSetTomorrow = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    setSelectedDate(formatDateIso(d));
+  };
+
+  // Quick day route assignment modal handlers
+  const handleOpenQuickDayEditor = () => {
+    const schedule = activeDailySchedules[selectedDate];
+    if (schedule) {
+      setQuickEditingRouteIds([...schedule.routeIds]);
+      setQuickEditingNotes(schedule.notes || '');
+    } else {
+      const thaiDay = getThaiDayFromDate(selectedDate);
+      const defIds = routes
+        .filter((r) => Array.isArray(r.visitDays) && r.visitDays.includes(thaiDay))
+        .map((r) => r.id);
+      setQuickEditingRouteIds(defIds);
+      setQuickEditingNotes('');
+    }
+    setIsQuickDayEditorOpen(true);
+  };
+
+  const handleToggleQuickRoute = (routeId: string) => {
+    setQuickEditingRouteIds((prev) =>
+      prev.includes(routeId) ? prev.filter((id) => id !== routeId) : [...prev, routeId]
+    );
+  };
+
+  const handleSaveQuickDayEditor = () => {
+    const newSchedule: DailyRouteSchedule = {
+      date: selectedDate,
+      routeIds: quickEditingRouteIds,
+      notes: quickEditingNotes.trim() || undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    handleSaveDailySchedule(selectedDate, newSchedule);
+    setIsQuickDayEditorOpen(false);
+  };
+
+  const handleRevertQuickDayEditor = () => {
+    handleDeleteDailySchedule(selectedDate);
+    setIsQuickDayEditorOpen(false);
+  };
 
   // Sales rep filter options
   const salesOptions = useMemo(() => {
@@ -219,61 +361,85 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     return Array.from(salesSet);
   }, [staffList, routes, customers]);
 
-  // Routes active on the currently selected/viewed day
+  // Routes active on the currently selected/viewed date
+  const effectiveRoutesForSelectedDate = useMemo(() => {
+    return getEffectiveRoutesForDate({
+      dateStr: selectedDate,
+      dailySchedules: activeDailySchedules,
+      routes,
+      selectedSales,
+    });
+  }, [selectedDate, activeDailySchedules, routes, selectedSales]);
+
+  // Legacy day routes (for by_day mode)
+  const currentViewDay = callPlanMode === 'date' ? selectedDateThaiDay : selectedDay;
   const dailyRoutesForView = useMemo(() => {
     return getSalesDailyRoutes(selectedSales, currentViewDay, routes);
   }, [routes, currentViewDay, selectedSales]);
 
-  // Track check-ins performed TODAY
-  const todayCheckInStatus = useMemo(() => {
+  // Track check-ins performed on the SELECTED DATE
+  const selectedDateCheckInStatus = useMemo(() => {
     const checkedCustomerIds = new Set<string>();
     const checkedStoreNames = new Set<string>();
-    const now = new Date();
-    const todayDateString = now.toDateString();
+    const targetDayNum = selectedDate.split('-')[2];
 
     checkIns.forEach((ci) => {
-      let isToday = false;
+      let isMatch = false;
       if (ci.createdAt) {
-        const d = new Date(ci.createdAt);
-        if (!isNaN(d.getTime()) && d.toDateString() === todayDateString) {
-          isToday = true;
+        if (ci.createdAt.slice(0, 10) === selectedDate) {
+          isMatch = true;
         }
       }
-      if (!isToday && ci.timestampStr) {
-        const todayDayNum = now.getDate().toString();
-        if (ci.timestampStr.includes(todayDayNum)) {
-          isToday = true;
-        }
+      if (!isMatch && ci.timestampStr && ci.timestampStr.includes(targetDayNum)) {
+        isMatch = true;
       }
-      if (isToday) {
+      if (isMatch) {
         if (ci.customerId) checkedCustomerIds.add(ci.customerId);
         if (ci.storeName) checkedStoreNames.add(ci.storeName.trim().toLowerCase());
       }
     });
 
     return { checkedCustomerIds, checkedStoreNames };
-  }, [checkIns]);
+  }, [checkIns, selectedDate]);
 
-  const isCustomerCheckedInToday = (cust: Customer) => {
-    if (cust.id && todayCheckInStatus.checkedCustomerIds.has(cust.id)) return true;
-    if (cust.name && todayCheckInStatus.checkedStoreNames.has(cust.name.trim().toLowerCase())) return true;
+  const isCustomerCheckedInOnSelectedDate = (cust: Customer) => {
+    if (cust.id && selectedDateCheckInStatus.checkedCustomerIds.has(cust.id)) return true;
+    if (cust.name && selectedDateCheckInStatus.checkedStoreNames.has(cust.name.trim().toLowerCase())) return true;
     return false;
   };
 
-  // Stats: Planned for today & Completed today
-  const { todayPlanCount, todayCompletedCount } = useMemo(() => {
+  // Stats: Planned for selected date & Completed on selected date
+  const { datePlanCount, dateCompletedCount } = useMemo(() => {
     let plan = 0;
     let completed = 0;
     customers.forEach((c) => {
-      if (isCustomerInDailyPlan({ customer: c, targetDay: todayThai, selectedSales, routes })) {
+      if (
+        isCustomerInDatePlan({
+          customer: c,
+          dateStr: selectedDate,
+          dailySchedules: activeDailySchedules,
+          routes,
+          selectedSales,
+          selectedRouteId: callPlanMode === 'by_route' ? selectedRouteId : undefined,
+        })
+      ) {
         plan++;
-        if (isCustomerCheckedInToday(c)) {
+        if (isCustomerCheckedInOnSelectedDate(c)) {
           completed++;
         }
       }
     });
-    return { todayPlanCount: plan, todayCompletedCount: completed };
-  }, [customers, todayThai, selectedSales, routes, todayCheckInStatus]);
+    return { datePlanCount: plan, dateCompletedCount: completed };
+  }, [
+    customers,
+    selectedDate,
+    activeDailySchedules,
+    routes,
+    selectedSales,
+    callPlanMode,
+    selectedRouteId,
+    selectedDateCheckInStatus,
+  ]);
 
   // Handle preselected customer from Customer Management view
   useEffect(() => {
@@ -306,12 +472,14 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
       }
 
       // 2. Call Plan Filter
-      if (callPlanMode === 'today') {
-        const inPlan = isCustomerInDailyPlan({
+      if (callPlanMode === 'date') {
+        const inPlan = isCustomerInDatePlan({
           customer,
-          targetDay: todayThai,
-          selectedSales,
+          dateStr: selectedDate,
+          dailySchedules: activeDailySchedules,
           routes,
+          selectedSales,
+          selectedRouteId: selectedRouteId !== 'all' ? selectedRouteId : undefined,
         });
         if (!inPlan) return false;
       } else if (callPlanMode === 'by_day') {
@@ -349,7 +517,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
       }
 
       // 3. Visit status filter
-      const hasCheckedIn = isCustomerCheckedInToday(customer);
+      const hasCheckedIn = isCustomerCheckedInOnSelectedDate(customer);
       if (visitStatusFilter === 'unvisited' && hasCheckedIn) {
         return false;
       }
@@ -373,15 +541,17 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     storesWithDistance,
     searchQuery,
     callPlanMode,
-    todayThai,
+    selectedDate,
+    activeDailySchedules,
     selectedDay,
     selectedRouteId,
     selectedSales,
     routes,
     visitStatusFilter,
     distanceFilter,
-    todayCheckInStatus,
+    selectedDateCheckInStatus,
   ]);
+
 
   // Start Check-in for an existing customer
   const handleOpenCheckInForCustomer = (item: { customer: Customer; distanceMeters?: number }) => {
@@ -663,12 +833,99 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
               DAILY ROUTE & CALL PLAN FILTER TOOLBAR
              ========================================================================= */}
           <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
-            {/* Row 1: Mode Switcher */}
+            {/* Row 1: Date Navigation Bar & Calendar Simulator Trigger */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-100">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <CalendarDays className="w-4 h-4 text-blue-600" />
+                  <span>วันเข้าเยี่ยม (Visit Date):</span>
+                </span>
+
+                {/* Date Stepper & Picker */}
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+                  <button
+                    type="button"
+                    onClick={handlePrevDay}
+                    className="p-1 rounded-lg hover:bg-white hover:text-blue-600 text-slate-600 transition-colors cursor-pointer"
+                    title="ย้อนหลัง 1 วัน"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+
+                  {/* Date Input Overlay */}
+                  <label className="relative cursor-pointer px-2.5 py-0.5 rounded-lg bg-white border border-slate-200 shadow-2xs flex items-center gap-1.5 hover:border-blue-300">
+                    <span className="text-xs font-bold text-slate-900 whitespace-nowrap">
+                      {formatThaiDate(selectedDate, { withDayOfWeek: true, shortMonth: true })}
+                    </span>
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          setSelectedDate(e.target.value);
+                          setCallPlanMode('date');
+                        }
+                      }}
+                      className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={handleNextDay}
+                    className="p-1 rounded-lg hover:bg-white hover:text-blue-600 text-slate-600 transition-colors cursor-pointer"
+                    title="ถัดไป 1 วัน"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Quick Date Shortcuts */}
+                <button
+                  type="button"
+                  onClick={handleSetToday}
+                  className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    isSelectedDateToday
+                      ? 'bg-blue-600 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  วันนี้
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSetTomorrow}
+                  className="px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors cursor-pointer"
+                >
+                  พรุ่งนี้
+                </button>
+              </div>
+
+              {/* Simulated Calendar Button */}
+              <div className="flex items-center gap-2 self-start md:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setIsCalendarModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:to-indigo-800 active:scale-95 text-white text-xs font-bold shadow-xs transition-all cursor-pointer border border-blue-400/30"
+                  title="เปิดปฏิทินจำลองเพื่อจัดตารางสายวิ่งรายวันและกำหนดวันไหนวิ่งสายไหนได้ด้วยตัวเอง"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
+                  <span>ปฏิทินจำลองแผนวิ่งสาย (Call Plan Calendar)</span>
+                  {Object.keys(activeDailySchedules).length > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-400 text-slate-900 font-extrabold shadow-2xs">
+                      {Object.keys(activeDailySchedules).length}
+                    </span>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Row 2: Mode Switcher & Filters */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <Filter className="w-4 h-4 text-blue-600 shrink-0" />
-                <span className="text-xs font-bold text-slate-800">
-                  สายเข้าเยี่ยมของเซลล์ (Call Plan / Route):
+                <Filter className="w-4 h-4 text-slate-500 shrink-0" />
+                <span className="text-xs font-bold text-slate-700">
+                  โหมดแสดงผล:
                 </span>
               </div>
 
@@ -676,21 +933,21 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
               <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5">
                 <button
                   type="button"
-                  onClick={() => setCallPlanMode('today')}
+                  onClick={() => setCallPlanMode('date')}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs whitespace-nowrap ${
-                    callPlanMode === 'today'
+                    callPlanMode === 'date'
                       ? 'bg-blue-600 text-white shadow-blue-500/20'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                  <span>สายเข้าเยี่ยมวันนี้ (วัน{todayThai})</span>
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>ตามวันที่เลือก ({formatThaiDate(selectedDate, { shortMonth: true })})</span>
                   <span
                     className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                      callPlanMode === 'today' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700'
+                      callPlanMode === 'date' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700'
                     }`}
                   >
-                    {todayPlanCount}
+                    {datePlanCount}
                   </span>
                 </button>
 
@@ -735,13 +992,12 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  <Calendar className="w-3.5 h-3.5" />
                   <span>ตามวันประจำรอบ</span>
                 </button>
               </div>
             </div>
 
-            {/* Row 2: Secondary Selectors (Salesperson, Route, Day, Visit Status) */}
+            {/* Row 3: Secondary Selectors (Salesperson, Route, Day, Visit Status) */}
             <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
               <div className="flex flex-wrap items-center gap-2">
                 {/* Sales rep selector */}
@@ -846,14 +1102,111 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
               </div>
             </div>
 
-            {/* Daily Call Plan Progress & Summary Banner */}
-            {(callPlanMode === 'today' || callPlanMode === 'by_day') && (
+            {/* Daily Call Plan Progress & Summary Banner (Date-Based) */}
+            {callPlanMode === 'date' && (
+              <div className="mt-2 p-3 sm:p-3.5 rounded-2xl bg-gradient-to-r from-blue-50/90 via-indigo-50/80 to-slate-50 border border-blue-200/80 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs shadow-2xs">
+                <div className="space-y-1.5 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-blue-900 flex items-center gap-1.5 text-xs">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                      <span>สายที่กำหนดวิ่ง:</span>
+                      <span className="text-slate-700">
+                        {formatThaiDate(selectedDate, { withDayOfWeek: true, shortMonth: true })}
+                      </span>
+                    </span>
+
+                    {/* Badge indicating whether custom or weekly */}
+                    {activeDailySchedules[selectedDate] ? (
+                      <span className="px-2 py-0.5 bg-amber-100 text-amber-800 border border-amber-300 rounded-md text-[10px] font-extrabold flex items-center gap-1">
+                        <Edit3 className="w-2.5 h-2.5 text-amber-600" />
+                        <span>กำหนดพิเศษเฉพาะวัน</span>
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 bg-blue-100 text-blue-800 border border-blue-200 rounded-md text-[10px] font-bold">
+                        รอบปกติประจำวัน{selectedDateThaiDay}
+                      </span>
+                    )}
+
+                    {/* Quick Button to customize routes for this day */}
+                    <button
+                      type="button"
+                      onClick={handleOpenQuickDayEditor}
+                      className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-white hover:bg-blue-50 border border-blue-300 text-blue-700 font-bold text-[11px] transition-colors cursor-pointer shadow-2xs ml-auto sm:ml-0"
+                    >
+                      <Edit3 className="w-3 h-3 text-blue-600" />
+                      <span>ปรับเปลี่ยนสายวิ่งของวันนี้</span>
+                    </button>
+                  </div>
+
+                  {/* Active Routes list */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {effectiveRoutesForSelectedDate.length > 0 ? (
+                      effectiveRoutesForSelectedDate.map((r, rIdx) => {
+                        const palette = getRouteColor(r.id || rIdx);
+                        return (
+                          <span
+                            key={r.id}
+                            className={`px-2 py-0.5 border rounded-lg text-[11px] font-bold shadow-2xs flex items-center gap-1 ${palette.bg} ${palette.text} ${palette.border}`}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${palette.dot}`} />
+                            <span>{r.name}</span>
+                            {r.salesrepName && <span className="text-[10px] opacity-75">({r.salesrepName})</span>}
+                          </span>
+                        );
+                      })
+                    ) : (
+                      <span className="text-slate-500 italic text-[11px]">
+                        ยังไม่มีสายส่งวิ่งในวันที่นี้ (คลิก "ปรับเปลี่ยนสายวิ่งของวันนี้" เพื่อเพิ่มสายส่ง)
+                      </span>
+                    )}
+                  </div>
+
+                  {activeDailySchedules[selectedDate]?.notes && (
+                    <div className="text-[11px] text-amber-800 bg-amber-50/80 px-2.5 py-1 rounded-lg border border-amber-200/80 flex items-center gap-1.5">
+                      <span className="font-bold">หมายเหตุ:</span>
+                      <span>{activeDailySchedules[selectedDate].notes}</span>
+                    </div>
+                  )}
+
+                  {/* Stats line */}
+                  <div className="text-[11px] text-slate-600 flex items-center gap-2 pt-0.5">
+                    <span>
+                      เป้าหมายร้านค้า: <strong className="text-blue-700 font-bold">{datePlanCount}</strong> ร้าน | เช็คอินแล้ว:{' '}
+                      <strong className="text-emerald-700 font-bold">{dateCompletedCount}</strong> ร้าน
+                    </span>
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                {datePlanCount > 0 && (
+                  <div className="w-full md:w-40 flex flex-col gap-1 shrink-0 self-start md:self-center">
+                    <div className="flex justify-between text-[10px] font-bold text-slate-600">
+                      <span>ความคืบหน้า</span>
+                      <span className="text-emerald-700 font-black">
+                        {Math.round((dateCompletedCount / datePlanCount) * 100)}%
+                      </span>
+                    </div>
+                    <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden shadow-inner">
+                      <div
+                        className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-500"
+                        style={{
+                          width: `${Math.min(100, Math.round((dateCompletedCount / datePlanCount) * 100))}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Legacy Day Mode Banner */}
+            {callPlanMode === 'by_day' && (
               <div className="mt-2 p-3 rounded-xl bg-gradient-to-r from-blue-50/80 to-indigo-50/80 border border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-blue-900 flex items-center gap-1.5">
                       <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                      สายเข้าเยี่ยม{callPlanMode === 'today' ? 'ประจำวันนี้' : `ประจำวัน${selectedDay}`}:
+                      สายเข้าเยี่ยมประจำวัน{selectedDay}:
                     </span>
 
                     {dailyRoutesForView.length > 0 ? (
@@ -867,53 +1220,15 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                       ))
                     ) : (
                       <span className="text-slate-500 italic">
-                        ยังไม่มีสายส่งที่กำหนดวิ่งในวัน{currentViewDay}
+                        ยังไม่มีสายส่งที่กำหนดวิ่งในวัน{selectedDay}
                       </span>
                     )}
                   </div>
-
-                  {callPlanMode === 'today' && (
-                    <div className="text-[11px] text-slate-600 flex items-center gap-2">
-                      <span>
-                        เป้าหมายวันนี้: <strong className="text-blue-700">{todayPlanCount}</strong> ร้าน | เช็คอินแล้ว:{' '}
-                        <strong className="text-emerald-700">{todayCompletedCount}</strong> ร้าน
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Progress bar or Route settings button */}
-                <div className="flex items-center gap-3">
-                  {callPlanMode === 'today' && todayPlanCount > 0 && (
-                    <div className="w-full sm:w-32 flex flex-col gap-1">
-                      <div className="flex justify-between text-[10px] font-bold text-slate-600">
-                        <span>ความคืบหน้า</span>
-                        <span>{Math.round((todayCompletedCount / todayPlanCount) * 100)}%</span>
-                      </div>
-                      <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-                          style={{
-                            width: `${Math.min(100, Math.round((todayCompletedCount / todayPlanCount) * 100))}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {onManageRoutes && (
-                    <button
-                      type="button"
-                      onClick={onManageRoutes}
-                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-50 border border-blue-200 text-blue-700 text-xs font-semibold cursor-pointer whitespace-nowrap shadow-2xs"
-                    >
-                      จัดการสายส่ง/เข้าเยี่ยม
-                    </button>
-                  )}
                 </div>
               </div>
             )}
           </div>
+
 
           {/* Search Bar & Distance Filter */}
           <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-2.5">
@@ -993,39 +1308,52 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
               <div className="col-span-full p-8 text-center bg-white rounded-2xl border border-slate-200/80 space-y-2">
                 <Building2 className="w-10 h-10 text-slate-300 mx-auto" />
                 <p className="text-sm font-bold text-slate-700">ไม่พบร้านค้าตามเงื่อนไขที่เลือก</p>
-                <p className="text-xs text-slate-500">
-                  {callPlanMode === 'today'
-                    ? `ไม่มีร้านค้าที่กำหนดรอบเข้าเยี่ยมสำหรับวัน${todayThai} หรือเข้าเยี่ยมครบแล้ว`
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  {callPlanMode === 'date'
+                    ? `ไม่มีร้านค้าในสายส่งที่กำหนดวิ่งสำหรับวันที่ ${formatThaiDate(selectedDate, { withDayOfWeek: true, shortMonth: true })} หรือเข้าเยี่ยมครบแล้ว`
                     : 'คุณสามารถปรับตัวกรอง หรือกดปุ่ม "+ เช็คอินร้านใหม่" ด้านบนเพื่อเช็คอินร้านค้าทันที'}
                 </p>
-                {callPlanMode === 'today' && (
-                  <button
-                    type="button"
-                    onClick={() => setCallPlanMode('all')}
-                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200 cursor-pointer"
-                  >
-                    <span>ดูร้านค้าทั้งหมด</span>
-                  </button>
-                )}
+                <div className="flex items-center justify-center gap-2 pt-1 flex-wrap">
+                  {callPlanMode === 'date' && (
+                    <button
+                      type="button"
+                      onClick={handleOpenQuickDayEditor}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold hover:bg-blue-100 cursor-pointer"
+                    >
+                      <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                      <span>+ กำหนดสายวิ่งสำหรับวันนี้</span>
+                    </button>
+                  )}
+                  {callPlanMode !== 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => setCallPlanMode('all')}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200 cursor-pointer"
+                    >
+                      <span>ดูร้านค้าทั้งหมด ({customers.length})</span>
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
               filteredStores.map(({ customer, coords, distanceMeters }) => {
                 const isVeryClose = distanceMeters !== undefined && distanceMeters <= 100;
                 const isClose = distanceMeters !== undefined && distanceMeters <= 1000;
-                const hasCheckedInToday = isCustomerCheckedInToday(customer);
-                const isScheduledToday = isCustomerInDailyPlan({
+                const hasCheckedInDate = isCustomerCheckedInOnSelectedDate(customer);
+                const isScheduledForDate = isCustomerInDatePlan({
                   customer,
-                  targetDay: todayThai,
-                  selectedSales: 'all',
+                  dateStr: selectedDate,
+                  dailySchedules: activeDailySchedules,
                   routes,
+                  selectedSales: 'all',
                 });
 
                 return (
                   <div
                     key={customer.id || customer.name + customer.phone}
                     className={`bg-white p-3.5 sm:p-4 rounded-2xl border transition-all shadow-2xs flex flex-col justify-between gap-3 ${
-                      hasCheckedInToday
-                        ? 'border-emerald-200 bg-emerald-50/10'
+                      hasCheckedInDate
+                        ? 'border-emerald-200 bg-emerald-50/15'
                         : isVeryClose
                         ? 'border-emerald-300 ring-2 ring-emerald-500/20 bg-emerald-50/20'
                         : isClose
@@ -1042,19 +1370,19 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                               {customer.name}
                             </span>
 
-                            {/* Today visit scheduled badge */}
-                            {isScheduledToday && (
+                            {/* Scheduled for this date badge */}
+                            {isScheduledForDate && (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
                                 <Sparkles className="w-2.5 h-2.5 text-amber-600" />
-                                <span>สายวันนี้</span>
+                                <span>สายประจำวัน</span>
                               </span>
                             )}
 
-                            {/* Today Checked-in status badge */}
-                            {hasCheckedInToday ? (
+                            {/* Checked-in status badge */}
+                            {hasCheckedInDate ? (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
                                 <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
-                                <span>เช็คอินแล้ววันนี้</span>
+                                <span>เช็คอินแล้ว</span>
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
@@ -1063,6 +1391,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                               </span>
                             )}
                           </div>
+
 
                           {/* Route & Salesperson */}
                           <div className="flex items-center gap-2 text-xs text-slate-600 mt-1 flex-wrap">
@@ -1160,7 +1489,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                         type="button"
                         onClick={() => handleOpenCheckInForCustomer({ customer, distanceMeters })}
                         className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all shadow-xs cursor-pointer active:scale-95 ${
-                          hasCheckedInToday
+                          hasCheckedInDate
                             ? 'bg-slate-100 hover:bg-slate-200 text-emerald-800 border border-emerald-300'
                             : isVeryClose
                             ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-500/30'
@@ -1168,7 +1497,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                         }`}
                       >
                         <Camera className="w-3.5 h-3.5" />
-                        <span>{hasCheckedInToday ? 'เช็คอินอีกครั้ง' : 'เช็คอินหน้าร้าน'}</span>
+                        <span>{hasCheckedInDate ? 'เช็คอินอีกครั้ง' : 'เช็คอินหน้าร้าน'}</span>
                       </button>
                     </div>
                   </div>
@@ -1658,6 +1987,224 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* =========================================================================
+          QUICK DAY ROUTE ASSIGNMENT MODAL (Inline Day Editor)
+         ========================================================================= */}
+      {isQuickDayEditorOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center">
+                  <CalendarDays className="w-5 h-5 text-amber-300" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base leading-tight">
+                    กำหนดสายวิ่งสำหรับวันนี้
+                  </h3>
+                  <p className="text-xs text-blue-100 font-medium">
+                    {formatThaiDate(selectedDate, { withDayOfWeek: true, shortMonth: false })}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsQuickDayEditorOpen(false)}
+                className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-4 text-xs">
+              <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                <span className="font-bold text-slate-800">
+                  เลือกสายส่งที่ต้องการวิ่ง ({quickEditingRouteIds.length} สาย):
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setQuickEditingRouteIds(routes.map((r) => r.id))}
+                    className="text-[11px] font-bold text-blue-600 hover:underline cursor-pointer"
+                  >
+                    เลือกทั้งหมด
+                  </button>
+                  <span className="text-slate-300">|</span>
+                  <button
+                    type="button"
+                    onClick={() => setQuickEditingRouteIds([])}
+                    className="text-[11px] font-bold text-slate-500 hover:text-slate-800 cursor-pointer"
+                  >
+                    ล้างการเลือก
+                  </button>
+                  <span className="text-slate-300">|</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const thaiDay = getThaiDayFromDate(selectedDate);
+                      const defIds = routes
+                        .filter((r) => Array.isArray(r.visitDays) && r.visitDays.includes(thaiDay))
+                        .map((r) => r.id);
+                      setQuickEditingRouteIds(defIds);
+                    }}
+                    className="text-[11px] font-bold text-emerald-600 hover:underline cursor-pointer"
+                  >
+                    ตามรอบสัปดาห์
+                  </button>
+                </div>
+              </div>
+
+              {/* Routes Checklist */}
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {routes.length === 0 ? (
+                  <div className="p-4 rounded-xl bg-slate-50 text-slate-500 text-center">
+                    ยังไม่มีข้อมูลสายส่งในระบบ
+                  </div>
+                ) : (
+                  routes.map((route, idx) => {
+                    const isChecked = quickEditingRouteIds.includes(route.id);
+                    const palette = getRouteColor(route.id || idx);
+                    const customerCount = customers.filter((c) => isCustomerInRoute(c, route)).length;
+
+                    return (
+                      <div
+                        key={route.id}
+                        onClick={() => handleToggleQuickRoute(route.id)}
+                        className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                          isChecked
+                            ? 'bg-blue-50/70 border-blue-300 shadow-2xs ring-1 ring-blue-500/20'
+                            : 'bg-white border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${
+                              isChecked
+                                ? 'bg-blue-600 border-blue-600 text-white'
+                                : 'border-slate-300 bg-white'
+                            }`}
+                          >
+                            {isChecked && <Check className="w-3.5 h-3.5" />}
+                          </div>
+
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-800 text-xs">
+                                {route.name}
+                              </span>
+                              <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${palette.bg} ${palette.text} border ${palette.border}`}>
+                                {route.id}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2">
+                              {route.salesrepName && (
+                                <span>เซลล์: {route.salesrepName}</span>
+                              )}
+                              {route.visitDays && route.visitDays.length > 0 && (
+                                <span>(รอบปกติ: {route.visitDays.join(', ')})</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-xl">
+                          👥 {customerCount} ร้าน
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Special Notes */}
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">
+                  หมายเหตุ / บันทึกพิเศษสำหรับวันนี้:
+                </label>
+                <input
+                  type="text"
+                  value={quickEditingNotes}
+                  onChange={(e) => setQuickEditingNotes(e.target.value)}
+                  placeholder="เช่น ส่งรอบพิเศษเช้า, สลับสายกับวันจันทร์"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
+                />
+              </div>
+
+              {/* Summary */}
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                <div>
+                  <span className="text-slate-500">เป้าหมายร้านค้ารวม: </span>
+                  <strong className="text-slate-900 font-bold text-sm">
+                    {customers.filter((c) =>
+                      routes
+                        .filter((r) => quickEditingRouteIds.includes(r.id))
+                        .some((r) => isCustomerInRoute(c, r))
+                    ).length}{' '}
+                    ร้านค้า
+                  </strong>
+                </div>
+
+                {activeDailySchedules[selectedDate] && (
+                  <button
+                    type="button"
+                    onClick={handleRevertQuickDayEditor}
+                    className="inline-flex items-center gap-1 text-rose-600 hover:text-rose-700 font-bold text-xs cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>กลับไปใช้รอบปกติ</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setIsQuickDayEditorOpen(false)}
+                className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveQuickDayEditor}
+                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs cursor-pointer shadow-2xs"
+              >
+                <Check className="w-4 h-4" />
+                <span>บันทึกแผนวิ่งสายวันนี้</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          SIMULATED CALENDAR MODAL (Full Month Interactive Planner)
+         ========================================================================= */}
+      <CallPlanCalendarModal
+        isOpen={isCalendarModalOpen}
+        onClose={() => setIsCalendarModalOpen(false)}
+        routes={routes}
+        customers={customers}
+        checkIns={checkIns}
+        dailySchedules={activeDailySchedules}
+        onSaveDailySchedule={handleSaveDailySchedule}
+        onBatchSaveDailySchedules={handleBatchSaveDailySchedules}
+        onDeleteDailySchedule={handleDeleteDailySchedule}
+        selectedDate={selectedDate}
+        onSelectDate={(dateStr) => {
+          setSelectedDate(dateStr);
+          setCallPlanMode('date');
+        }}
+        staffList={staffList}
+        currentUser={currentUser}
+      />
     </div>
   );
 };
+

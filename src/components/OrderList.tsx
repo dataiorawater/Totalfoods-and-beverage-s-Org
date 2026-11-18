@@ -23,6 +23,7 @@ import {
   X,
   Store,
   ChevronRight,
+  Receipt,
 } from 'lucide-react';
 
 interface OrderListProps {
@@ -456,6 +457,14 @@ export const OrderList: React.FC<OrderListProps> = ({
                           className="inline-flex items-center text-[10px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 shrink-0"
                         >
                           <FileSpreadsheet className="w-3 h-3 mr-0.5" /> Sheets
+                        </span>
+                      )}
+                      {order.requireTaxInvoice && (
+                        <span
+                          title="ต้องการให้ออกใบกำกับภาษี"
+                          className="inline-flex items-center text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200 shrink-0 shadow-2xs"
+                        >
+                          <Receipt className="w-3 h-3 mr-0.5 text-indigo-600" /> ใบกำกับภาษี
                         </span>
                       )}
                     </div>
