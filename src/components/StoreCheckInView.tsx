@@ -44,6 +44,9 @@ import {
   isCustomerInRoute,
   doesRouteRunOnDay,
   doesRouteBelongToSales,
+  doesRouteBelongToUser,
+  isCustomerBelongingToUser,
+  doesCheckInBelongToUser,
   getSalesDailyRoutes,
   getRouteColor,
 } from '../utils/callPlanUtils';
@@ -149,15 +152,61 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
   const [quickEditingRouteIds, setQuickEditingRouteIds] = useState<string[]>([]);
   const [quickEditingNotes, setQuickEditingNotes] = useState<string>('');
 
-  // 4. Call Plan Mode & Filters
+  // 4. Role Access & Call Plan Mode Filters
+  const canViewAllRoutes = currentUser.role === 'admin' || currentUser.role === 'manager';
+
   type CallPlanFilterMode = 'date' | 'all' | 'by_route' | 'by_day';
   const [callPlanMode, setCallPlanMode] = useState<CallPlanFilterMode>('date');
   const [selectedDay, setSelectedDay] = useState<ThaiDay>(getTodayThaiDay());
   const [selectedRouteId, setSelectedRouteId] = useState<string>('all');
   const [selectedSales, setSelectedSales] = useState<string>(
-    currentUser.role === 'sales' ? currentUser.name : 'all'
+    canViewAllRoutes ? 'all' : currentUser.name
   );
   const [visitStatusFilter, setVisitStatusFilter] = useState<'all' | 'unvisited' | 'visited'>('all');
+
+  // Keep selectedSales & selectedRouteId strictly synchronized when switching user/role
+  useEffect(() => {
+    if (!canViewAllRoutes) {
+      setSelectedSales(currentUser.name);
+      setSelectedRouteId('all');
+    }
+  }, [canViewAllRoutes, currentUser.id, currentUser.name]);
+
+  const effectiveSelectedSales = canViewAllRoutes ? selectedSales : currentUser.name;
+
+  // Routes scoped to current user role:
+  // - Admin & Manager see all routes
+  // - Sales (and other non-admin/manager roles) see ONLY their own assigned routes
+  const scopedRoutes = useMemo(() => {
+    if (canViewAllRoutes) return routes;
+    return routes.filter((r) => doesRouteBelongToUser(r, currentUser));
+  }, [canViewAllRoutes, routes, currentUser]);
+
+  const scopedRouteIdSet = useMemo(() => new Set(scopedRoutes.map((r) => r.id)), [scopedRoutes]);
+
+  const availableRoutesForSelector = useMemo(() => {
+    if (!canViewAllRoutes) return scopedRoutes;
+    if (effectiveSelectedSales === 'all') return scopedRoutes;
+    return scopedRoutes.filter((r) => doesRouteBelongToSales(r, effectiveSelectedSales));
+  }, [canViewAllRoutes, scopedRoutes, effectiveSelectedSales]);
+
+  useEffect(() => {
+    if (selectedRouteId !== 'all' && !availableRoutesForSelector.some((r) => r.id === selectedRouteId)) {
+      setSelectedRouteId('all');
+    }
+  }, [availableRoutesForSelector, selectedRouteId]);
+
+  // Customers scoped to current user role
+  const scopedCustomers = useMemo(() => {
+    if (canViewAllRoutes) return customers;
+    return customers.filter((c) => isCustomerBelongingToUser(c, currentUser, scopedRoutes, routes));
+  }, [canViewAllRoutes, customers, currentUser, scopedRoutes, routes]);
+
+  // Check-ins scoped to current user role
+  const scopedCheckIns = useMemo(() => {
+    if (canViewAllRoutes) return checkIns;
+    return checkIns.filter((ci) => doesCheckInBelongToUser(ci, currentUser));
+  }, [canViewAllRoutes, checkIns, currentUser]);
 
   // Search & Range Filter State
   const [searchQuery, setSearchQuery] = useState('');
@@ -252,9 +301,9 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     localStorage.setItem('iora_checkins', JSON.stringify(checkIns));
   }, [checkIns]);
 
-  // Compute stores sorted by distance from current GPS
+  // Compute stores sorted by distance from current GPS (scoped to user role)
   const storesWithDistance = useMemo(() => {
-    return customers.map((c) => {
+    return scopedCustomers.map((c) => {
       const coords = extractCustomerCoords(c);
       let distanceMeters: number | undefined = undefined;
 
@@ -275,7 +324,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
       if (b.distanceMeters !== undefined) return 1;
       return a.customer.name.localeCompare(b.customer.name, 'th');
     });
-  }, [customers, currentLat, currentLng]);
+  }, [scopedCustomers, currentLat, currentLng]);
 
   // Call Plan & Daily Route Calculations
   const todayThai = useMemo(() => getTodayThaiDay(), []);
@@ -311,12 +360,15 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
   const handleOpenQuickDayEditor = () => {
     const schedule = activeDailySchedules[selectedDate];
     if (schedule) {
-      setQuickEditingRouteIds([...schedule.routeIds]);
+      const visibleIds = canViewAllRoutes
+        ? [...schedule.routeIds]
+        : schedule.routeIds.filter((id) => scopedRouteIdSet.has(id));
+      setQuickEditingRouteIds(visibleIds);
       setQuickEditingNotes(schedule.notes || '');
     } else {
       const thaiDay = getThaiDayFromDate(selectedDate);
-      const defIds = routes
-        .filter((r) => Array.isArray(r.visitDays) && r.visitDays.includes(thaiDay))
+      const defIds = scopedRoutes
+        .filter((r) => doesRouteRunOnDay(r, thaiDay))
         .map((r) => r.id);
       setQuickEditingRouteIds(defIds);
       setQuickEditingNotes('');
@@ -331,9 +383,22 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
   };
 
   const handleSaveQuickDayEditor = () => {
+    let finalRouteIds = [...quickEditingRouteIds];
+    if (!canViewAllRoutes) {
+      // Preserve route assignments belonging to other salespeople so saving doesn't wipe them
+      const existingSchedule = activeDailySchedules[selectedDate];
+      const thaiDay = getThaiDayFromDate(selectedDate);
+      const otherRouteIds = existingSchedule
+        ? existingSchedule.routeIds.filter((id) => !scopedRouteIdSet.has(id))
+        : routes
+            .filter((r) => !scopedRouteIdSet.has(r.id) && doesRouteRunOnDay(r, thaiDay))
+            .map((r) => r.id);
+      finalRouteIds = Array.from(new Set([...otherRouteIds, ...quickEditingRouteIds]));
+    }
+
     const newSchedule: DailyRouteSchedule = {
       date: selectedDate,
-      routeIds: quickEditingRouteIds,
+      routeIds: finalRouteIds,
       notes: quickEditingNotes.trim() || undefined,
       updatedAt: new Date().toISOString(),
     };
@@ -342,11 +407,31 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
   };
 
   const handleRevertQuickDayEditor = () => {
-    handleDeleteDailySchedule(selectedDate);
+    if (canViewAllRoutes) {
+      handleDeleteDailySchedule(selectedDate);
+    } else {
+      const existingSchedule = activeDailySchedules[selectedDate];
+      if (existingSchedule) {
+        const otherRouteIds = existingSchedule.routeIds.filter((id) => !scopedRouteIdSet.has(id));
+        if (otherRouteIds.length === 0) {
+          handleDeleteDailySchedule(selectedDate);
+        } else {
+          const thaiDay = getThaiDayFromDate(selectedDate);
+          const ownDefaultIds = scopedRoutes
+            .filter((r) => doesRouteRunOnDay(r, thaiDay))
+            .map((r) => r.id);
+          handleSaveDailySchedule(selectedDate, {
+            ...existingSchedule,
+            routeIds: Array.from(new Set([...otherRouteIds, ...ownDefaultIds])),
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      }
+    }
     setIsQuickDayEditorOpen(false);
   };
 
-  // Sales rep filter options
+  // Sales rep filter options (for Admin & Manager)
   const salesOptions = useMemo(() => {
     if (staffList && staffList.length > 0) {
       return staffList.filter((s) => s.role === 'sales' || s.role === 'manager').map((s) => s.name);
@@ -366,24 +451,28 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     return getEffectiveRoutesForDate({
       dateStr: selectedDate,
       dailySchedules: activeDailySchedules,
-      routes,
-      selectedSales,
+      routes: scopedRoutes,
+      selectedSales: canViewAllRoutes ? effectiveSelectedSales : undefined,
     });
-  }, [selectedDate, activeDailySchedules, routes, selectedSales]);
+  }, [selectedDate, activeDailySchedules, scopedRoutes, canViewAllRoutes, effectiveSelectedSales]);
 
   // Legacy day routes (for by_day mode)
   const currentViewDay = callPlanMode === 'date' ? selectedDateThaiDay : selectedDay;
   const dailyRoutesForView = useMemo(() => {
-    return getSalesDailyRoutes(selectedSales, currentViewDay, routes);
-  }, [routes, currentViewDay, selectedSales]);
+    return getSalesDailyRoutes(
+      canViewAllRoutes ? effectiveSelectedSales : undefined,
+      currentViewDay,
+      scopedRoutes
+    );
+  }, [scopedRoutes, currentViewDay, canViewAllRoutes, effectiveSelectedSales]);
 
-  // Track check-ins performed on the SELECTED DATE
+  // Track check-ins performed on the SELECTED DATE (scoped to user role)
   const selectedDateCheckInStatus = useMemo(() => {
     const checkedCustomerIds = new Set<string>();
     const checkedStoreNames = new Set<string>();
     const targetDayNum = selectedDate.split('-')[2];
 
-    checkIns.forEach((ci) => {
+    scopedCheckIns.forEach((ci) => {
       let isMatch = false;
       if (ci.createdAt) {
         if (ci.createdAt.slice(0, 10) === selectedDate) {
@@ -400,7 +489,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     });
 
     return { checkedCustomerIds, checkedStoreNames };
-  }, [checkIns, selectedDate]);
+  }, [scopedCheckIns, selectedDate]);
 
   const isCustomerCheckedInOnSelectedDate = (cust: Customer) => {
     if (cust.id && selectedDateCheckInStatus.checkedCustomerIds.has(cust.id)) return true;
@@ -412,14 +501,14 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
   const { datePlanCount, dateCompletedCount } = useMemo(() => {
     let plan = 0;
     let completed = 0;
-    customers.forEach((c) => {
+    scopedCustomers.forEach((c) => {
       if (
         isCustomerInDatePlan({
           customer: c,
           dateStr: selectedDate,
           dailySchedules: activeDailySchedules,
-          routes,
-          selectedSales,
+          routes: scopedRoutes,
+          selectedSales: canViewAllRoutes ? effectiveSelectedSales : undefined,
           selectedRouteId: callPlanMode === 'by_route' ? selectedRouteId : undefined,
         })
       ) {
@@ -431,11 +520,12 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     });
     return { datePlanCount: plan, dateCompletedCount: completed };
   }, [
-    customers,
+    scopedCustomers,
     selectedDate,
     activeDailySchedules,
-    routes,
-    selectedSales,
+    scopedRoutes,
+    canViewAllRoutes,
+    effectiveSelectedSales,
     callPlanMode,
     selectedRouteId,
     selectedDateCheckInStatus,
@@ -477,8 +567,8 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
           customer,
           dateStr: selectedDate,
           dailySchedules: activeDailySchedules,
-          routes,
-          selectedSales,
+          routes: scopedRoutes,
+          selectedSales: canViewAllRoutes ? effectiveSelectedSales : undefined,
           selectedRouteId: selectedRouteId !== 'all' ? selectedRouteId : undefined,
         });
         if (!inPlan) return false;
@@ -486,32 +576,32 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
         const inPlan = isCustomerInDailyPlan({
           customer,
           targetDay: selectedDay,
-          selectedSales,
-          routes,
+          selectedSales: canViewAllRoutes ? effectiveSelectedSales : undefined,
+          routes: scopedRoutes,
         });
         if (!inPlan) return false;
       } else if (callPlanMode === 'by_route') {
         if (selectedRouteId !== 'all') {
-          const targetRoute = routes.find((r) => r.id === selectedRouteId);
+          const targetRoute = scopedRoutes.find((r) => r.id === selectedRouteId);
           if (!targetRoute || !isCustomerInRoute(customer, targetRoute)) return false;
         }
-        if (selectedSales !== 'all') {
-          const matchedRoute = routes.find(
+        if (canViewAllRoutes && effectiveSelectedSales !== 'all') {
+          const matchedRoute = scopedRoutes.find(
             (r) => r.id === customer.routeId || r.name === customer.routeName || isCustomerInRoute(customer, r)
           );
           const belongs =
-            (matchedRoute && doesRouteBelongToSales(matchedRoute, selectedSales)) ||
-            customer.salespersonName === selectedSales;
+            (matchedRoute && doesRouteBelongToSales(matchedRoute, effectiveSelectedSales)) ||
+            customer.salespersonName === effectiveSelectedSales;
           if (!belongs) return false;
         }
       } else if (callPlanMode === 'all') {
-        if (selectedSales !== 'all') {
-          const matchedRoute = routes.find(
+        if (canViewAllRoutes && effectiveSelectedSales !== 'all') {
+          const matchedRoute = scopedRoutes.find(
             (r) => r.id === customer.routeId || r.name === customer.routeName || isCustomerInRoute(customer, r)
           );
           const belongs =
-            customer.salespersonName === selectedSales ||
-            (matchedRoute && doesRouteBelongToSales(matchedRoute, selectedSales));
+            customer.salespersonName === effectiveSelectedSales ||
+            (matchedRoute && doesRouteBelongToSales(matchedRoute, effectiveSelectedSales));
           if (!belongs) return false;
         }
       }
@@ -545,8 +635,9 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     activeDailySchedules,
     selectedDay,
     selectedRouteId,
-    selectedSales,
-    routes,
+    canViewAllRoutes,
+    effectiveSelectedSales,
+    scopedRoutes,
     visitStatusFilter,
     distanceFilter,
     selectedDateCheckInStatus,
@@ -679,12 +770,12 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
 
   const todayCheckIns = useMemo(() => {
     const today = new Date();
-    return checkIns.filter((c) => {
+    return scopedCheckIns.filter((c) => {
       const d = new Date(c.createdAt);
       if (isNaN(d.getTime())) return false;
       return d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
     });
-  }, [checkIns]);
+  }, [scopedCheckIns]);
 
   return (
     <div className="space-y-4">
@@ -748,7 +839,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
               <Clock className="w-3.5 h-3.5" />
               <span>ประวัติเช็คอิน</span>
               <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-100 text-blue-800 font-bold">
-                {checkIns.length}
+                {scopedCheckIns.length}
               </span>
             </button>
           </div>
@@ -966,7 +1057,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                       callPlanMode === 'all' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700'
                     }`}
                   >
-                    {customers.length}
+                    {scopedCustomers.length}
                   </span>
                 </button>
 
@@ -1000,23 +1091,34 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
             {/* Row 3: Secondary Selectors (Salesperson, Route, Day, Visit Status) */}
             <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
               <div className="flex flex-wrap items-center gap-2">
-                {/* Sales rep selector */}
-                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl">
-                  <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  <span className="text-[11px] font-medium text-slate-500 whitespace-nowrap">เซลล์:</span>
-                  <select
-                    value={selectedSales}
-                    onChange={(e) => setSelectedSales(e.target.value)}
-                    className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
-                  >
-                    <option value="all">ทุกคน (All Sales)</option>
-                    {salesOptions.map((sales) => (
-                      <option key={sales} value={sales}>
-                        {sales}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {/* Sales rep selector (Admin & Manager can switch; Sales locked to own routes) */}
+                {canViewAllRoutes ? (
+                  <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl">
+                    <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <span className="text-[11px] font-medium text-slate-500 whitespace-nowrap">เซลล์:</span>
+                    <select
+                      value={selectedSales}
+                      onChange={(e) => setSelectedSales(e.target.value)}
+                      className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                    >
+                      <option value="all">ทุกคน (All Sales)</option>
+                      {salesOptions.map((sales) => (
+                        <option key={sales} value={sales}>
+                          {sales}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 bg-blue-50/80 border border-blue-200 px-2.5 py-1 rounded-xl">
+                    <User className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span className="text-[11px] font-medium text-blue-600 whitespace-nowrap">เซลล์:</span>
+                    <span className="text-xs font-bold text-blue-900 whitespace-nowrap">{currentUser.name}</span>
+                    <span className="text-[10px] font-semibold text-blue-700 bg-white/80 px-1.5 py-0.5 rounded-md border border-blue-200/80">
+                      เฉพาะสายของฉัน
+                    </span>
+                  </div>
+                )}
 
                 {/* Route Selector (when in by_route mode) */}
                 {callPlanMode === 'by_route' && (
@@ -1028,8 +1130,8 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                       onChange={(e) => setSelectedRouteId(e.target.value)}
                       className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer max-w-[180px] truncate"
                     >
-                      <option value="all">ทุกสายส่ง</option>
-                      {routes.map((r) => (
+                      <option value="all">{canViewAllRoutes ? 'ทุกสายส่ง' : 'ทุกสายส่งของฉัน'}</option>
+                      {availableRoutesForSelector.map((r) => (
                         <option key={r.id} value={r.id}>
                           {r.name} {r.salesrepName ? `(${r.salesrepName})` : ''}
                         </option>
@@ -1330,7 +1432,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                       onClick={() => setCallPlanMode('all')}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200 cursor-pointer"
                     >
-                      <span>ดูร้านค้าทั้งหมด ({customers.length})</span>
+                      <span>ดูร้านค้าทั้งหมด ({scopedCustomers.length})</span>
                     </button>
                   )}
                 </div>
@@ -1344,8 +1446,8 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                   customer,
                   dateStr: selectedDate,
                   dailySchedules: activeDailySchedules,
-                  routes,
-                  selectedSales: 'all',
+                  routes: scopedRoutes,
+                  selectedSales: canViewAllRoutes ? effectiveSelectedSales : undefined,
                 });
 
                 return (
@@ -1524,19 +1626,21 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
             <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs">
               <span className="text-xs text-slate-500">เช็คอินทั้งหมด</span>
               <div className="text-xl font-black text-slate-800 mt-0.5">
-                {checkIns.length} ครั้ง
+                {scopedCheckIns.length} ครั้ง
               </div>
             </div>
             <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs col-span-2 sm:col-span-1">
-              <span className="text-xs text-slate-500">พนักงานขาย</span>
+              <span className="text-xs text-slate-500">
+                {canViewAllRoutes ? 'มุมมองข้อมูล (ผู้ดูแล/หัวหน้าแผนก)' : 'พนักงานขาย (สายของฉัน)'}
+              </span>
               <div className="text-xs font-bold text-slate-800 mt-1 truncate">
-                {currentUser.name}
+                {canViewAllRoutes ? `${currentUser.name} — ดูได้ทุกคน` : currentUser.name}
               </div>
             </div>
           </div>
 
           {/* History List */}
-          {checkIns.length === 0 ? (
+          {scopedCheckIns.length === 0 ? (
             <div className="p-10 text-center bg-white rounded-2xl border border-slate-200/80 space-y-2">
               <Clock className="w-10 h-10 text-slate-300 mx-auto" />
               <p className="text-sm font-bold text-slate-700">ยังไม่มีประวัติการเช็คอิน</p>
@@ -1554,7 +1658,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
             </div>
           ) : (
             <div className="space-y-2.5">
-              {checkIns.slice(0, visibleHistoryCount).map((item, idx) => (
+              {scopedCheckIns.slice(0, visibleHistoryCount).map((item, idx) => (
                 <div
                   key={item.id + '-' + idx}
                   className="content-auto-card bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
@@ -1644,13 +1748,13 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                 </div>
               ))}
 
-              {checkIns.length > visibleHistoryCount && (
+              {scopedCheckIns.length > visibleHistoryCount && (
                 <button
                   type="button"
                   onClick={() => setVisibleHistoryCount((prev) => prev + 20)}
                   className="w-full py-3 px-4 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-bold rounded-xl text-xs sm:text-sm transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer mt-3"
                 >
-                  <span>แสดงประวัติเพิ่มเติม (+20 จากทั้งหมด {checkIns.length} รายการ)</span>
+                  <span>แสดงประวัติเพิ่มเติม (+20 จากทั้งหมด {scopedCheckIns.length} รายการ)</span>
                 </button>
               )}
             </div>
@@ -2027,7 +2131,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                 <div className="flex items-center gap-1.5">
                   <button
                     type="button"
-                    onClick={() => setQuickEditingRouteIds(routes.map((r) => r.id))}
+                    onClick={() => setQuickEditingRouteIds(scopedRoutes.map((r) => r.id))}
                     className="text-[11px] font-bold text-blue-600 hover:underline cursor-pointer"
                   >
                     เลือกทั้งหมด
@@ -2045,8 +2149,8 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                     type="button"
                     onClick={() => {
                       const thaiDay = getThaiDayFromDate(selectedDate);
-                      const defIds = routes
-                        .filter((r) => Array.isArray(r.visitDays) && r.visitDays.includes(thaiDay))
+                      const defIds = scopedRoutes
+                        .filter((r) => doesRouteRunOnDay(r, thaiDay))
                         .map((r) => r.id);
                       setQuickEditingRouteIds(defIds);
                     }}
@@ -2059,15 +2163,17 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
 
               {/* Routes Checklist */}
               <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                {routes.length === 0 ? (
+                {scopedRoutes.length === 0 ? (
                   <div className="p-4 rounded-xl bg-slate-50 text-slate-500 text-center">
-                    ยังไม่มีข้อมูลสายส่งในระบบ
+                    {canViewAllRoutes
+                      ? 'ยังไม่มีข้อมูลสายส่งในระบบ'
+                      : `ยังไม่มีสายการเข้าเยี่ยมที่กำหนดให้ ${currentUser.name}`}
                   </div>
                 ) : (
-                  routes.map((route, idx) => {
+                  scopedRoutes.map((route, idx) => {
                     const isChecked = quickEditingRouteIds.includes(route.id);
                     const palette = getRouteColor(route.id || idx);
-                    const customerCount = customers.filter((c) => isCustomerInRoute(c, route)).length;
+                    const customerCount = scopedCustomers.filter((c) => isCustomerInRoute(c, route)).length;
 
                     return (
                       <div
@@ -2138,8 +2244,8 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                 <div>
                   <span className="text-slate-500">เป้าหมายร้านค้ารวม: </span>
                   <strong className="text-slate-900 font-bold text-sm">
-                    {customers.filter((c) =>
-                      routes
+                    {scopedCustomers.filter((c) =>
+                      scopedRoutes
                         .filter((r) => quickEditingRouteIds.includes(r.id))
                         .some((r) => isCustomerInRoute(c, r))
                     ).length}{' '}

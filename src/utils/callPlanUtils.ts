@@ -1,4 +1,4 @@
-import { Route, Customer, StaffUser, DailyRouteSchedule } from '../types';
+import { Route, Customer, StaffUser, DailyRouteSchedule, StoreCheckIn } from '../types';
 
 export const THAI_DAYS = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'] as const;
 export type ThaiDay = typeof THAI_DAYS[number];
@@ -172,18 +172,108 @@ export function doesRouteRunOnDay(route: Route, targetDay: ThaiDay): boolean {
  * Checks if a route belongs to a salesperson
  */
 export function doesRouteBelongToSales(route: Route, salesIdentifier?: string): boolean {
-  if (!salesIdentifier || salesIdentifier === 'all') return true;
+  if (salesIdentifier === undefined || salesIdentifier === 'all') return true;
   const cleanTarget = salesIdentifier.trim().toLowerCase();
+  if (!cleanTarget) return false;
 
   const rSales = (route.salesrepName || '').trim().toLowerCase();
+  const rSalesId = String((route as any).salespersonId || '').trim().toLowerCase();
   const rId = (route.id || '').trim().toLowerCase();
   const rName = (route.name || '').trim().toLowerCase();
 
   if (rSales && (rSales.includes(cleanTarget) || cleanTarget.includes(rSales))) return true;
-  if ((route as any).salespersonId && String((route as any).salespersonId).toLowerCase().includes(cleanTarget)) return true;
+  if (rSalesId && (rSalesId === cleanTarget || rSalesId.includes(cleanTarget))) return true;
 
   if (rId.startsWith(cleanTarget) || rName.includes(cleanTarget)) return true;
 
+  return false;
+}
+
+/**
+ * Strictly checks if a route belongs to a specific StaffUser (matching salespersonId, email, or name).
+ * Returns false if user is missing or has no matching identifier.
+ */
+export function doesRouteBelongToUser(route: Route, user?: StaffUser | null): boolean {
+  if (!user) return false;
+
+  const userName = (user.name || '').trim().toLowerCase();
+  const userId = (user.id || '').trim().toLowerCase();
+  const userEmail = (user.email || '').trim().toLowerCase();
+
+  const rSales = (route.salesrepName || '').trim().toLowerCase();
+  const rSalesId = String(route.salespersonId || '').trim().toLowerCase();
+  const rId = (route.id || '').trim().toLowerCase();
+  const rName = (route.name || '').trim().toLowerCase();
+
+  if (rSalesId) {
+    if (userId && rSalesId === userId) return true;
+    if (userEmail && rSalesId === userEmail) return true;
+    if (userName && rSalesId === userName) return true;
+  }
+
+  if (userName) {
+    if (rSales && (rSales === userName || rSales.includes(userName) || userName.includes(rSales))) {
+      return true;
+    }
+    if (rId.startsWith(userName) || rName.includes(userName)) {
+      return true;
+    }
+  }
+
+  if (userId && rSales && rSales.includes(userId)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Checks if a customer belongs to a specific StaffUser via their assigned routes or direct salesperson assignment.
+ */
+export function isCustomerBelongingToUser(
+  customer: Customer,
+  user: StaffUser,
+  userRoutes: Route[],
+  allRoutes?: Route[]
+): boolean {
+  // 1. Direct match against any route owned by this user
+  if (userRoutes.some((r) => isCustomerInRoute(customer, r))) {
+    return true;
+  }
+
+  // 2. If allRoutes provided and customer belongs to a route owned by someone else, do not leak
+  if (allRoutes && allRoutes.length > 0) {
+    const matchedRoute = allRoutes.find((r) => isCustomerInRoute(customer, r));
+    if (matchedRoute && (matchedRoute.salesrepName || matchedRoute.salespersonId)) {
+      return false;
+    }
+  }
+
+  // 3. Fallback to customer's own salespersonName when not attached to another rep's route
+  const userName = (user.name || '').trim().toLowerCase();
+  const custSales = (customer.salespersonName || '').trim().toLowerCase();
+  if (userName && custSales) {
+    return custSales === userName || custSales.includes(userName) || userName.includes(custSales);
+  }
+
+  return false;
+}
+
+/**
+ * Checks if a store check-in record belongs to a specific StaffUser.
+ */
+export function doesCheckInBelongToUser(checkIn: StoreCheckIn, user?: StaffUser | null): boolean {
+  if (!user) return false;
+  const userId = (user.id || '').trim().toLowerCase();
+  const userName = (user.name || '').trim().toLowerCase();
+
+  const ciSalesId = String(checkIn.salespersonId || '').trim().toLowerCase();
+  const ciSalesName = String(checkIn.salespersonName || '').trim().toLowerCase();
+
+  if (userId && ciSalesId && ciSalesId === userId) return true;
+  if (userName && ciSalesName) {
+    return ciSalesName === userName || ciSalesName.includes(userName) || userName.includes(ciSalesName);
+  }
   return false;
 }
 
