@@ -817,9 +817,9 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                         </p>
                       </div>
                     ) : (
-                      matchingCustomers.map((c) => (
+                      matchingCustomers.map((c, idx) => (
                         <div
-                          key={c.id || c.name + c.phone}
+                          key={`${c.id || c.name || 'cust'}-${c.phone || ''}-${idx}`}
                           onMouseDown={(e) => {
                             e.preventDefault();
                             handleSelectCustomer(c);

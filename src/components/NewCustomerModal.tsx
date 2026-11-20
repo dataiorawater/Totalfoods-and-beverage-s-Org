@@ -272,8 +272,8 @@ export const NewCustomerModal: React.FC<NewCustomerModalProps> = ({
                     ? '-- ยังไม่มีสายการเข้าเยี่ยมที่กำหนดให้คุณ --'
                     : '-- โปรดระบุสาย --'}
                 </option>
-                {scopedRoutes.map((r) => (
-                  <option key={r.id} value={r.name}>
+                {scopedRoutes.map((r, idx) => (
+                  <option key={`${r.id || r.name}-${idx}`} value={r.name}>
                     {r.id ? `${r.id} - ` : ''}{r.name}{r.salesrepName ? ` • ${r.salesrepName}` : ''}
                   </option>
                 ))}

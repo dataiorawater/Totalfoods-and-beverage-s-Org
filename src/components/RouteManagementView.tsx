@@ -177,10 +177,10 @@ export const RouteManagementView: React.FC<RouteManagementViewProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  routes.map(r => {
+                  routes.map((r, idx) => {
                     const days = r.visitDays || [];
                     return (
-                      <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
+                      <tr key={`${r.id || r.name}-${idx}`} className="hover:bg-slate-50/80 transition-colors">
                         <td className="px-4 py-3 font-bold text-slate-800">{r.id}</td>
                         <td className="px-4 py-3">
                           <div className="font-semibold text-slate-900">{r.name}</div>

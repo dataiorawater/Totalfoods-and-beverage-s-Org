@@ -35,6 +35,7 @@ import {
   doesRouteRunOnDay,
   doesRouteBelongToSales,
   doesRouteBelongToUser,
+  isCustomerBelongingToUser,
   getSalesDailyRoutes,
 } from '../utils/callPlanUtils';
 
@@ -122,6 +123,14 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     });
   }, [canViewAllRoutes, routes, currentUser]);
 
+  const scopedCustomers = useMemo(() => {
+    if (canViewAllRoutes) return customers;
+    if (!currentUser) return [];
+    return customers.filter((c) =>
+      isCustomerBelongingToUser(c, currentUser, scopedRoutes, routes)
+    );
+  }, [canViewAllRoutes, customers, currentUser, scopedRoutes, routes]);
+
   useEffect(() => {
     if (!canViewAllRoutes && !editingId && routeName && !scopedRoutes.some((r) => r.name === routeName)) {
       setRouteName('');
@@ -134,42 +143,52 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     }
   }, [canViewAllRoutes, selectedRouteId, scopedRoutes]);
 
-  // Unique sales reps list for filter dropdown
+  useEffect(() => {
+    if (!canViewAllRoutes) {
+      setSelectedSales(currentUser?.name || 'all');
+    } else {
+      setSelectedSales('all');
+    }
+  }, [canViewAllRoutes, currentUser?.id, currentUser?.name]);
+
+  // Unique sales reps list for filter dropdown (admin/manager only)
   const salesOptions = useMemo(() => {
     const names = new Set<string>();
     routes.forEach((r) => {
       if (r.salesrepName) names.add(r.salesrepName);
     });
     staffList.forEach((s) => {
-      if (s.name && (s.role === 'sales' || s.role === 'staff')) names.add(s.name);
+      if (s.name && s.role === 'sales') names.add(s.name);
     });
     if (currentUser?.name) names.add(currentUser.name);
     return Array.from(names);
   }, [routes, staffList, currentUser]);
+
+  const effectiveSelectedSales = canViewAllRoutes ? selectedSales : 'all';
 
   // Target day being viewed
   const currentViewDay = filterMode === 'today' ? todayThai : selectedDay;
 
   // Active routes running on target day
   const dailyRoutesForView = useMemo(() => {
-    return routes.filter((r) => {
+    return scopedRoutes.filter((r) => {
       const runsToday = doesRouteRunOnDay(r, currentViewDay);
-      const matchesSales = doesRouteBelongToSales(r, selectedSales);
+      const matchesSales = doesRouteBelongToSales(r, effectiveSelectedSales);
       return runsToday && matchesSales;
     });
-  }, [routes, currentViewDay, selectedSales]);
+  }, [scopedRoutes, currentViewDay, effectiveSelectedSales]);
 
   // Customer count for today's plan
   const todayPlanCount = useMemo(() => {
-    return customers.filter((c) =>
+    return scopedCustomers.filter((c) =>
       isCustomerInDailyPlan({
         customer: c,
         targetDay: todayThai,
-        selectedSales: currentUser?.role === 'sales' ? currentUser.name : selectedSales,
-        routes,
+        selectedSales: effectiveSelectedSales,
+        routes: scopedRoutes,
       })
     ).length;
-  }, [customers, todayThai, selectedSales, currentUser, routes]);
+  }, [scopedCustomers, todayThai, effectiveSelectedSales, scopedRoutes]);
 
   // Robust search matcher across customer fields (prevents empty digit string from matching all customers)
   const matchesCustomerSearch = (c: Customer, query: string): boolean => {
@@ -201,18 +220,18 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     });
   };
 
-  // Count matches across all customers when searching
+  // Count matches across all accessible customers when searching
   const allSearchMatchedCount = useMemo(() => {
-    if (!customers || customers.length === 0) return 0;
-    if (!searchQuery.trim()) return customers.length;
-    return customers.filter((c) => matchesCustomerSearch(c, searchQuery)).length;
-  }, [customers, searchQuery]);
+    if (!scopedCustomers || scopedCustomers.length === 0) return 0;
+    if (!searchQuery.trim()) return scopedCustomers.length;
+    return scopedCustomers.filter((c) => matchesCustomerSearch(c, searchQuery)).length;
+  }, [scopedCustomers, searchQuery]);
 
   // Filtered customer list
   const filteredCustomers = useMemo(() => {
-    if (!customers || customers.length === 0) return [];
+    if (!scopedCustomers || scopedCustomers.length === 0) return [];
 
-    let list = customers;
+    let list = scopedCustomers;
 
     // Apply Call Plan / Route Filter
     if (filterMode === 'today') {
@@ -220,8 +239,8 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
         isCustomerInDailyPlan({
           customer: c,
           targetDay: todayThai,
-          selectedSales,
-          routes,
+          selectedSales: effectiveSelectedSales,
+          routes: scopedRoutes,
         })
       );
     } else if (filterMode === 'by_day') {
@@ -229,14 +248,19 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
         isCustomerInDailyPlan({
           customer: c,
           targetDay: selectedDay,
-          selectedSales,
-          routes,
+          selectedSales: effectiveSelectedSales,
+          routes: scopedRoutes,
         })
       );
     } else if (filterMode === 'by_route') {
       if (selectedRouteId && selectedRouteId !== 'all') {
-        const targetRoute = routes.find((r) => r.id === selectedRouteId);
+        const targetRoute = scopedRoutes.find((r) => r.id === selectedRouteId);
         list = list.filter((c) => (targetRoute ? isCustomerInRoute(c, targetRoute) : false));
+      } else if (canViewAllRoutes && effectiveSelectedSales !== 'all') {
+        const salesRoutes = scopedRoutes.filter((r) =>
+          doesRouteBelongToSales(r, effectiveSelectedSales)
+        );
+        list = list.filter((c) => salesRoutes.some((r) => isCustomerInRoute(c, r)));
       }
     }
 
@@ -246,7 +270,17 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     }
 
     return list;
-  }, [customers, filterMode, todayThai, selectedDay, selectedSales, selectedRouteId, routes, searchQuery]);
+  }, [
+    scopedCustomers,
+    filterMode,
+    todayThai,
+    selectedDay,
+    effectiveSelectedSales,
+    selectedRouteId,
+    scopedRoutes,
+    canViewAllRoutes,
+    searchQuery,
+  ]);
 
   // GPS Capture
   const handleCaptureGPS = () => {
@@ -492,8 +526,8 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                     {editingId && routeName && !scopedRoutes.some((r) => r.name === routeName) && (
                       <option value={routeName}>{routeName}</option>
                     )}
-                    {scopedRoutes.map((r) => (
-                      <option key={r.id} value={r.name}>
+                    {scopedRoutes.map((r, idx) => (
+                      <option key={`${r.id || r.name}-${idx}`} value={r.name}>
                         {r.id ? `${r.id} - ` : ''}{r.name}{r.salesrepName ? ` • ${r.salesrepName}` : ''}
                       </option>
                     ))}
@@ -637,11 +671,11 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                   }`}
                 >
                   <Users className="w-3.5 h-3.5" />
-                  <span>ลูกค้าทั้งหมด</span>
+                  <span>{canViewAllRoutes ? 'ลูกค้าทั้งหมด' : 'ลูกค้าของฉัน'}</span>
                   <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
                     filterMode === 'all' ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-700'
                   }`}>
-                    {customers.length}
+                    {scopedCustomers.length}
                   </span>
                 </button>
 
@@ -696,26 +730,30 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
               </div>
             </div>
 
-            {/* Sub-Filters: Salesperson & Specific Route / Day selectors (shown when filtering by plan/route/day) */}
-            {filterMode !== 'all' && (
+            {/* Sub-Filters: Salesperson (admin/manager only) & Specific Route / Day selectors */}
+            {(canViewAllRoutes
+              ? filterMode !== 'all'
+              : filterMode === 'by_route' || filterMode === 'by_day') && (
               <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2.5">
                 
-                {/* Sales Rep Selector */}
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">เซลล์ผู้ดูแล:</span>
-                  <select
-                    value={selectedSales}
-                    onChange={(e) => setSelectedSales(e.target.value)}
-                    className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 font-medium text-slate-700 focus:bg-white"
-                  >
-                    <option value="all">ทั้งหมด (ทุกเซลล์)</option>
-                    {salesOptions.map((s) => (
-                      <option key={s} value={s}>
-                        {s} {currentUser?.name === s ? '(คุณ)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {/* Sales Rep Selector (Admin & Manager only) */}
+                {canViewAllRoutes && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">เซลล์ผู้ดูแล:</span>
+                    <select
+                      value={selectedSales}
+                      onChange={(e) => setSelectedSales(e.target.value)}
+                      className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 font-medium text-slate-700 focus:bg-white"
+                    >
+                      <option value="all">ทั้งหมด (ทุกเซลล์)</option>
+                      {salesOptions.map((s) => (
+                        <option key={s} value={s}>
+                          {s} {currentUser?.name === s ? '(คุณ)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 {/* By Route Dropdown */}
                 {filterMode === 'by_route' && (
@@ -729,8 +767,8 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                       <option value="all">
                         {canViewAllRoutes ? 'ทุกสายการเข้าเยี่ยม' : 'ทุกสายการเข้าเยี่ยมของฉัน'}
                       </option>
-                      {scopedRoutes.map((r) => (
-                        <option key={r.id} value={r.id}>
+                      {scopedRoutes.map((r, idx) => (
+                        <option key={`${r.id || r.name}-${idx}`} value={r.id}>
                           {r.id ? `${r.id} - ` : ''}{r.name}{r.salesrepName ? ` • ${r.salesrepName}` : ''}
                         </option>
                       ))}
@@ -788,7 +826,8 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                   </div>
                   <div className="text-[11px] opacity-80">
                     เป้าหมายเข้าเยี่ยม: <span className="font-bold">{filteredCustomers.length}</span> ร้านค้า
-                    {selectedSales !== 'all' && ` • เฉพาะเซลล์: ${selectedSales}`}
+                    {canViewAllRoutes && selectedSales !== 'all' && ` • เฉพาะเซลล์: ${selectedSales}`}
+                    {!canViewAllRoutes && currentUser?.name && ` • เฉพาะสายของคุณ (${currentUser.name})`}
                   </div>
                 </div>
 
@@ -888,7 +927,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                   >
                     {searchQuery.trim() && allSearchMatchedCount > 0
                       ? `ดูผลค้นหาในลูกค้าทั้งหมด (${allSearchMatchedCount} ราย)`
-                      : `ดูรายชื่อลูกค้าทั้งหมด (${customers.length} ร้าน)`}
+                      : `ดูรายชื่อ${canViewAllRoutes ? 'ลูกค้าทั้งหมด' : 'ลูกค้าของฉัน'} (${scopedCustomers.length} ร้าน)`}
                   </button>
                 )}
                 <button
@@ -918,12 +957,12 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                 const isTodayPlan = isCustomerInDailyPlan({
                   customer: cust,
                   targetDay: todayThai,
-                  routes,
+                  routes: scopedRoutes,
                 });
 
                 return (
                   <div
-                    key={cust.id || cust?.name + cust.phone + idx}
+                    key={`${cust.id || cust?.name || 'cust'}-${cust.phone || ''}-${idx}`}
                     className={`content-auto bg-white rounded-2xl p-4 border transition-all group ${
                       isTodayPlan && filterMode !== 'today'
                         ? 'border-blue-300 ring-1 ring-blue-500/10 shadow-xs'

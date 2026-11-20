@@ -1310,7 +1310,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                 </div>
               </div>
             ) : (
-              filteredStores.map(({ customer, coords, distanceMeters }) => {
+              filteredStores.map(({ customer, coords, distanceMeters }, idx) => {
                 const isVeryClose = distanceMeters !== undefined && distanceMeters <= 100;
                 const isClose = distanceMeters !== undefined && distanceMeters <= 1000;
                 const hasCheckedInDate = isCustomerCheckedInOnSelectedDate(customer);
@@ -1324,7 +1324,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
 
                 return (
                   <div
-                    key={customer.id || customer.name + customer.phone}
+                    key={`${customer.id || customer.name || 'cust'}-${customer.phone || ''}-${idx}`}
                     className={`bg-white p-3.5 sm:p-4 rounded-2xl border transition-all shadow-2xs flex flex-col justify-between gap-3 ${
                       hasCheckedInDate
                         ? 'border-emerald-200 bg-emerald-50/15'
