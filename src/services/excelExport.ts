@@ -1,10 +1,12 @@
 import * as XLSX from 'xlsx';
-import { Order } from '../types';
+import { Customer, Order, StoreCheckIn } from '../types';
 import { getStatusLabelThai } from './googleSheets';
+import { calculateDistanceMeters, extractCustomerCoords, formatDistance } from '../utils/geoUtils';
 
 export interface ExcelExportOptions {
   month?: string; // e.g. "2026-09" or "all"
   salespersonId?: string; // "all" or specific
+  salespersonName?: string; // optional name fallback for matching check-ins
   status?: string; // "all" or specific
 }
 
@@ -154,42 +156,73 @@ export const exportOrdersToExcel = (
 };
 
 export const exportCheckInsToExcel = (
-  checkIns: import('../types').StoreCheckIn[],
-  options: ExcelExportOptions = {}
+  checkIns: StoreCheckIn[],
+  options: ExcelExportOptions = {},
+  customers: Customer[] = []
 ) => {
   let filtered = [...checkIns];
 
   if (options.month && options.month !== 'all') {
-    filtered = filtered.filter((c) => c.createdAt.startsWith(options.month!));
+    filtered = filtered.filter((c) => String(c.createdAt || '').startsWith(options.month!));
   }
 
   if (options.salespersonId && options.salespersonId !== 'all') {
-    // Assuming checkIn has salespersonName. We might only have name, not ID.
-    // We'll filter by name if needed, but for now we might skip or match.
-    // The previous implementation for orders matches by salespersonId.
-    // checkIns usually just have salespersonName.
-    // Let's filter by salespersonName if ID is passed. Wait, ID is used, so we need to find the name or we skip.
-    // For simplicity, we just filter if it matches exactly.
+    const targetId = options.salespersonId;
+    const targetName = options.salespersonName?.trim().toLowerCase();
+    filtered = filtered.filter((c) => {
+      if (c.salespersonId && c.salespersonId === targetId) return true;
+      if (targetName && String(c.salespersonName || '').trim().toLowerCase() === targetName) return true;
+      return false;
+    });
   }
+
+  const resolveDistanceMeters = (c: StoreCheckIn): number | undefined => {
+    if (c.distanceMeters !== undefined && c.distanceMeters !== null && !isNaN(Number(c.distanceMeters))) {
+      return Math.round(Number(c.distanceMeters));
+    }
+    if (c.latitude && c.longitude && customers.length > 0) {
+      const storeKey = String(c.storeName || c.customerName || '').trim().toLowerCase();
+      const matchedCust = customers.find(
+        (cust) =>
+          (c.customerId && cust.id === c.customerId) ||
+          (storeKey && String(cust.name || '').trim().toLowerCase() === storeKey)
+      );
+      if (matchedCust) {
+        const coords = extractCustomerCoords(matchedCust);
+        if (coords) {
+          return calculateDistanceMeters(c.latitude, c.longitude, coords.lat, coords.lng);
+        }
+      }
+    }
+    return undefined;
+  };
 
   const rows = filtered.map((c, idx) => {
     const d = new Date(c.createdAt);
-    const dateFormatted = d.toLocaleDateString('th-TH', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-    const timeFormatted = d.toLocaleTimeString('th-TH', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    const dateFormatted = !isNaN(d.getTime())
+      ? d.toLocaleDateString('th-TH', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        })
+      : c.timestampStr || '-';
+    const timeFormatted = !isNaN(d.getTime())
+      ? d.toLocaleTimeString('th-TH', {
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : '-';
+
+    const distMeters = resolveDistanceMeters(c);
 
     return {
       'ลำดับ': idx + 1,
       'วันที่': dateFormatted,
       'เวลา': timeFormatted,
-      'พนักงานขาย (เซลล์)': c.salespersonName,
+      'พนักงานขาย (เซลล์)': c.salespersonName || '-',
       'ชื่อร้านค้า/ลูกค้า': c.storeName || c.customerName || '-',
+      'ระยะห่างจากจุดร้านค้า': distMeters !== undefined ? formatDistance(distMeters) : '-',
+      'ระยะห่าง (เมตร)': distMeters !== undefined ? distMeters : '-',
       'เบอร์โทรศัพท์': c.customerPhone || '-',
       'ที่อยู่': c.address || '-',
       'พิกัด Google Maps': c.mapsUrl || '-',
@@ -200,15 +233,17 @@ export const exportCheckInsToExcel = (
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows);
   ws['!cols'] = [
-    { wch: 6 },
-    { wch: 12 },
-    { wch: 8 },
-    { wch: 22 },
-    { wch: 24 },
-    { wch: 14 },
-    { wch: 30 },
-    { wch: 30 },
-    { wch: 25 },
+    { wch: 6 },  // ลำดับ
+    { wch: 12 }, // วันที่
+    { wch: 8 },  // เวลา
+    { wch: 22 }, // พนักงานขาย
+    { wch: 26 }, // ชื่อร้านค้า
+    { wch: 20 }, // ระยะห่างจากจุดร้านค้า
+    { wch: 16 }, // ระยะห่าง (เมตร)
+    { wch: 14 }, // เบอร์โทร
+    { wch: 30 }, // ที่อยู่
+    { wch: 30 }, // พิกัด Google Maps
+    { wch: 25 }, // หมายเหตุ
   ];
   XLSX.utils.book_append_sheet(wb, ws, 'รายการเช็คอินทั้งหมด');
 

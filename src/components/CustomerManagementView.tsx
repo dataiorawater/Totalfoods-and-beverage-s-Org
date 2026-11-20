@@ -34,6 +34,7 @@ import {
   isCustomerInRoute,
   doesRouteRunOnDay,
   doesRouteBelongToSales,
+  doesRouteBelongToUser,
   getSalesDailyRoutes,
 } from '../utils/callPlanUtils';
 
@@ -103,6 +104,35 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
   useEffect(() => {
     setVisibleCustomerCount(25);
   }, [searchQuery, filterMode, selectedDay, selectedRouteId, selectedSales]);
+
+  // Role-based route scoping: admin & manager see all routes; other roles see only their own routes
+  const canViewAllRoutes = currentUser?.role === 'admin' || currentUser?.role === 'manager';
+
+  const scopedRoutes = useMemo(() => {
+    const filtered = canViewAllRoutes
+      ? routes
+      : routes.filter((r) => doesRouteBelongToUser(r, currentUser));
+    return [...filtered].sort((a, b) => {
+      const idCmp = String(a.id || '').localeCompare(String(b.id || ''), undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      });
+      if (idCmp !== 0) return idCmp;
+      return String(a.name || '').localeCompare(String(b.name || ''), 'th');
+    });
+  }, [canViewAllRoutes, routes, currentUser]);
+
+  useEffect(() => {
+    if (!canViewAllRoutes && !editingId && routeName && !scopedRoutes.some((r) => r.name === routeName)) {
+      setRouteName('');
+    }
+  }, [canViewAllRoutes, editingId, routeName, scopedRoutes]);
+
+  useEffect(() => {
+    if (!canViewAllRoutes && selectedRouteId !== 'all' && !scopedRoutes.some((r) => r.id === selectedRouteId)) {
+      setSelectedRouteId('all');
+    }
+  }, [canViewAllRoutes, selectedRouteId, scopedRoutes]);
 
   // Unique sales reps list for filter dropdown
   const salesOptions = useMemo(() => {
@@ -245,22 +275,9 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     );
   };
 
-  // Toggle visit day in form
-  const handleToggleFormDay = (day: ThaiDay) => {
-    if (visitDays.includes(day)) {
-      setVisitDays(visitDays.filter((d) => d !== day));
-    } else {
-      setVisitDays([...visitDays, day]);
-    }
-  };
-
-  // When route changes in form, auto-fill route's visit days if empty
+  // Update selected route in form
   const handleRouteChange = (newRouteName: string) => {
     setRouteName(newRouteName);
-    const matchedRoute = routes.find((r) => r.name === newRouteName || r.id === newRouteName);
-    if (matchedRoute && matchedRoute.visitDays && matchedRoute.visitDays.length > 0) {
-      setVisitDays(matchedRoute.visitDays as ThaiDay[]);
-    }
   };
 
   // Submit New / Edited Customer
@@ -467,48 +484,27 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                     onChange={(e) => handleRouteChange(e.target.value)}
                     className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-2xs appearance-none"
                   >
-                    <option value="" disabled>-- โปรดระบุสายการเข้าเยี่ยม --</option>
-                    {routes.map(r => (
+                    <option value="" disabled>
+                      {scopedRoutes.length === 0
+                        ? '-- ยังไม่มีสายการเข้าเยี่ยมที่กำหนดให้คุณ --'
+                        : '-- โปรดระบุสายการเข้าเยี่ยม --'}
+                    </option>
+                    {editingId && routeName && !scopedRoutes.some((r) => r.name === routeName) && (
+                      <option value={routeName}>{routeName}</option>
+                    )}
+                    {scopedRoutes.map((r) => (
                       <option key={r.id} value={r.name}>
-                        {r.name} {r.id ? `(${r.id})` : ''} {r.salesrepName ? `• เซลล์: ${r.salesrepName}` : ''}
+                        {r.id ? `${r.id} - ` : ''}{r.name}{r.salesrepName ? ` • ${r.salesrepName}` : ''}
                       </option>
                     ))}
                   </select>
                   <Navigation className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
                 </div>
-              </div>
-
-              {/* Visit Days for Customer */}
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-blue-600" />
-                    <span>วันเข้าเยี่ยม (Call Plan Days):</span>
-                  </span>
-                  <span className="text-[10px] text-slate-500 font-normal">
-                    {visitDays.length > 0 ? `${visitDays.length} วัน/สัปดาห์` : 'ตามรอบสาย'}
-                  </span>
-                </label>
-                <div className="flex flex-wrap gap-1">
-                  {THAI_DAYS.map((day) => {
-                    const isSelected = visitDays.includes(day);
-                    const colors = THAI_DAY_COLORS[day];
-                    return (
-                      <button
-                        key={day}
-                        type="button"
-                        onClick={() => handleToggleFormDay(day)}
-                        className={`px-2 py-1 text-[11px] font-semibold rounded-lg border transition-all cursor-pointer ${
-                          isSelected
-                            ? `${colors.bg} ${colors.text} ${colors.border} ring-1 ${colors.ring}`
-                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        {isSelected ? '✓ ' : ''}{day}
-                      </button>
-                    );
-                  })}
-                </div>
+                {!canViewAllRoutes && scopedRoutes.length === 0 && (
+                  <p className="text-[11px] text-amber-600 mt-1">
+                    ยังไม่มีสายการเข้าเยี่ยมที่ผูกกับบัญชีของคุณ กรุณาติดต่อผู้ดูแลระบบหรือผู้จัดการฝ่ายขาย
+                  </p>
+                )}
               </div>
 
               {/* 3. Address */}
@@ -730,10 +726,12 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                       onChange={(e) => setSelectedRouteId(e.target.value)}
                       className="text-xs bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg px-2.5 py-1 font-semibold focus:bg-white"
                     >
-                      <option value="all">ทุกสายการเข้าเยี่ยม</option>
-                      {routes.map((r) => (
+                      <option value="all">
+                        {canViewAllRoutes ? 'ทุกสายการเข้าเยี่ยม' : 'ทุกสายการเข้าเยี่ยมของฉัน'}
+                      </option>
+                      {scopedRoutes.map((r) => (
                         <option key={r.id} value={r.id}>
-                          {r.id}: {r.name} {r.salesrepName ? `(${r.salesrepName})` : ''}
+                          {r.id ? `${r.id} - ` : ''}{r.name}{r.salesrepName ? ` • ${r.salesrepName}` : ''}
                         </option>
                       ))}
                     </select>

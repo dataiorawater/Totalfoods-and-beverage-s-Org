@@ -1,7 +1,129 @@
 import express from 'express';
 import path from 'path';
+import crypto from 'crypto';
 import 'dotenv/config';
 import { GoogleGenAI, Type } from '@google/genai';
+
+const PARENT_DRIVE_FOLDER_ID = '1OMgGdY7DM78UviFNLJ-Wi_t_ayjsH5V4';
+const DEFAULT_SPREADSHEET_ID = '1a4fKQhjvqwg486PXTO7VRPU65IPaUW_gEARl9Ky7USA';
+const DEFAULT_GAS_URL =
+  'https://script.google.com/macros/s/AKfycbzfqWujgz3EhJJ4fJ6DEf6J6RibJvyp_b8QA2OwVAhN1WG4gVEr2OnrOXtqvJnJqMU9/exec';
+
+let cachedServiceAccountToken: { token: string; expiresAt: number } | null = null;
+
+function base64UrlEncode(input: Buffer | string): string {
+  const buf = typeof input === 'string' ? Buffer.from(input, 'utf8') : input;
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+async function getServiceAccountDriveToken(): Promise<string | null> {
+  const clientEmail = process.env.GOOGLE_CLIENT_EMAIL?.trim();
+  const rawPrivateKey = process.env.GOOGLE_PRIVATE_KEY;
+  if (!clientEmail || !rawPrivateKey) return null;
+
+  if (cachedServiceAccountToken && Date.now() < cachedServiceAccountToken.expiresAt - 60000) {
+    return cachedServiceAccountToken.token;
+  }
+
+  const privateKey = rawPrivateKey.replace(/\\n/g, '\n');
+  const nowSec = Math.floor(Date.now() / 1000);
+  const header = base64UrlEncode(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const claimSet = base64UrlEncode(
+    JSON.stringify({
+      iss: clientEmail,
+      scope: 'https://www.googleapis.com/auth/drive',
+      aud: 'https://oauth2.googleapis.com/token',
+      exp: nowSec + 3600,
+      iat: nowSec,
+    })
+  );
+
+  const unsignedJwt = `${header}.${claimSet}`;
+  const signer = crypto.createSign('RSA-SHA256');
+  signer.update(unsignedJwt);
+  signer.end();
+  const signature = base64UrlEncode(signer.sign(privateKey));
+  const assertion = `${unsignedJwt}.${signature}`;
+
+  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion,
+    }),
+  });
+
+  if (!tokenRes.ok) {
+    const errText = await tokenRes.text();
+    throw new Error(`Service Account token error (${tokenRes.status}): ${errText}`);
+  }
+
+  const tokenJson = (await tokenRes.json()) as { access_token?: string; expires_in?: number };
+  if (!tokenJson.access_token) {
+    throw new Error('Service Account did not return an access_token');
+  }
+
+  cachedServiceAccountToken = {
+    token: tokenJson.access_token,
+    expiresAt: Date.now() + (tokenJson.expires_in || 3600) * 1000,
+  };
+  return cachedServiceAccountToken.token;
+}
+
+function normalizeStoreFolderName(storeName: string): string {
+  const cleaned = String(storeName || '')
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || 'ร้านค้าใหม่';
+}
+
+async function ensureStoreSubfolderWithToken(accessToken: string, storeName: string): Promise<string> {
+  const escaped = storeName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const q = encodeURIComponent(
+    `name='${escaped}' and mimeType='application/vnd.google-apps.folder' and '${PARENT_DRIVE_FOLDER_ID}' in parents and trashed=false`
+  );
+
+  const searchRes = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&spaces=drive&supportsAllDrives=true&includeItemsFromAllDrives=true`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+
+  if (searchRes.ok) {
+    const data = (await searchRes.json()) as { files?: Array<{ id?: string }> };
+    if (Array.isArray(data.files) && data.files[0]?.id) {
+      return data.files[0].id;
+    }
+  }
+
+  const createRes = await fetch(
+    'https://www.googleapis.com/drive/v3/files?fields=id,name&supportsAllDrives=true',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: storeName,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [PARENT_DRIVE_FOLDER_ID],
+      }),
+    }
+  );
+
+  if (!createRes.ok) {
+    const errText = await createRes.text();
+    throw new Error(`ไม่สามารถสร้างโฟลเดอร์ "${storeName}" ใน Google Drive ได้ (${createRes.status}): ${errText}`);
+  }
+
+  const created = (await createRes.json()) as { id: string };
+  return created.id;
+}
 
 
 async function startServer() {
@@ -14,6 +136,217 @@ async function startServer() {
   // Health check
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
+  // Backend Google Drive upload for customer store photos (no client sign-in required)
+  app.post('/api/drive/upload-store-photo', async (req, res) => {
+    try {
+      const { storeName, slotNumber, imageDataUrl, gasUrl, spreadsheetId } = req.body || {};
+
+      if (!imageDataUrl || typeof imageDataUrl !== 'string') {
+        return res.status(400).json({ success: false, error: 'ไม่พบข้อมูลรูปภาพสำหรับอัปโหลด' });
+      }
+
+      const cleanStoreName = normalizeStoreFolderName(storeName);
+      const slot = Number(slotNumber) || 1;
+      const mimeMatch = imageDataUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,/);
+      const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+      const base64Data = imageDataUrl.replace(/^data:[a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+;base64,/, '');
+      const fileName = `${cleanStoreName} รูปที่ ${slot}.jpg`;
+
+      // 1. Try Google Service Account if configured on backend
+      const saToken = await getServiceAccountDriveToken();
+      if (saToken) {
+        const folderId = await ensureStoreSubfolderWithToken(saToken, cleanStoreName);
+        const imageBuffer = Buffer.from(base64Data, 'base64');
+        const boundary = `----storephoto${Date.now().toString(16)}`;
+        const metadataJson = JSON.stringify({
+          name: fileName,
+          mimeType,
+          parents: [folderId],
+          description: `รูปถ่ายร้านค้า ${cleanStoreName} รูปที่ ${slot}`,
+        });
+
+        const multipartBody = Buffer.concat([
+          Buffer.from(
+            `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadataJson}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`,
+            'utf8'
+          ),
+          imageBuffer,
+          Buffer.from(`\r\n--${boundary}--`, 'utf8'),
+        ]);
+
+        const uploadRes = await fetch(
+          'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${saToken}`,
+              'Content-Type': `multipart/related; boundary=${boundary}`,
+            },
+            body: multipartBody,
+          }
+        );
+
+        if (!uploadRes.ok) {
+          const errText = await uploadRes.text();
+          return res.status(uploadRes.status).json({
+            success: false,
+            error: `อัปโหลดรูปลง Google Drive ไม่สำเร็จ (${uploadRes.status}): ${errText}`,
+          });
+        }
+
+        const uploaded = (await uploadRes.json()) as { id: string; name?: string; webViewLink?: string };
+        try {
+          await fetch(`https://www.googleapis.com/drive/v3/files/${uploaded.id}/permissions?supportsAllDrives=true`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${saToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ role: 'reader', type: 'anyone' }),
+          });
+        } catch {
+          // Ignore org sharing restriction
+        }
+
+        return res.json({
+          success: true,
+          fileId: uploaded.id,
+          fileName: uploaded.name || fileName,
+          folderId,
+          folderName: cleanStoreName,
+          webViewLink: uploaded.webViewLink || `https://drive.google.com/file/d/${uploaded.id}/view`,
+        });
+      }
+
+      // 2. Fallback to Google Apps Script backend
+      const targetGasUrl =
+        (typeof gasUrl === 'string' && gasUrl.trim()) ||
+        process.env.GAS_URL?.trim() ||
+        DEFAULT_GAS_URL;
+      const targetSpreadsheetId =
+        (typeof spreadsheetId === 'string' && spreadsheetId.trim()) ||
+        process.env.SPREADSHEET_ID?.trim() ||
+        DEFAULT_SPREADSHEET_ID;
+
+      const gasRes = await fetch(targetGasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'uploadDrivePhoto',
+          spreadsheetId: targetSpreadsheetId,
+          parentFolderId: PARENT_DRIVE_FOLDER_ID,
+          storeName: cleanStoreName,
+          slotNumber: slot,
+          base64Data,
+          mimeType,
+        }),
+        signal: AbortSignal.timeout(25000),
+      });
+
+      const rawText = await gasRes.text();
+      if (rawText.includes('<!DOCTYPE html>') || rawText.includes('<html')) {
+        return res.status(502).json({
+          success: false,
+          error:
+            'ระบบหลังบ้าน Google Apps Script ยังไม่ได้เปิดสิทธิ์ Anyone หรือยังไม่ได้อนุญาตสิทธิ์ DriveApp กรุณา Deploy Apps Script ใหม่',
+        });
+      }
+
+      let gasJson: Record<string, any> = {};
+      try {
+        gasJson = JSON.parse(rawText);
+      } catch {
+        return res.status(502).json({
+          success: false,
+          error: `การตอบกลับจากระบบหลังบ้านไม่ถูกต้อง: ${rawText.slice(0, 120)}`,
+        });
+      }
+
+      if (gasJson.error) {
+        if (gasJson.error === 'Invalid action') {
+          return res.status(501).json({
+            success: false,
+            error:
+              'กรุณาอัปเดตโค้ด Apps Script (Code.gs) ที่เมนูตั้งค่า > ฐานข้อมูล Google Sheets และ Deploy เวอร์ชันใหม่ เพื่อเปิดใช้งานการอัปโหลดรูปลง Google Drive หลังบ้าน (หรือตั้งค่า GOOGLE_CLIENT_EMAIL / GOOGLE_PRIVATE_KEY)',
+          });
+        }
+        return res.status(500).json({ success: false, error: String(gasJson.error) });
+      }
+
+      return res.json({
+        success: true,
+        fileId: gasJson.fileId,
+        fileName: gasJson.fileName || fileName,
+        folderId: gasJson.folderId,
+        folderName: gasJson.folderName || cleanStoreName,
+        webViewLink: gasJson.webViewLink || `https://drive.google.com/file/d/${gasJson.fileId}/view`,
+      });
+    } catch (err: any) {
+      console.error('/api/drive/upload-store-photo error:', err);
+      return res.status(500).json({
+        success: false,
+        error: err?.message || 'เกิดข้อผิดพลาดในการบันทึกรูปลง Google Drive ผ่านระบบหลังบ้าน',
+      });
+    }
+  });
+
+  // Backend Google Drive delete endpoint
+  app.post('/api/drive/delete-store-photo', async (req, res) => {
+    try {
+      const { fileId, gasUrl, spreadsheetId } = req.body || {};
+      if (!fileId || typeof fileId !== 'string') {
+        return res.status(400).json({ success: false, error: 'ไม่พบรหัสไฟล์ที่ต้องการลบ' });
+      }
+
+      const saToken = await getServiceAccountDriveToken();
+      if (saToken) {
+        const delRes = await fetch(
+          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`,
+          {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${saToken}` },
+          }
+        );
+        if (!delRes.ok && delRes.status !== 404) {
+          const errText = await delRes.text();
+          return res.status(delRes.status).json({ success: false, error: errText });
+        }
+        return res.json({ success: true });
+      }
+
+      const targetGasUrl =
+        (typeof gasUrl === 'string' && gasUrl.trim()) ||
+        process.env.GAS_URL?.trim() ||
+        DEFAULT_GAS_URL;
+      const targetSpreadsheetId =
+        (typeof spreadsheetId === 'string' && spreadsheetId.trim()) ||
+        process.env.SPREADSHEET_ID?.trim() ||
+        DEFAULT_SPREADSHEET_ID;
+
+      const gasRes = await fetch(targetGasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'deleteDrivePhoto',
+          spreadsheetId: targetSpreadsheetId,
+          fileId,
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+
+      const gasJson = (await gasRes.json().catch(() => ({}))) as Record<string, any>;
+      if (gasJson.error) {
+        return res.status(500).json({ success: false, error: String(gasJson.error) });
+      }
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({
+        success: false,
+        error: err?.message || 'เกิดข้อผิดพลาดในการลบไฟล์บน Google Drive',
+      });
+    }
   });
 
   // LINE Notification Proxy endpoint (supports LINE Messaging API, Webhooks, and legacy Notify handling)

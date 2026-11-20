@@ -10,6 +10,60 @@ export const GOOGLE_APPS_SCRIPT_CODE = `function doPost(e) {
       return response({ status: "ok", message: "GAS connection successful" });
     }
 
+    // Google Drive Store Photo Upload
+    if (action === "uploadDrivePhoto") {
+      const parentFolderId = payload.parentFolderId || "1OMgGdY7DM78UviFNLJ-Wi_t_ayjsH5V4";
+      const rawStoreName = String(payload.storeName || "ร้านค้าใหม่")
+        .trim()
+        .replace(/[\\\\/:*?"<>|]+/g, " ")
+        .replace(/\\s+/g, " ")
+        .trim();
+      const storeName = rawStoreName || "ร้านค้าใหม่";
+      const slotNumber = payload.slotNumber || 1;
+      const base64Data = payload.base64Data;
+      const mimeType = payload.mimeType || "image/jpeg";
+
+      if (!base64Data) {
+        return response({ error: "Missing base64Data" }, 400);
+      }
+
+      const parentFolder = DriveApp.getFolderById(parentFolderId);
+      const subFolders = parentFolder.getFoldersByName(storeName);
+      const storeFolder = subFolders.hasNext()
+        ? subFolders.next()
+        : parentFolder.createFolder(storeName);
+
+      const fileName = storeName + " รูปที่ " + slotNumber + ".jpg";
+      const bytes = Utilities.base64Decode(base64Data);
+      const blob = Utilities.newBlob(bytes, mimeType, fileName);
+      const file = storeFolder.createFile(blob);
+
+      try {
+        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      } catch (permErr) {}
+
+      const fileId = file.getId();
+      return response({
+        success: true,
+        fileId: fileId,
+        fileName: file.getName(),
+        folderId: storeFolder.getId(),
+        folderName: storeFolder.getName(),
+        webViewLink: "https://drive.google.com/file/d/" + fileId + "/view"
+      });
+    }
+
+    if (action === "deleteDrivePhoto") {
+      const fileId = payload.fileId;
+      if (!fileId) {
+        return response({ error: "Missing fileId" }, 400);
+      }
+      try {
+        DriveApp.getFileById(fileId).setTrashed(true);
+      } catch (delErr) {}
+      return response({ success: true });
+    }
+
     const spreadsheetId = payload.spreadsheetId;
     if (!spreadsheetId) {
       return response({ error: "Missing spreadsheetId" }, 400);
@@ -110,6 +164,6 @@ function response(data, code = 200) {
 
 // Support GET requests for testing
 function doGet(e) {
-  return response({ status: "ok", message: "GAS Backend is running successfully" });
+  return response({ status: "ok", message: "GAS Backend is running successfully v3 (Sheets + Drive)" });
 }
 `;

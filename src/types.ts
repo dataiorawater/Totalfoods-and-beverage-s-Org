@@ -60,6 +60,7 @@ export interface Customer {
   longitude?: number;
   updatedAt?: string;
   notes?: string;
+  photoUrls?: string[]; // รูปถ่ายร้านค้าที่เก็บใน Google Drive (สูงสุด 3 รูป)
 }
 
 export interface Order {

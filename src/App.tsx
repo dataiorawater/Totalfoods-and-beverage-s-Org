@@ -227,6 +227,9 @@ export function sanitizeCustomerData(customerList: Customer[]): Customer[] {
     mapsUrl: String(c.mapsUrl || ''),
     routeName: String(c.routeName || ''),
     updatedAt: String(c.updatedAt || ''),
+    photoUrls: Array.isArray(c.photoUrls)
+      ? c.photoUrls.map((u) => String(u || '').trim()).filter(Boolean).slice(0, 3)
+      : [],
   }));
 }
 
@@ -441,6 +444,14 @@ export default function App() {
   });
 
   const [activeTab, setActiveTab] = useState<'orders' | 'dashboard' | 'customers' | 'checkin' | 'expenses' | 'users' | 'routes' | 'export' | 'new_order' | 'logistics' | 'deposits' | 'hired_vehicles' | 'maintenance'>('dashboard');
+  const [checkInEntryCount, setCheckInEntryCount] = useState<number>(0);
+
+  const handleSelectTab = (tab: typeof activeTab) => {
+    if (tab === 'checkin') {
+      setCheckInEntryCount((prev) => prev + 1);
+    }
+    setActiveTab(tab);
+  };
 
   // 2. Integration Configs
   const [sheetsConfig, setSheetsConfig] = useState<SheetsConfig>(() => {
@@ -1127,11 +1138,14 @@ export default function App() {
     address: string;
     mapsUrl: string;
     routeName?: string;
+    visitDays?: string[];
+    photoUrls?: string[];
   }): Promise<boolean> => {
     const nowFormatted = new Date().toLocaleString('th-TH');
     const newCustomer = {
       id: custData.id || `CUST-${Date.now()}`,
       ...custData,
+      photoUrls: Array.isArray(custData.photoUrls) ? custData.photoUrls.slice(0, 3) : [],
       updatedAt: nowFormatted
     };
     
@@ -1490,7 +1504,7 @@ export default function App() {
       <Navbar
         currentUser={currentUser}
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={handleSelectTab}
         onOpenNewOrder={() => { setEditingOrder(null); setActiveTab('new_order'); }}
         onOpenNewCustomer={() => setIsNewCustomerOpen(true)}
         onOpenRoleSwitcher={() => setIsRoleSwitcherOpen(true)}
@@ -1624,7 +1638,7 @@ export default function App() {
               }}
               onNavigateToCheckIn={(cust) => {
                 setPreselectedCustomerForCheckIn(cust);
-                setActiveTab('checkin');
+                handleSelectTab('checkin');
               }}
               sheetsConnected={!!sheetsConfig?.spreadsheetId}
             />
@@ -1644,6 +1658,7 @@ export default function App() {
               preselectedCustomerForCheckIn={preselectedCustomerForCheckIn}
               onClearPreselectedCustomer={() => setPreselectedCustomerForCheckIn(null)}
               sheetsConnected={!!sheetsConfig?.spreadsheetId}
+              gpsRefreshTrigger={checkInEntryCount}
               dailySchedules={dailySchedules}
               onSaveDailySchedule={handleSaveDailySchedule}
               onBatchSaveDailySchedules={handleBatchSaveDailySchedules}
@@ -1676,6 +1691,7 @@ export default function App() {
               orders={orders}
               staffList={staffList}
               checkIns={checkIns}
+              customers={customers}
             />
           ) : activeTab === 'logistics' ? (
             <LogisticsManagementView
@@ -1775,10 +1791,10 @@ export default function App() {
         <NewCustomerModal
           isOpen={isNewCustomerOpen}
           onClose={() => setIsNewCustomerOpen(false)}
+          currentUser={currentUser}
           routes={routes}
           onSaveCustomer={handleSaveCustomer}
           sheetsConnected={!!sheetsConfig?.spreadsheetId}
-          
         />
       )}
 

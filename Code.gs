@@ -10,6 +10,64 @@ function doPost(e) {
       return response({ status: "ok", message: "GAS connection successful" });
     }
 
+    // Google Drive Store Photo Upload (Backend-managed, no user sign-in required)
+    if (action === "uploadDrivePhoto") {
+      const parentFolderId = payload.parentFolderId || "1OMgGdY7DM78UviFNLJ-Wi_t_ayjsH5V4";
+      const rawStoreName = String(payload.storeName || "ร้านค้าใหม่")
+        .trim()
+        .replace(/[\\/:*?"<>|]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      const storeName = rawStoreName || "ร้านค้าใหม่";
+      const slotNumber = payload.slotNumber || 1;
+      const base64Data = payload.base64Data;
+      const mimeType = payload.mimeType || "image/jpeg";
+
+      if (!base64Data) {
+        return response({ error: "Missing base64Data" }, 400);
+      }
+
+      const parentFolder = DriveApp.getFolderById(parentFolderId);
+      const subFolders = parentFolder.getFoldersByName(storeName);
+      const storeFolder = subFolders.hasNext()
+        ? subFolders.next()
+        : parentFolder.createFolder(storeName);
+
+      const fileName = storeName + " รูปที่ " + slotNumber + ".jpg";
+      const bytes = Utilities.base64Decode(base64Data);
+      const blob = Utilities.newBlob(bytes, mimeType, fileName);
+      const file = storeFolder.createFile(blob);
+
+      try {
+        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      } catch (permErr) {
+        // Ignore if domain sharing policy restricts anyone-with-link
+      }
+
+      const fileId = file.getId();
+      return response({
+        success: true,
+        fileId: fileId,
+        fileName: file.getName(),
+        folderId: storeFolder.getId(),
+        folderName: storeFolder.getName(),
+        webViewLink: "https://drive.google.com/file/d/" + fileId + "/view"
+      });
+    }
+
+    if (action === "deleteDrivePhoto") {
+      const fileId = payload.fileId;
+      if (!fileId) {
+        return response({ error: "Missing fileId" }, 400);
+      }
+      try {
+        DriveApp.getFileById(fileId).setTrashed(true);
+      } catch (delErr) {
+        // Ignore if already deleted or missing
+      }
+      return response({ success: true });
+    }
+
     const spreadsheetId = payload.spreadsheetId;
     if (!spreadsheetId) {
       return response({ error: "Missing spreadsheetId" }, 400);
@@ -34,8 +92,6 @@ function doPost(e) {
     if (sheetName) {
       sheet = ss.getSheetByName(sheetName);
     }
-    
-    // Allow CORS headers by default for standard responses
     
     if (action === "getData") {
       if (!sheet) return response({ error: "Sheet not found: " + sheetName }, 404);
@@ -66,7 +122,6 @@ function doPost(e) {
     }
     else if (action === "updateRows") {
       if (!sheet) return response({ error: "Sheet not found" }, 404);
-      // Delete old rows and append new ones
       const rowIndices = payload.rowIndices; 
       if (rowIndices && rowIndices.length > 0) {
         const sorted = rowIndices.sort((a,b) => b - a);
@@ -113,5 +168,5 @@ function response(data, code = 200) {
 
 // Support GET requests for testing
 function doGet(e) {
-  return response({ status: "ok", message: "GAS Backend is running successfully v2" });
+  return response({ status: "ok", message: "GAS Backend is running successfully v3 (Sheets + Drive)" });
 }

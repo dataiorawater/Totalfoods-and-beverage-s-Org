@@ -243,7 +243,7 @@ export const ensureAllSheetsTabs = async (spreadsheetId: string, customOrderShee
     },
     {
       name: CUSTOMERS_TAB_NAME,
-      headers: ['id', 'name', 'phone', 'address', 'routeName', 'mapsUrl', 'latitude', 'longitude', 'notes', 'updatedAt'],
+      headers: ['id', 'name', 'phone', 'address', 'routeName', 'mapsUrl', 'latitude', 'longitude', 'notes', 'updatedAt', 'photoUrls'],
     },
     {
       name: ROUTES_TAB_NAME,
@@ -482,6 +482,30 @@ export const deleteRouteFromSheet = async (id: string, routeId: string) => {
 };
 
 // CUSTOMERS
+const parsePhotoUrlsCell = (raw: unknown): string[] => {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw.map((u) => String(u || '').trim()).filter(Boolean).slice(0, 3);
+  }
+  const str = String(raw).trim();
+  if (!str) return [];
+  if (str.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(str);
+      if (Array.isArray(parsed)) {
+        return parsed.map((u) => String(u || '').trim()).filter(Boolean).slice(0, 3);
+      }
+    } catch {
+      // fall through to delimiter split
+    }
+  }
+  return str
+    .split(/[\n,|]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+};
+
 export const fetchCustomersFromSheet = async (id: string): Promise<Customer[]> => {
   const res = await gasRequest(id, 'getData', CUSTOMERS_TAB_NAME);
   if (!res || !res.values || res.values.length <= 1) return [];
@@ -496,15 +520,20 @@ export const fetchCustomersFromSheet = async (id: string): Promise<Customer[]> =
     latitude: parseFloat(row[6]) || undefined,
     longitude: parseFloat(row[7]) || undefined,
     notes: row[8] || '',
-    updatedAt: row[9] || ''
+    updatedAt: row[9] || '',
+    photoUrls: parsePhotoUrlsCell(row[10]),
   }));
 };
 
 export const saveCustomerToSheet = async (id: string, c: Customer) => {
+  const serializedPhotos =
+    Array.isArray(c.photoUrls) && c.photoUrls.length > 0
+      ? JSON.stringify(c.photoUrls.slice(0, 3))
+      : '';
   const rowData = [
     c.id || Date.now().toString(), c.name || '', c.phone || '', c.address || '', 
     c.routeName || '', c.mapsUrl || '', c.latitude || '', c.longitude || '', 
-    c.notes || '', c.updatedAt || new Date().toISOString()
+    c.notes || '', c.updatedAt || new Date().toISOString(), serializedPhotos
   ];
   const existing = await fetchCustomersFromSheet(id);
   const found = existing.find(x => x.id === c.id);
