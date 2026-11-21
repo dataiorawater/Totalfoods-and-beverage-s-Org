@@ -314,6 +314,78 @@ export function isCustomerInRoute(customer: Customer, route: Route): boolean {
 }
 
 /**
+ * Checks whether a customer route value matches a target route ID as an exact string
+ * or standalone delimited token (prevents e.g. 'R01' from matching 'R010').
+ */
+export function matchesRouteIdToken(value: string | undefined, targetRouteId: string): boolean {
+  const val = String(value || '').trim().toLowerCase();
+  const id = String(targetRouteId || '').trim().toLowerCase();
+  if (!val || !id) return false;
+  if (val === id) return true;
+
+  const looseTokens = val.split(/[\s:|/()[\],•]+/).filter(Boolean);
+  if (looseTokens.includes(id)) return true;
+
+  if (!id.includes('-') && !id.includes('–') && !id.includes('—')) {
+    const dashTokens = val.split(/[\s\-–—:|/()[\],•]+/).filter(Boolean);
+    if (dashTokens.includes(id)) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Matches a customer strictly by visit route ID (รหัสของสายการเข้าเยี่ยม).
+ * Checks customer.routeId and standalone route ID token in customer.routeName first.
+ * Falls back to exact route.name only when the customer record contains no route ID.
+ */
+export function doesCustomerMatchRouteById(
+  customer: Customer,
+  targetRoute: Route,
+  allRoutes: Route[] = []
+): boolean {
+  const targetId = String(targetRoute.id || '').trim().toLowerCase();
+  const custRouteId = String(customer.routeId || '').trim().toLowerCase();
+  const custRouteName = String(customer.routeName || '').trim().toLowerCase();
+
+  if (custRouteId) {
+    return targetId !== '' && custRouteId === targetId;
+  }
+
+  if (targetId && matchesRouteIdToken(custRouteName, targetId)) {
+    return true;
+  }
+
+  if (custRouteName && allRoutes.length > 0) {
+    const matchesAnotherRouteId = allRoutes.some(
+      (r) =>
+        r.id &&
+        String(r.id).trim().toLowerCase() !== targetId &&
+        matchesRouteIdToken(custRouteName, r.id)
+    );
+    if (matchesAnotherRouteId) {
+      return false;
+    }
+  }
+
+  const targetName = String(targetRoute.name || '').trim().toLowerCase();
+  if (custRouteName && targetName && custRouteName === targetName) {
+    const custSales = String(customer.salespersonName || '').trim().toLowerCase();
+    const routeSales = String(targetRoute.salesrepName || '').trim().toLowerCase();
+    if (custSales && routeSales) {
+      return (
+        custSales === routeSales ||
+        custSales.includes(routeSales) ||
+        routeSales.includes(custSales)
+      );
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Resolves the effective list of routes running on a specific DATE.
  * - If user customized this specific date in dailySchedules (Simulated Calendar), uses that schedule.
  * - Otherwise, automatically falls back to default recurring weekly routes for that day of week!

@@ -32,6 +32,7 @@ import {
   getTodayThaiDay,
   isCustomerInDailyPlan,
   isCustomerInRoute,
+  doesCustomerMatchRouteById,
   doesRouteRunOnDay,
   doesRouteBelongToSales,
   doesRouteBelongToUser,
@@ -131,6 +132,13 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     );
   }, [canViewAllRoutes, customers, currentUser, scopedRoutes, routes]);
 
+  // Routes available in the 'ตามสายการเข้าเยี่ยม' filter dropdown, scoped by selected salesperson
+  const routesForRouteFilter = useMemo(() => {
+    if (!canViewAllRoutes) return scopedRoutes;
+    if (!selectedSales || selectedSales === 'all') return scopedRoutes;
+    return scopedRoutes.filter((r) => doesRouteBelongToSales(r, selectedSales));
+  }, [canViewAllRoutes, scopedRoutes, selectedSales]);
+
   useEffect(() => {
     if (!canViewAllRoutes && !editingId && routeName && !scopedRoutes.some((r) => r.name === routeName)) {
       setRouteName('');
@@ -138,10 +146,10 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
   }, [canViewAllRoutes, editingId, routeName, scopedRoutes]);
 
   useEffect(() => {
-    if (!canViewAllRoutes && selectedRouteId !== 'all' && !scopedRoutes.some((r) => r.id === selectedRouteId)) {
+    if (selectedRouteId !== 'all' && !routesForRouteFilter.some((r) => r.id === selectedRouteId)) {
       setSelectedRouteId('all');
     }
-  }, [canViewAllRoutes, selectedRouteId, scopedRoutes]);
+  }, [selectedRouteId, routesForRouteFilter]);
 
   useEffect(() => {
     if (!canViewAllRoutes) {
@@ -254,13 +262,18 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
       );
     } else if (filterMode === 'by_route') {
       if (selectedRouteId && selectedRouteId !== 'all') {
-        const targetRoute = scopedRoutes.find((r) => r.id === selectedRouteId);
-        list = list.filter((c) => (targetRoute ? isCustomerInRoute(c, targetRoute) : false));
-      } else if (canViewAllRoutes && effectiveSelectedSales !== 'all') {
-        const salesRoutes = scopedRoutes.filter((r) =>
-          doesRouteBelongToSales(r, effectiveSelectedSales)
+        const targetRoute = routesForRouteFilter.find((r) => r.id === selectedRouteId);
+        list = list.filter((c) =>
+          targetRoute ? doesCustomerMatchRouteById(c, targetRoute, routes) : false
         );
-        list = list.filter((c) => salesRoutes.some((r) => isCustomerInRoute(c, r)));
+      } else if (canViewAllRoutes && effectiveSelectedSales !== 'all') {
+        list = list.filter((c) =>
+          routesForRouteFilter.some((r) => doesCustomerMatchRouteById(c, r, routes))
+        );
+      } else if (!canViewAllRoutes) {
+        list = list.filter((c) =>
+          routesForRouteFilter.some((r) => doesCustomerMatchRouteById(c, r, routes))
+        );
       }
     }
 
@@ -278,6 +291,8 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     effectiveSelectedSales,
     selectedRouteId,
     scopedRoutes,
+    routesForRouteFilter,
+    routes,
     canViewAllRoutes,
     searchQuery,
   ]);
@@ -699,7 +714,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                   }`}
                 >
                   <Navigation className="w-3.5 h-3.5" />
-                  <span>ตามสายส่ง</span>
+                  <span>ตามสายการเข้าเยี่ยม</span>
                 </button>
 
                 <button
@@ -756,19 +771,28 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                   </div>
                 )}
 
-                {/* By Route Dropdown */}
+                {/* By Route Dropdown (filtered by salesperson's routes & matched by route ID) */}
                 {filterMode === 'by_route' && (
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">เลือกสาย:</span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {!canViewAllRoutes && currentUser?.name && (
+                      <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 rounded-lg px-2 py-1 whitespace-nowrap">
+                        เซลล์ผู้ดูแล: {currentUser.name}
+                      </span>
+                    )}
+                    <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">เลือกสายการเข้าเยี่ยม:</span>
                     <select
                       value={selectedRouteId}
                       onChange={(e) => setSelectedRouteId(e.target.value)}
                       className="text-xs bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg px-2.5 py-1 font-semibold focus:bg-white"
                     >
                       <option value="all">
-                        {canViewAllRoutes ? 'ทุกสายการเข้าเยี่ยม' : 'ทุกสายการเข้าเยี่ยมของฉัน'}
+                        {canViewAllRoutes
+                          ? selectedSales !== 'all'
+                            ? `ทุกสายของ ${selectedSales} (${routesForRouteFilter.length})`
+                            : 'ทุกสายการเข้าเยี่ยม'
+                          : `ทุกสายการเข้าเยี่ยมของฉัน (${routesForRouteFilter.length})`}
                       </option>
-                      {scopedRoutes.map((r, idx) => (
+                      {routesForRouteFilter.map((r, idx) => (
                         <option key={`${r.id || r.name}-${idx}`} value={r.id}>
                           {r.id ? `${r.id} - ` : ''}{r.name}{r.salesrepName ? ` • ${r.salesrepName}` : ''}
                         </option>
