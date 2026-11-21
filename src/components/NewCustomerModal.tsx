@@ -130,6 +130,14 @@ export const NewCustomerModal: React.FC<NewCustomerModalProps> = ({
       setErrorMsg('กรุณาระบุสายการเข้าเยี่ยม');
       return;
     }
+    if (!cleanAddress) {
+      setErrorMsg('กรุณากรอกที่อยู่จัดส่ง');
+      return;
+    }
+    if (!cleanMapsUrl) {
+      setErrorMsg('กรุณากรอกลิ้งก์โลเคชั่น (Google Maps Link) หรือกดจับพิกัดปัจจุบัน');
+      return;
+    }
     if (photoUrls.length < 1) {
       setErrorMsg('กรุณาแนบรูปถ่ายร้านค้าอย่างน้อย 1 รูป (สูงสุด 3 รูป)');
       return;
@@ -290,11 +298,12 @@ export const NewCustomerModal: React.FC<NewCustomerModalProps> = ({
           {/* 3. Address */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">
-              ที่อยู่จัดส่ง
+              ที่อยู่จัดส่ง <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
               <textarea
                 rows={2}
+                required
                 placeholder="เลขที่ อาคาร ถนน ซอย ตำบล/แขวง อำเภอ/เขต จังหวัด และจุดสังเกต..."
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
@@ -308,7 +317,7 @@ export const NewCustomerModal: React.FC<NewCustomerModalProps> = ({
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-xs font-bold text-slate-700">
-                ลิ้งก์โลเคชั่น (Google Maps Link)
+                ลิ้งก์โลเคชั่น (Google Maps Link) <span className="text-rose-500">*</span>
               </label>
               <button
                 type="button"
@@ -323,6 +332,7 @@ export const NewCustomerModal: React.FC<NewCustomerModalProps> = ({
             <div className="relative">
               <input
                 type="url"
+                required
                 placeholder="เช่น https://maps.app.goo.gl/... หรือ https://maps.google.com/?q=..."
                 value={mapsUrl}
                 onChange={(e) => setMapsUrl(e.target.value)}

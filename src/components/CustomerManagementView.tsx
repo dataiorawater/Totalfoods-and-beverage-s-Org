@@ -339,6 +339,14 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
       setErrorMsg('กรุณาระบุสายการเข้าเยี่ยม');
       return;
     }
+    if (!cleanAddress) {
+      setErrorMsg('กรุณากรอกที่อยู่จัดส่ง');
+      return;
+    }
+    if (!cleanMapsUrl) {
+      setErrorMsg('กรุณากรอกลิ้งก์โลเคชั่น (Google Maps Link) หรือกดจับพิกัด GPS');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -544,11 +552,12 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
               {/* 3. Address */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  ที่อยู่จัดส่ง
+                  ที่อยู่จัดส่ง <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
                   <textarea
                     rows={2}
+                    required
                     placeholder="เลขที่ อาคาร ซอย ถนน ตำบล/แขวง อำเภอ/เขต จังหวัด..."
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
@@ -562,7 +571,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-xs font-bold text-slate-700">
-                    ลิ้งก์โลเคชั่น (Google Maps Link)
+                    ลิ้งก์โลเคชั่น (Google Maps Link) <span className="text-rose-500">*</span>
                   </label>
                   <button
                     type="button"
@@ -577,6 +586,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                 <div className="relative">
                   <input
                     type="url"
+                    required
                     placeholder="เช่น https://maps.app.goo.gl/... หรือ https://maps.google.com/?q=..."
                     value={mapsUrl}
                     onChange={(e) => setMapsUrl(e.target.value)}
@@ -706,17 +716,8 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                 </button>
               </div>
 
-              {/* Action buttons (Manage Routes, Refresh) */}
+              {/* Action buttons (Refresh) */}
               <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
-                <button
-                  type="button"
-                  onClick={onManageRoutes}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-colors cursor-pointer"
-                  title="ตั้งค่าสายการเข้าเยี่ยมและวันในสัปดาห์"
-                >
-                  <Navigation className="w-3.5 h-3.5" />
-                  <span>ตั้งค่าสาย</span>
-                </button>
                 <button
                   type="button"
                   onClick={handleRefresh}
@@ -830,16 +831,6 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                     {!canViewAllRoutes && currentUser?.name && ` • เฉพาะสายของคุณ (${currentUser.name})`}
                   </div>
                 </div>
-
-                {dailyRoutesForView.length === 0 && (
-                  <button
-                    type="button"
-                    onClick={onManageRoutes}
-                    className="text-xs bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1 rounded-lg font-bold cursor-pointer shrink-0"
-                  >
-                    ตั้งค่าสาย
-                  </button>
-                )}
               </div>
             )}
 
@@ -1061,31 +1052,6 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
 
                       {/* Right: Actions */}
                       <div className="flex items-center gap-1.5 sm:self-center shrink-0 flex-wrap">
-                        
-                        {/* Check-In Action Button */}
-                        {onNavigateToCheckIn && (
-                          <button
-                            type="button"
-                            onClick={() => onNavigateToCheckIn(cust)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-colors cursor-pointer shadow-2xs"
-                            title="ไปที่หน้าเช็คอินร้านค้านี้ทันที"
-                          >
-                            <Camera className="w-3.5 h-3.5" />
-                            <span>เช็คอิน</span>
-                          </button>
-                        )}
-
-                        {/* Open Order Button */}
-                        <button
-                          type="button"
-                          onClick={() => onOpenOrderForCustomer(cust)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-colors cursor-pointer"
-                          title="เปิดฟอร์มลงออเดอร์ให้ลูกค้ารายนี้ทันที"
-                        >
-                          <ShoppingBag className="w-3.5 h-3.5" />
-                          <span>เปิดออเดอร์</span>
-                        </button>
-
                         {/* Edit Button */}
                         <button
                           type="button"
