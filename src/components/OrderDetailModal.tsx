@@ -23,6 +23,7 @@ import {
   Receipt,
 } from 'lucide-react';
 import { getLineShareUrl } from '../services/lineNotify';
+import { normalizeThaiPhone, toTelHref } from '../utils/phoneUtils';
 
 interface OrderDetailModalProps {
   order: Order | null;
@@ -137,15 +138,16 @@ function formatDeliveryDate(dateStr: string): string {
 
 // Clean phone format
 function formatPhoneNumber(phone: string): string {
-  if (!phone || phone === '-' || phone === 'null') return '';
-  const digits = phone.replace(/[^0-9]/g, '');
-  if (digits.length === 10) {
+  const normalized = normalizeThaiPhone(phone);
+  if (!normalized || normalized === '-') return '';
+  const digits = normalized.replace(/[^0-9]/g, '');
+  if (digits.length === 10 && digits.startsWith('0')) {
     return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
   }
-  if (digits.length === 9) {
+  if (digits.length === 9 && digits.startsWith('0')) {
     return `${digits.slice(0, 2)}-${digits.slice(2, 5)}-${digits.slice(5)}`;
   }
-  return phone;
+  return normalized;
 }
 
 // Payment method label
@@ -630,13 +632,15 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 {displayPhone ? (
                   <div className="flex items-center gap-2 pt-0.5">
                     <span className="text-xs font-semibold text-slate-700">{displayPhone}</span>
-                    <a
-                      href={`tel:${resolvedPhone.replace(/[^0-9+]/g, '')}`}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold text-xs transition-colors"
-                    >
-                      <Phone className="w-3 h-3" />
-                      <span>โทรหาลูกค้า</span>
-                    </a>
+                    {toTelHref(resolvedPhone) && (
+                      <a
+                        href={toTelHref(resolvedPhone)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold text-xs transition-colors"
+                      >
+                        <Phone className="w-3 h-3" />
+                        <span>โทรหาลูกค้า</span>
+                      </a>
+                    )}
                   </div>
                 ) : (
                   <span className="text-xs text-slate-400 italic">ไม่ได้ระบุเบอร์ติดต่อ</span>

@@ -30,6 +30,7 @@ import {
   Edit3,
 } from 'lucide-react';
 import { Customer, StaffUser, Route } from '../types';
+import { normalizeThaiPhone, toTelHref } from '../utils/phoneUtils';
 import { StorePhotoUploader } from './StorePhotoUploader';
 import {
   uploadStorePhotoToDrive,
@@ -1031,13 +1032,13 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                     {/* Compact Mobile-Friendly Footer: Phone + Map Quick Actions & Updated Timestamp */}
                     <div className="mt-2.5 pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        {cust.phone && (
+                        {cust.phone && toTelHref(cust.phone) && (
                           <a
-                            href={`tel:${cust.phone}`}
+                            href={toTelHref(cust.phone)}
                             className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200/80 hover:bg-blue-100 active:scale-[0.98] transition-all"
                           >
                             <Phone className="w-3.5 h-3.5 shrink-0" />
-                            <span>{cust.phone}</span>
+                            <span>{normalizeThaiPhone(cust.phone)}</span>
                           </a>
                         )}
 

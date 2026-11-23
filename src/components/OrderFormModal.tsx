@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { TotalEmblem } from './TotalLogo';
 import { Order, OrderItem, Product, StaffUser, Customer, FreebieItem, TaxInvoiceDetails } from '../types';
+import { toTelHref } from '../utils/phoneUtils';
 import {
   X,
   Plus,
@@ -866,9 +867,9 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
                   <span>เบอร์โทรติดต่อลูกค้า <span className="text-rose-500">*</span></span>
-                  {customerPhone && (
+                  {customerPhone && toTelHref(customerPhone) && (
                     <a
-                      href={`tel:${customerPhone}`}
+                      href={toTelHref(customerPhone)}
                       className="text-[11px] text-blue-600 hover:text-blue-700 flex items-center gap-1"
                     >
                       <Phone className="w-3 h-3" /> โทรออก

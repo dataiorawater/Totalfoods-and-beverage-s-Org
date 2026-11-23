@@ -1,4 +1,5 @@
 import { Order, OrderItem, FreebieItem, Route, StaffUser, Product, Customer, StoreCheckIn, Expense, DepositRecord, HiredVehicleTripRecord, VehicleMaintenanceRecord } from '../types';
+import { normalizeThaiPhone, formatPhoneForGoogleSheets } from '../utils/phoneUtils';
 
 export const USERS_TAB_NAME = 'Users';
 export const ORDERS_TAB_NAME = 'Orders';
@@ -616,12 +617,12 @@ export const fetchUsersFromSheets = async (id: string): Promise<StaffUser[]> => 
   const rows = res.values.slice(1);
   return rows.map((row: any, idx: number) => ({
     sheetsRowIndex: idx + 2,
-    id: row[0] ? String(row[0]) : 'user-' + idx, name: String(row[1] || ''), email: String(row[2] || ''), role: String(row[3] || 'viewer'), phone: String(row[4] || ''), password: String(row[5] || ''), status: String(row[6] || 'active'), createdAt: String(row[7] || ''), lastLogin: String(row[8] || '')
+    id: row[0] ? String(row[0]) : 'user-' + idx, name: String(row[1] || ''), email: String(row[2] || ''), role: String(row[3] || 'viewer'), phone: normalizeThaiPhone(row[4]), password: String(row[5] || ''), status: String(row[6] || 'active'), createdAt: String(row[7] || ''), lastLogin: String(row[8] || '')
   }));
 };
 
 export const saveUserToSheet = async (id: string, u: StaffUser) => {
-  const rowData = [u.id || Date.now().toString(), u.name || '', u.email || '', u.role || 'viewer', u.phone || '', u.password || '', u.status || 'active', u.createdAt || new Date().toISOString(), u.lastLogin || ''];
+  const rowData = [u.id || Date.now().toString(), u.name || '', u.email || '', u.role || 'viewer', formatPhoneForGoogleSheets(u.phone), u.password || '', u.status || 'active', u.createdAt || new Date().toISOString(), u.lastLogin || ''];
   const existing = await fetchUsersFromSheets(id);
   const found = existing.find(x => x.id === u.id);
   if (found && (found as any).sheetsRowIndex) {
@@ -717,7 +718,7 @@ export const fetchCustomersFromSheet = async (id: string): Promise<Customer[]> =
     sheetsRowIndex: idx + 2,
     id: row[0] ? String(row[0]) : 'row-' + idx,
     name: row[1] || '',
-    phone: row[2] || '',
+    phone: normalizeThaiPhone(row[2]),
     address: row[3] || '',
     routeName: row[4] || '',
     mapsUrl: row[5] || '',
@@ -735,7 +736,7 @@ export const saveCustomerToSheet = async (id: string, c: Customer) => {
       ? JSON.stringify(c.photoUrls.slice(0, 3))
       : '';
   const rowData = [
-    c.id || Date.now().toString(), c.name || '', c.phone || '', c.address || '', 
+    c.id || Date.now().toString(), c.name || '', formatPhoneForGoogleSheets(c.phone), c.address || '', 
     c.routeName || '', c.mapsUrl || '', c.latitude || '', c.longitude || '', 
     c.notes || '', c.updatedAt || new Date().toISOString(), serializedPhotos
   ];
@@ -768,7 +769,7 @@ export const fetchProductsFromSheet = async (id: string): Promise<Product[]> => 
 // CHECKIN
 export const syncCheckInToSheets = async (id: string, c: StoreCheckIn) => {
   const rowData = [
-    c.id, c.createdAt, c.timestampStr, c.storeName, c.customerPhone || '', c.address || '', 
+    c.id, c.createdAt, c.timestampStr, c.storeName, formatPhoneForGoogleSheets(c.customerPhone), c.address || '', 
     c.salespersonName, c.latitude, c.longitude, c.mapsUrl, c.photoUrl, c.notes || '', c.distanceMeters || ''
   ];
   await gasRequest(id, 'appendRow', CHECKIN_TAB_NAME, undefined, rowData);
@@ -1120,7 +1121,7 @@ export const parseOrdersFromValues = (values: any[]): Order[] => {
           salespersonId: String(row[colSalesId] || ''),
           salespersonName: String(row[colSalesName] || ''),
           customerName: rawCustName,
-          customerPhone: String(row[colCustPhone] || ''),
+          customerPhone: normalizeThaiPhone(row[colCustPhone]),
           requestedDeliveryDate: String(row[colDeliveryDate] || ''),
           items,
           freebies,
@@ -1146,7 +1147,7 @@ export const parseOrdersFromValues = (values: any[]): Order[] => {
         existing.order.customerName = rawCustName;
       }
       if (!existing.order.customerPhone && row[colCustPhone]) {
-        existing.order.customerPhone = String(row[colCustPhone]);
+        existing.order.customerPhone = normalizeThaiPhone(row[colCustPhone]);
       }
       if (!existing.order.totalAmount && rowTotal) {
         existing.order.totalAmount = rowTotal;
@@ -1243,7 +1244,7 @@ const buildOrderRowsData = (o: Order) => {
       o.salespersonId, // 3: รหัสพนักงานขาย
       o.salespersonName, // 4: ชื่อพนักงานขาย
       o.customerName, // 5: ชื่อลูกค้า
-      o.customerPhone || '', // 6: เบอร์ติดต่อ
+      formatPhoneForGoogleSheets(o.customerPhone), // 6: เบอร์ติดต่อ
       o.requestedDeliveryDate || '', // 7: วันที่ต้องการให้ส่ง
       item.name, // 8: รายการสินค้า
       item.quantity, // 9: จำนวน
@@ -1320,7 +1321,7 @@ export const parseUsers = (values: any[]): StaffUser[] => {
     name: String(row[1] || ''),
     email: String(row[2] || ''),
     role: (row[3] || 'sales') as import('../types').StaffRole,
-    phone: String(row[4] || ''),
+    phone: normalizeThaiPhone(row[4]),
     password: String(row[5] || ''),
     status: (row[6] || 'active') as 'active' | 'inactive',
     createdAt: String(row[7] || ''),
@@ -1355,7 +1356,7 @@ export const parseCustomers = (values: any[]): Customer[] => {
       sheetsRowIndex: idx + 2,
       id: row[0] !== undefined && row[0] !== null ? String(row[0]) : 'row-' + idx,
       name: row[1] !== undefined && row[1] !== null ? String(row[1]) : '',
-      phone: row[2] !== undefined && row[2] !== null ? String(row[2]) : '',
+      phone: normalizeThaiPhone(row[2]),
       address: row[3] !== undefined && row[3] !== null ? String(row[3]) : '',
       routeName,
       mapsUrl,
@@ -1390,7 +1391,7 @@ export const parseCheckIns = (values: any[]): import('../types').StoreCheckIn[] 
     createdAt: row[1] ? String(row[1]) : '',
     timestampStr: row[2] ? String(row[2]) : '',
     storeName: row[3] ? String(row[3]) : '',
-    customerPhone: row[4] !== undefined && row[4] !== null ? String(row[4]) : '',
+    customerPhone: normalizeThaiPhone(row[4]),
     address: row[5] ? String(row[5]) : '',
     salespersonId: row[6] ? String(row[6]) : '',
     salespersonName: row[6] ? String(row[6]) : '',
@@ -1495,7 +1496,7 @@ export const parseDeposits = (values: any[]): DepositRecord[] => {
       createdAt: row[2] ? String(row[2]) : new Date().toISOString(),
       customerId: row[3] ? String(row[3]) : undefined,
       customerName: String(row[4] || ''),
-      customerPhone: row[5] !== undefined && row[5] !== null ? String(row[5]) : '',
+      customerPhone: normalizeThaiPhone(row[5]),
       customerAddress: row[6] ? String(row[6]) : '',
       routeName: row[7] ? String(row[7]) : '',
       itemType: row[8] ? String(row[8]) : 'ถังน้ำ PC 18.9L',
@@ -1529,7 +1530,7 @@ export const syncDepositToSheets = async (spreadsheetId: string, d: DepositRecor
     d.createdAt,
     d.customerId || '',
     d.customerName || '',
-    d.customerPhone || '',
+    formatPhoneForGoogleSheets(d.customerPhone),
     d.customerAddress || '',
     d.routeName || '',
     d.itemType || '',
@@ -1557,7 +1558,7 @@ export const updateDepositInSheet = async (spreadsheetId: string, d: DepositReco
     d.createdAt,
     d.customerId || '',
     d.customerName || '',
-    d.customerPhone || '',
+    formatPhoneForGoogleSheets(d.customerPhone),
     d.customerAddress || '',
     d.routeName || '',
     d.itemType || '',

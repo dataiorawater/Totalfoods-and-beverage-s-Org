@@ -27,6 +27,7 @@ import {
   INITIAL_ROUTES,
 } from './data/mockData';
 import { formatNowUtcPlus7Iso } from './utils/callPlanUtils';
+import { normalizeThaiPhone } from './utils/phoneUtils';
 
 import {
   appendOrderToSheet,
@@ -201,7 +202,7 @@ export function sanitizeOrderData(orderList: Order[]): Order[] {
     salespersonId: String(o.salespersonId || ''),
     salespersonName: String(o.salespersonName || ''),
     customerName: String(o.customerName || ''),
-    customerPhone: o.customerPhone !== undefined && o.customerPhone !== null ? String(o.customerPhone) : '',
+    customerPhone: normalizeThaiPhone(o.customerPhone),
     requestedDeliveryDate: String(o.requestedDeliveryDate || ''),
     note: String(o.note || ''),
     totalAmount: typeof o.totalAmount === 'number' && !isNaN(o.totalAmount) ? o.totalAmount : parseFloat(String(o.totalAmount || 0)) || 0,
@@ -232,7 +233,7 @@ export function sanitizeCustomerData(customerList: Customer[]): Customer[] {
     ...c,
     id: String(c.id || ''),
     name: String(c.name || ''),
-    phone: c.phone !== undefined && c.phone !== null ? String(c.phone) : '',
+    phone: normalizeThaiPhone(c.phone),
     address: String(c.address || ''),
     mapsUrl: String(c.mapsUrl || ''),
     routeName: String(c.routeName || ''),
@@ -1315,6 +1316,7 @@ export default function App() {
     const newCustomer: Customer = {
       id: custData.id || `CUST-${Date.now()}`,
       ...custData,
+      phone: normalizeThaiPhone(custData.phone),
       routeName: resolvedRouteId,
       routeId: resolvedRouteId || undefined,
       latitude: parsedCoords?.lat,
@@ -1721,9 +1723,7 @@ export default function App() {
               </div>
             </div>
 
-            <span className="font-extrabold text-sm sm:text-base text-slate-900 tracking-tight hidden sm:block">จัดการออเดอร์</span>
-            <span className="text-slate-300 hidden sm:block">|</span>
-            <span className="text-[10px] sm:text-xs text-slate-500 font-medium hidden sm:block">ระบบจัดการออเดอร์สินค้า</span>
+            <span className="font-extrabold text-sm sm:text-base text-slate-900 tracking-tight hidden sm:block">ระบบจัดการงาน</span>
             {sheetsConfig?.spreadsheetId ? (
               <div className="flex items-center gap-1 sm:gap-1.5">
                 <span className="inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap">

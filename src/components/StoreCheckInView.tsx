@@ -12,7 +12,6 @@ import {
   AlertCircle,
   FileSpreadsheet,
   X,
-  Upload,
   Calendar,
   Sparkles,
   ShoppingBag,
@@ -28,6 +27,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { Customer, StaffUser, StoreCheckIn, Route, DailyRouteSchedule } from '../types';
+import { toTelHref } from '../utils/phoneUtils';
 import { calculateDistanceMeters, formatDistance, extractCustomerCoords, compressImageFile } from '../utils/geoUtils';
 import {
   uploadCheckInPhotoToDrive,
@@ -156,7 +156,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
   const [selectedSales, setSelectedSales] = useState<string>(
     canViewAllRoutes ? 'all' : currentUser.name
   );
-  const [visitStatusFilter, setVisitStatusFilter] = useState<'all' | 'unvisited' | 'visited'>('all');
+  const [visitStatusFilter, setVisitStatusFilter] = useState<'all' | 'unvisited' | 'visited'>('unvisited');
 
   // Keep selectedSales strictly synchronized when switching user/role
   useEffect(() => {
@@ -239,7 +239,6 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
 
   // 6. Check-ins History (Provided from props)
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
   // Request GPS Location
@@ -611,7 +610,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
 
     // 1. Mandatory Photo Check
     if (!photoDataUrl) {
-      setFormError('กรุณาถ่ายรูปหรือแนบภาพหน้าร้านก่อนการกดบันทึกเช็คอิน');
+      setFormError('กรุณาถ่ายรูปหน้าร้านจากกล้องก่อนการกดบันทึกเช็คอิน');
       return;
     }
 
@@ -923,7 +922,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 active:bg-blue-200 border border-blue-200 text-blue-700 font-bold text-xs transition-colors cursor-pointer shrink-0 shadow-2xs"
               >
                 <Edit3 className="w-3.5 h-3.5 text-blue-600" />
-                <span>ปรับเปลี่ยน</span>
+                <span>เปลี่ยนสาย</span>
               </button>
             </div>
 
@@ -1266,9 +1265,9 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                           </a>
                         )}
 
-                        {customer.phone && (
+                        {customer.phone && toTelHref(customer.phone) && (
                           <a
-                            href={`tel:${customer.phone}`}
+                            href={toTelHref(customer.phone)}
                             className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors"
                           >
                             <Phone className="w-3 h-3" />
@@ -1764,7 +1763,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                   )}
                 </div>
 
-                {/* Hidden File Inputs */}
+                {/* Hidden Camera Input (Camera Capture Only) */}
                 <input
                   ref={cameraInputRef}
                   type="file"
@@ -1773,15 +1772,8 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                   onChange={handlePhotoFileChange}
                   className="hidden"
                 />
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handlePhotoFileChange}
-                  className="hidden"
-                />
 
-                {/* Photo Preview or Capture Buttons */}
+                {/* Photo Preview or Capture Button */}
                 {photoDataUrl ? (
                   <div className="space-y-2">
                     <div className="relative rounded-xl overflow-hidden border border-slate-300 bg-black aspect-video max-h-48 group">
@@ -1804,18 +1796,10 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                       <button
                         type="button"
                         onClick={() => cameraInputRef.current?.click()}
-                        className="flex-1 py-1.5 px-2.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="w-full py-2 px-3 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
                       >
                         <Camera className="w-3.5 h-3.5 text-blue-600" />
                         <span>ถ่ายภาพใหม่</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="flex-1 py-1.5 px-2.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        <Upload className="w-3.5 h-3.5 text-slate-600" />
-                        <span>เลือกรูปจากแกลเลอรี</span>
                       </button>
                     </div>
                   </div>
@@ -1830,28 +1814,19 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                         {isCompressingPhoto ? 'กำลังประมวลผลรูปภาพ...' : 'ถ่ายภาพป้ายหรือบรรยากาศหน้าร้าน'}
                       </p>
                       <p className="text-[11px] text-slate-500 mt-0.5">
-                        ระบบกำหนดให้ต้องมีรูปถ่ายหน้าร้านเพื่อยืนยันการเข้าพบลูกค้าจริง
+                        ระบบกำหนดให้ต้องถ่ายรูปหน้าร้านจากกล้องเพื่อยืนยันการเข้าพบลูกค้าจริง
                       </p>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-1">
+                    <div className="flex items-center justify-center pt-1">
                       <button
                         type="button"
                         onClick={() => cameraInputRef.current?.click()}
                         disabled={isCompressingPhoto}
-                        className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                        className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs disabled:opacity-50"
                       >
                         <Camera className="w-4 h-4" />
                         <span>ถ่ายรูปทันที (เปิดกล้อง)</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={isCompressingPhoto}
-                        className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors cursor-pointer disabled:opacity-50"
-                      >
-                        <Upload className="w-4 h-4 text-slate-500" />
-                        <span>เลือกจากอุปกรณ์</span>
                       </button>
                     </div>
                   </div>

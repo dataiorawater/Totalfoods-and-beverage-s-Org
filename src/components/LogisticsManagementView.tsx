@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Order, OrderStatus, StaffUser, Route } from '../types';
+import { normalizeThaiPhone, toTelHref } from '../utils/phoneUtils';
 import {
   Truck,
   Calendar,
@@ -893,13 +894,13 @@ export const LogisticsManagementView: React.FC<LogisticsManagementViewProps> = (
 
                       {/* Phone & Requested Date & Driver Info */}
                       <div className="flex items-center gap-3 mt-2 flex-wrap text-xs">
-                        {order.customerPhone && (
+                        {order.customerPhone && toTelHref(order.customerPhone) && (
                           <a
-                            href={`tel:${order.customerPhone}`}
+                            href={toTelHref(order.customerPhone)}
                             className="inline-flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-0.5 rounded-md"
                           >
                             <Phone className="w-3 h-3" />
-                            <span>{order.customerPhone}</span>
+                            <span>{normalizeThaiPhone(order.customerPhone)}</span>
                           </a>
                         )}
 
