@@ -668,16 +668,16 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
 
             {/* Sub-Filters: Salesperson (admin/manager only) & Specific Route selector */}
             {(canViewAllRoutes ? filterMode !== 'all' : filterMode === 'by_route') && (
-              <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2.5">
+              <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 sm:gap-2.5 min-w-0">
                 
                 {/* Sales Rep Selector (Admin & Manager only) */}
                 {canViewAllRoutes && (
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">เซลล์ผู้ดูแล:</span>
+                  <div className="flex items-center gap-1.5 w-full sm:w-auto min-w-0">
+                    <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap shrink-0">เซลล์ผู้ดูแล:</span>
                     <select
                       value={selectedSales}
                       onChange={(e) => setSelectedSales(e.target.value)}
-                      className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 font-medium text-slate-700 focus:bg-white"
+                      className="flex-1 sm:flex-none min-w-0 w-full sm:w-auto max-w-full truncate text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 sm:py-1 font-medium text-slate-700 focus:bg-white"
                     >
                       <option value="all">ทั้งหมด (ทุกเซลล์)</option>
                       {salesOptions.map((s) => (
@@ -691,17 +691,19 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
 
                 {/* By Route Dropdown (filtered by salesperson's routes & matched by route ID) */}
                 {filterMode === 'by_route' && (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {!canViewAllRoutes && currentUser?.name && (
-                      <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 rounded-lg px-2 py-1 whitespace-nowrap">
-                        เซลล์ผู้ดูแล: {currentUser.name}
-                      </span>
-                    )}
-                    <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">เลือกสายการเข้าเยี่ยม:</span>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 w-full sm:w-auto min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+                      {!canViewAllRoutes && currentUser?.name && (
+                        <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 rounded-lg px-2 py-1 whitespace-nowrap">
+                          เซลล์ผู้ดูแล: {currentUser.name}
+                        </span>
+                      )}
+                      <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">เลือกสายการเข้าเยี่ยม:</span>
+                    </div>
                     <select
                       value={selectedRouteId}
                       onChange={(e) => setSelectedRouteId(e.target.value)}
-                      className="text-xs bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg px-2.5 py-1 font-semibold focus:bg-white"
+                      className="w-full sm:w-auto sm:max-w-[360px] max-w-full min-w-0 truncate text-xs bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg px-2.5 py-1.5 sm:py-1 font-semibold focus:bg-white"
                     >
                       <option value="all">
                         {canViewAllRoutes
