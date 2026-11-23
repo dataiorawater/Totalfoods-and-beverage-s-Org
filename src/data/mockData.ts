@@ -7,7 +7,9 @@ export const DEFAULT_SHEETS_CONFIG: SheetsConfig = {
   spreadsheetName: '',
   sheetName: 'รายการออเดอร์ (Orders)',
   spreadsheetUrl: 'https://docs.google.com/spreadsheets/d/1a4fKQhjvqwg486PXTO7VRPU65IPaUW_gEARl9Ky7USA/edit',
-  gasUrl: 'https://script.google.com/macros/s/AKfycbzfqWujgz3EhJJ4fJ6DEf6J6RibJvyp_b8QA2OwVAhN1WG4gVEr2OnrOXtqvJnJqMU9/exec',
+  gasUrl: 'https://script.google.com/macros/s/AKfycbzlUqmp9Qf4MT4t_m74j26IEU_wOMv3t41mVIJp3ZL8-4e4KqZgjOPE1rucgi6Feg/exec',
+  storePhotoFolderId: '1OMgGdY7DM78UviFNLJ-Wi_t_ayjsH5V4',
+  checkInPhotoFolderId: '1pxTvmm0S2VJru-yP7yomVNUom7g9MX2m',
   autoSync: true,
 };
 

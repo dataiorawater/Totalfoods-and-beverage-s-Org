@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Order,
   OrderStatus,
@@ -61,6 +61,10 @@ import {
   updateMaintenanceInSheet,
   deleteMaintenanceFromSheet,
   fetchMaintenanceFromSheet,
+  DEFAULT_GAS_URL,
+  LEGACY_DEFAULT_GAS_URL,
+  fetchSharedSystemConfig,
+  saveSharedSystemConfig,
 } from './services/googleSheets';
 import { logoutGoogle } from './services/auth';
 import { sendLineNotification } from './services/lineNotify';
@@ -461,12 +465,21 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === 'object') {
+          const parsedGasUrl = typeof parsed.gasUrl === 'string' ? parsed.gasUrl.trim() : '';
+          const resolvedGasUrl =
+            !parsedGasUrl || parsedGasUrl === LEGACY_DEFAULT_GAS_URL
+              ? DEFAULT_SHEETS_CONFIG.gasUrl
+              : parsedGasUrl;
           return { 
             ...DEFAULT_SHEETS_CONFIG, 
             ...parsed,
             spreadsheetId: parsed.spreadsheetId || DEFAULT_SHEETS_CONFIG.spreadsheetId,
             spreadsheetUrl: parsed.spreadsheetUrl || DEFAULT_SHEETS_CONFIG.spreadsheetUrl,
-            gasUrl: parsed.gasUrl || DEFAULT_SHEETS_CONFIG.gasUrl,
+            gasUrl: resolvedGasUrl,
+            storePhotoFolderId:
+              parsed.storePhotoFolderId || DEFAULT_SHEETS_CONFIG.storePhotoFolderId,
+            checkInPhotoFolderId:
+              parsed.checkInPhotoFolderId || DEFAULT_SHEETS_CONFIG.checkInPhotoFolderId,
           };
         }
       } catch (e) {}
@@ -600,6 +613,136 @@ export default function App() {
   useEffect(() => {
     safeSave('iora_line_settings', lineSettings);
   }, [lineSettings]);
+
+  const syncedConfigSpreadsheetRef = useRef<string>('');
+
+  const syncSharedConfigFromCloud = useCallback(async (config: SheetsConfig) => {
+    if (!config?.spreadsheetId) return;
+    try {
+      const cloud = await fetchSharedSystemConfig(config.spreadsheetId, config.gasUrl);
+      if (cloud && (cloud.gasUrl || cloud.storePhotoFolderId || cloud.checkInPhotoFolderId)) {
+        setSheetsConfig((prev) => {
+          const nextGasUrl = cloud.gasUrl || prev.gasUrl || DEFAULT_GAS_URL;
+          const nextStoreFolder =
+            cloud.storePhotoFolderId !== undefined && cloud.storePhotoFolderId !== ''
+              ? cloud.storePhotoFolderId
+              : prev.storePhotoFolderId || '';
+          const nextCheckInFolder =
+            cloud.checkInPhotoFolderId !== undefined && cloud.checkInPhotoFolderId !== ''
+              ? cloud.checkInPhotoFolderId
+              : prev.checkInPhotoFolderId || '';
+
+          if (
+            nextGasUrl === (prev.gasUrl || '') &&
+            nextStoreFolder === (prev.storePhotoFolderId || '') &&
+            nextCheckInFolder === (prev.checkInPhotoFolderId || '')
+          ) {
+            return prev;
+          }
+
+          const merged: SheetsConfig = {
+            ...prev,
+            gasUrl: nextGasUrl,
+            storePhotoFolderId: nextStoreFolder,
+            checkInPhotoFolderId: nextCheckInFolder,
+          };
+          safeSave('iora_sheets_config', merged);
+          return merged;
+        });
+      } else {
+        // Cloud SystemConfig does not exist yet: if THIS device already has a custom v4 GAS URL
+        // or Drive folder IDs configured locally, automatically publish them to Google Sheets
+        // so all other devices receive them without manual setup.
+        const hasCustomGasUrl = Boolean(config.gasUrl && config.gasUrl.trim() !== DEFAULT_GAS_URL);
+        const hasCustomFolders = Boolean(
+          (config.storePhotoFolderId && config.storePhotoFolderId.trim()) ||
+            (config.checkInPhotoFolderId && config.checkInPhotoFolderId.trim())
+        );
+        if (hasCustomGasUrl || hasCustomFolders) {
+          await saveSharedSystemConfig(
+            config.spreadsheetId,
+            {
+              gasUrl: config.gasUrl,
+              storePhotoFolderId: config.storePhotoFolderId,
+              checkInPhotoFolderId: config.checkInPhotoFolderId,
+            },
+            config.gasUrl
+          );
+        }
+      }
+    } catch (err) {
+      console.warn('[SystemConfig Sync] Notice:', err);
+    }
+  }, []);
+
+  // Auto-sync shared GAS URL & Drive folders with Google Sheets on startup
+  useEffect(() => {
+    const sid = sheetsConfig?.spreadsheetId;
+    if (!sid) return;
+    if (syncedConfigSpreadsheetRef.current === sid) return;
+    syncedConfigSpreadsheetRef.current = sid;
+    syncSharedConfigFromCloud(sheetsConfig);
+  }, [sheetsConfig, syncSharedConfigFromCloud]);
+
+  // Listen for self-healed config updates dispatched by googleDrive service
+  useEffect(() => {
+    const handleSyncedEvent = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail;
+      if (!detail || typeof detail !== 'object') return;
+      setSheetsConfig((prev) => {
+        const nextGasUrl = detail.gasUrl || prev.gasUrl;
+        const nextStoreFolder =
+          detail.storePhotoFolderId !== undefined
+            ? detail.storePhotoFolderId
+            : prev.storePhotoFolderId;
+        const nextCheckInFolder =
+          detail.checkInPhotoFolderId !== undefined
+            ? detail.checkInPhotoFolderId
+            : prev.checkInPhotoFolderId;
+        if (
+          nextGasUrl === prev.gasUrl &&
+          nextStoreFolder === prev.storePhotoFolderId &&
+          nextCheckInFolder === prev.checkInPhotoFolderId
+        ) {
+          return prev;
+        }
+        return {
+          ...prev,
+          gasUrl: nextGasUrl,
+          storePhotoFolderId: nextStoreFolder,
+          checkInPhotoFolderId: nextCheckInFolder,
+        };
+      });
+    };
+    window.addEventListener('iora_sheets_config_synced', handleSyncedEvent);
+    return () => window.removeEventListener('iora_sheets_config_synced', handleSyncedEvent);
+  }, []);
+
+  const handleUpdateSheetsConfig = useCallback((updated: SheetsConfig) => {
+    setSheetsConfig(updated);
+    safeSave('iora_sheets_config', updated);
+    if (updated?.spreadsheetId) {
+      saveSharedSystemConfig(
+        updated.spreadsheetId,
+        {
+          gasUrl: updated.gasUrl,
+          storePhotoFolderId: updated.storePhotoFolderId,
+          checkInPhotoFolderId: updated.checkInPhotoFolderId,
+        },
+        updated.gasUrl
+      )
+        .then((ok) => {
+          if (ok) {
+            showToast(
+              'success',
+              'ซิงค์การตั้งค่าไปทุกเครื่องแล้ว',
+              'บันทึกลิงก์ Apps Script และโฟลเดอร์ Google Drive ลง Google Sheets เรียบร้อย เครื่องอื่นจะได้รับค่าล่าสุดอัตโนมัติ'
+            );
+          }
+        })
+        .catch((err) => console.warn('[handleUpdateSheetsConfig] Cloud sync error:', err));
+    }
+  }, []);
 
   
 
@@ -1045,6 +1188,8 @@ export default function App() {
     
     setIsLoadingData(true);
     try {
+      // Pull latest shared Apps Script URL & Drive folder IDs from Google Sheets
+      await syncSharedConfigFromCloud(sheetsConfig);
       let fetchedOrders, fetchedProducts, fetchedUsers, fetchedCustomers, fetchedRoutes;
       try {
         const bulkData = await fetchAllDataBulk(sheetsConfig.spreadsheetId, sheetsConfig.sheetName);
@@ -1130,7 +1275,7 @@ export default function App() {
     } finally {
       setIsLoadingData(false);
     }
-  }, [sheetsConfig]);
+  }, [sheetsConfig, syncSharedConfigFromCloud]);
 
   const handleSaveCustomer = async (custData: {
     id?: string;
@@ -1874,7 +2019,7 @@ export default function App() {
           isOpen={isSettingsOpen}
           sheetsConfig={sheetsConfig}
           lineSettings={lineSettings}
-          onUpdateSheetsConfig={setSheetsConfig}
+          onUpdateSheetsConfig={handleUpdateSheetsConfig}
           onUpdateLineSettings={setLineSettings}
           onClose={() => setIsSettingsOpen(false)}
           

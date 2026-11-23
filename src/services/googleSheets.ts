@@ -10,6 +10,7 @@ export const EXPENSES_TAB_NAME = 'Expenses';
 export const DEPOSITS_TAB_NAME = 'Deposits';
 export const HIRED_VEHICLES_TAB_NAME = 'HiredVehicles';
 export const MAINTENANCE_TAB_NAME = 'VehicleMaintenance';
+export const SYSTEM_CONFIG_TAB_NAME = 'SystemConfig';
 
 // หัวคอลัมภ์มาตรฐาน 18 คอลัมน์สำหรับฐานข้อมูลออเดอร์ ตรงกับโครงสร้างข้อมูล 100%
 export const ORDER_HEADERS_CANONICAL = [
@@ -54,7 +55,16 @@ export const ORDER_HEADERS_ENGLISH = [
   'updatedAt'
 ];
 
-const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzfqWujgz3EhJJ4fJ6DEf6J6RibJvyp_b8QA2OwVAhN1WG4gVEr2OnrOXtqvJnJqMU9/exec';
+export const LEGACY_DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzfqWujgz3EhJJ4fJ6DEf6J6RibJvyp_b8QA2OwVAhN1WG4gVEr2OnrOXtqvJnJqMU9/exec';
+export const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzlUqmp9Qf4MT4t_m74j26IEU_wOMv3t41mVIJp3ZL8-4e4KqZgjOPE1rucgi6Feg/exec';
+
+export const normalizeGasUrl = (url?: string): string => {
+  const trimmed = String(url || '').trim();
+  if (!trimmed || trimmed === LEGACY_DEFAULT_GAS_URL) {
+    return DEFAULT_GAS_URL;
+  }
+  return trimmed;
+};
 
 export const testGasConnection = async (
   testUrl?: string
@@ -69,9 +79,7 @@ export const testGasConnection = async (
       }
     } catch (e) {}
   }
-  if (!url) {
-    url = DEFAULT_GAS_URL;
-  }
+  url = normalizeGasUrl(url);
   if (!url || !url.trim()) {
     return { success: false, message: 'ยังไม่ได้ระบุ Google Apps Script URL' };
   }
@@ -118,7 +126,7 @@ const gasRequest = async (spreadsheetId: string, action: string, sheet?: string,
     if (savedConfig) {
       const parsed = JSON.parse(savedConfig);
       if (parsed.gasUrl) {
-        gasUrlToUse = parsed.gasUrl;
+        gasUrlToUse = normalizeGasUrl(parsed.gasUrl);
       }
     }
   } catch (e) {
@@ -374,6 +382,10 @@ export const ensureAllSheetsTabs = async (spreadsheetId: string, customOrderShee
         'receiptPhotoUrl',
       ],
     },
+    {
+      name: SYSTEM_CONFIG_TAB_NAME,
+      headers: ['key', 'value', 'updatedAt'],
+    },
   ];
 
   for (const tab of tabs) {
@@ -402,6 +414,198 @@ export const ensureAllSheetsTabs = async (spreadsheetId: string, customOrderShee
       console.warn(`[ensureAllSheetsTabs] Warning for tab ${tab.name}:`, e);
     }
   }
+};
+
+export interface SharedSystemConfig {
+  gasUrl?: string;
+  storePhotoFolderId?: string;
+  checkInPhotoFolderId?: string;
+  updatedAt?: string;
+}
+
+const isValidSharedGasUrl = (url?: string): boolean => {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url.trim());
+    return (
+      parsed.protocol === 'https:' &&
+      (parsed.hostname === 'script.google.com' || parsed.hostname === 'script.googleusercontent.com')
+    );
+  } catch {
+    return false;
+  }
+};
+
+const postGasWithUrl = async (gasUrl: string, payload: Record<string, any>): Promise<any> => {
+  const res = await fetch(gasUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify(payload),
+  });
+  const text = await res.text();
+  if (text.includes('<!DOCTYPE html>') || text.includes('<html')) {
+    throw new Error('GAS_HTML_LOGIN_REQUIRED');
+  }
+  const json = JSON.parse(text);
+  if (json?.error) {
+    throw new Error(String(json.error));
+  }
+  return json;
+};
+
+const getCandidateGasUrls = (overrideUrl?: string): string[] => {
+  const candidates: string[] = [];
+  const normalizedOverride = overrideUrl ? normalizeGasUrl(overrideUrl) : '';
+  if (isValidSharedGasUrl(normalizedOverride)) {
+    candidates.push(normalizedOverride);
+  }
+  try {
+    const savedConfig = localStorage.getItem('iora_sheets_config');
+    if (savedConfig) {
+      const parsed = JSON.parse(savedConfig);
+      const normalizedSaved = parsed?.gasUrl ? normalizeGasUrl(parsed.gasUrl) : '';
+      if (isValidSharedGasUrl(normalizedSaved) && !candidates.includes(normalizedSaved)) {
+        candidates.push(normalizedSaved);
+      }
+    }
+  } catch {
+    // ignore storage errors
+  }
+  if (!candidates.includes(DEFAULT_GAS_URL)) {
+    candidates.push(DEFAULT_GAS_URL);
+  }
+  return candidates;
+};
+
+export const fetchSharedSystemConfig = async (
+  spreadsheetId: string,
+  gasUrlOverride?: string
+): Promise<SharedSystemConfig | null> => {
+  if (!spreadsheetId) return null;
+  const candidates = getCandidateGasUrls(gasUrlOverride);
+
+  for (const url of candidates) {
+    try {
+      const res = await postGasWithUrl(url, {
+        action: 'getData',
+        spreadsheetId,
+        sheet: SYSTEM_CONFIG_TAB_NAME,
+      });
+      const rows = Array.isArray(res?.values) ? res.values : [];
+      if (rows.length <= 1) return null;
+
+      const config: SharedSystemConfig = {};
+      for (const row of rows.slice(1)) {
+        const key = String(row?.[0] || '').trim();
+        const value = String(row?.[1] || '').trim();
+        const updatedAt = String(row?.[2] || '').trim();
+        if (!key) continue;
+        if (key === 'gasUrl' && isValidSharedGasUrl(value)) {
+          config.gasUrl = value;
+        } else if (key === 'storePhotoFolderId') {
+          config.storePhotoFolderId = value;
+        } else if (key === 'checkInPhotoFolderId') {
+          config.checkInPhotoFolderId = value;
+        }
+        if (updatedAt && (!config.updatedAt || updatedAt > config.updatedAt)) {
+          config.updatedAt = updatedAt;
+        }
+      }
+
+      if (config.gasUrl || config.storePhotoFolderId || config.checkInPhotoFolderId) {
+        return config;
+      }
+      return null;
+    } catch (err: any) {
+      const msg = String(err?.message || '');
+      if (msg.includes('Sheet not found')) {
+        return null;
+      }
+      // Try next candidate URL (e.g. fallback to DEFAULT_GAS_URL)
+    }
+  }
+
+  return null;
+};
+
+export const saveSharedSystemConfig = async (
+  spreadsheetId: string,
+  config: SharedSystemConfig,
+  gasUrlOverride?: string
+): Promise<boolean> => {
+  if (!spreadsheetId) return false;
+  const candidates = getCandidateGasUrls(gasUrlOverride || config.gasUrl);
+  const nowIso = new Date().toISOString();
+
+  const entries: Array<[string, string]> = [];
+  if (isValidSharedGasUrl(config.gasUrl)) {
+    entries.push(['gasUrl', config.gasUrl!.trim()]);
+  }
+  if (config.storePhotoFolderId !== undefined) {
+    entries.push(['storePhotoFolderId', String(config.storePhotoFolderId || '').trim()]);
+  }
+  if (config.checkInPhotoFolderId !== undefined) {
+    entries.push(['checkInPhotoFolderId', String(config.checkInPhotoFolderId || '').trim()]);
+  }
+  if (entries.length === 0) return false;
+
+  for (const url of candidates) {
+    try {
+      await postGasWithUrl(url, {
+        action: 'addSheet',
+        spreadsheetId,
+        sheet: SYSTEM_CONFIG_TAB_NAME,
+      });
+
+      const existingRes = await postGasWithUrl(url, {
+        action: 'getData',
+        spreadsheetId,
+        sheet: SYSTEM_CONFIG_TAB_NAME,
+      });
+
+      const rows: any[][] = Array.isArray(existingRes?.values) ? existingRes.values : [];
+      if (rows.length === 0) {
+        await postGasWithUrl(url, {
+          action: 'appendRow',
+          spreadsheetId,
+          sheet: SYSTEM_CONFIG_TAB_NAME,
+          rowData: ['key', 'value', 'updatedAt'],
+        });
+      }
+
+      const keyToRowIndex = new Map<string, number>();
+      for (let i = 1; i < rows.length; i++) {
+        const k = String(rows[i]?.[0] || '').trim();
+        if (k) keyToRowIndex.set(k, i + 1);
+      }
+
+      for (const [key, value] of entries) {
+        const existingRowIdx = keyToRowIndex.get(key);
+        if (existingRowIdx) {
+          await postGasWithUrl(url, {
+            action: 'updateRow',
+            spreadsheetId,
+            sheet: SYSTEM_CONFIG_TAB_NAME,
+            rowIndex: existingRowIdx,
+            rowData: [key, value, nowIso],
+          });
+        } else {
+          await postGasWithUrl(url, {
+            action: 'appendRow',
+            spreadsheetId,
+            sheet: SYSTEM_CONFIG_TAB_NAME,
+            rowData: [key, value, nowIso],
+          });
+        }
+      }
+
+      return true;
+    } catch (err) {
+      console.warn('[saveSharedSystemConfig] Attempt failed, trying fallback:', err);
+    }
+  }
+
+  return false;
 };
 
 

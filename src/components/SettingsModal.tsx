@@ -5,6 +5,7 @@ import { googleSignIn } from '../services/auth';
 import { testGasConnection, fixAndAlignOrderHeaders, ORDER_HEADERS_CANONICAL } from '../services/googleSheets';
 import {
   DEFAULT_STORE_PHOTO_FOLDER_ID,
+  DEFAULT_CHECKIN_PHOTO_FOLDER_ID,
   extractDriveFolderId,
   getDriveFolderUrl,
   testDriveFolderConnection,
@@ -226,7 +227,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   }
 
   const resolvedStoreFolderId = extractDriveFolderId(storePhotoFolderId) || DEFAULT_STORE_PHOTO_FOLDER_ID;
-  const resolvedCheckInFolderId = extractDriveFolderId(checkInPhotoFolderId);
+  const resolvedCheckInFolderId = extractDriveFolderId(checkInPhotoFolderId) || DEFAULT_CHECKIN_PHOTO_FOLDER_ID;
 
   const handleSaveSheetsConfig = () => {
     let cleanId = spreadsheetId.trim();
@@ -249,7 +250,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       checkInPhotoFolderId: extractDriveFolderId(checkInPhotoFolderId) || sheetsConfig?.checkInPhotoFolderId || '',
     };
     onUpdateSheetsConfig(updated);
-    setSheetsMessage({ type: 'success', text: 'บันทึกการตั้งค่า Google Sheets เรียบร้อย' });
+    setSheetsMessage({
+      type: 'success',
+      text: 'บันทึกและซิงค์การตั้งค่าไปยัง Google Sheets เรียบร้อย (เครื่องอื่นจะได้รับลิงก์ Apps Script ล่าสุดอัตโนมัติ)',
+    });
   };
 
   const handleSaveDriveConfig = () => {
@@ -289,7 +293,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onUpdateSheetsConfig(updated);
     setDriveMessage({
       type: 'success',
-      text: 'บันทึกการตั้งค่าโฟลเดอร์ Google Drive สำหรับรูปร้านค้าและรูปเช็คอินเรียบร้อยแล้ว',
+      text: 'บันทึกและซิงค์โฟลเดอร์ Google Drive ไปยัง Google Sheets เรียบร้อย (เครื่องอื่นจะได้รับค่าล่าสุดอัตโนมัติ)',
     });
   };
 
@@ -311,17 +315,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleTestCheckInFolder = async () => {
-    if (!checkInPhotoFolderId.trim()) {
-      setCheckInFolderTestResult({
-        success: false,
-        message: 'กรุณาระบุ Folder ID หรือลิงก์โฟลเดอร์รูปเช็คอินก่อนกดทดสอบ',
-      });
-      return;
-    }
     setIsTestingCheckInFolder(true);
     setCheckInFolderTestResult(null);
     try {
-      const res = await testDriveFolderConnection(checkInPhotoFolderId, gasUrl, currentCleanId);
+      const target = checkInPhotoFolderId.trim() || DEFAULT_CHECKIN_PHOTO_FOLDER_ID;
+      const res = await testDriveFolderConnection(target, gasUrl, currentCleanId);
       setCheckInFolderTestResult(res);
     } catch (err: any) {
       setCheckInFolderTestResult({
@@ -1000,7 +998,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <button
                       type="button"
                       onClick={handleTestCheckInFolder}
-                      disabled={isTestingCheckInFolder || !checkInPhotoFolderId.trim()}
+                      disabled={isTestingCheckInFolder}
                       className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
                     >
                       {isTestingCheckInFolder ? (
@@ -1029,11 +1027,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       setCheckInPhotoFolderId(e.target.value);
                       setCheckInFolderTestResult(null);
                     }}
-                    placeholder="วางลิงก์โฟลเดอร์ Google Drive สำหรับเก็บรูปเช็คอินโดยเฉพาะ"
+                    placeholder={`วางลิงก์โฟลเดอร์ หรือ Folder ID (ค่าเริ่มต้น: ${DEFAULT_CHECKIN_PHOTO_FOLDER_ID})`}
                     className="w-full px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500"
                   />
                   <span className="text-[10px] text-slate-400 mt-1 block">
-                    แนะนำให้สร้างโฟลเดอร์แยกต่างหากสำหรับรูปเช็คอิน • หากยังไม่ระบุ ระบบจะสร้างโฟลเดอร์ย่อยชื่อ &quot;รูปการเช็คอิน&quot; ไว้ในโฟลเดอร์รูปร้านค้าให้อัตโนมัติ
+                    ค่าเริ่มต้นปัจจุบัน: <code className="font-mono text-slate-600">{DEFAULT_CHECKIN_PHOTO_FOLDER_ID}</code> (หากเว้นว่าง ระบบจะใช้โฟลเดอร์เริ่มต้นนี้ให้อัตโนมัติ)
                   </span>
                 </div>
 

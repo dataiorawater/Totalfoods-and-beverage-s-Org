@@ -5,9 +5,12 @@ import 'dotenv/config';
 import { GoogleGenAI, Type } from '@google/genai';
 
 const PARENT_DRIVE_FOLDER_ID = '1OMgGdY7DM78UviFNLJ-Wi_t_ayjsH5V4';
+const DEFAULT_CHECKIN_PHOTO_FOLDER_ID = '1pxTvmm0S2VJru-yP7yomVNUom7g9MX2m';
 const DEFAULT_SPREADSHEET_ID = '1a4fKQhjvqwg486PXTO7VRPU65IPaUW_gEARl9Ky7USA';
-const DEFAULT_GAS_URL =
+const LEGACY_DEFAULT_GAS_URL =
   'https://script.google.com/macros/s/AKfycbzfqWujgz3EhJJ4fJ6DEf6J6RibJvyp_b8QA2OwVAhN1WG4gVEr2OnrOXtqvJnJqMU9/exec';
+const DEFAULT_GAS_URL =
+  'https://script.google.com/macros/s/AKfycbzlUqmp9Qf4MT4t_m74j26IEU_wOMv3t41mVIJp3ZL8-4e4KqZgjOPE1rucgi6Feg/exec';
 
 let cachedServiceAccountToken: { token: string; expiresAt: number } | null = null;
 
@@ -90,8 +93,9 @@ function validateDriveId(id: unknown): string | null {
 const ALLOWED_GAS_HOSTS = new Set(['script.google.com', 'script.googleusercontent.com']);
 
 function resolveValidatedGasUrl(candidate: unknown): string | null {
+  const candidateStr = typeof candidate === 'string' ? candidate.trim() : '';
   const raw =
-    (typeof candidate === 'string' && candidate.trim()) ||
+    (candidateStr && candidateStr !== LEGACY_DEFAULT_GAS_URL ? candidateStr : '') ||
     process.env.GAS_URL?.trim() ||
     DEFAULT_GAS_URL;
   try {
@@ -207,16 +211,17 @@ async function startServer() {
         });
       }
 
+      const photoCategory = category === 'checkin' ? 'checkin' : 'storefront';
+      const defaultFolderForCategory =
+        photoCategory === 'checkin' ? DEFAULT_CHECKIN_PHOTO_FOLDER_ID : PARENT_DRIVE_FOLDER_ID;
       const targetParentFolderId =
-        (parentFolderId ? validateDriveId(parentFolderId) : null) || PARENT_DRIVE_FOLDER_ID;
+        (parentFolderId ? validateDriveId(parentFolderId) : null) || defaultFolderForCategory;
       if (parentFolderId && !validateDriveId(parentFolderId)) {
         return res.status(400).json({
           success: false,
           error: 'รหัสโฟลเดอร์ Google Drive (Folder ID) ไม่ถูกต้อง',
         });
       }
-
-      const photoCategory = category === 'checkin' ? 'checkin' : 'storefront';
       const cleanStoreName = sanitizeDriveName(storeName, 'ร้านค้าใหม่');
       const slot = Number(slotNumber) || 1;
       const cleanSubFolderName =

@@ -1,7 +1,13 @@
 import { compressImageFile } from '../utils/geoUtils';
+import {
+  DEFAULT_GAS_URL as SHEETS_DEFAULT_GAS_URL,
+  LEGACY_DEFAULT_GAS_URL,
+  fetchSharedSystemConfig,
+} from './googleSheets';
 
 export const PARENT_DRIVE_FOLDER_ID = '1OMgGdY7DM78UviFNLJ-Wi_t_ayjsH5V4';
 export const DEFAULT_STORE_PHOTO_FOLDER_ID = PARENT_DRIVE_FOLDER_ID;
+export const DEFAULT_CHECKIN_PHOTO_FOLDER_ID = '1pxTvmm0S2VJru-yP7yomVNUom7g9MX2m';
 export const PARENT_DRIVE_FOLDER_URL = `https://drive.google.com/drive/folders/${PARENT_DRIVE_FOLDER_ID}`;
 
 export interface DriveUploadResult {
@@ -57,26 +63,30 @@ function getConfiguredSheetsSettings(): {
       const parsed = JSON.parse(savedConfig);
       const storeFolder = extractDriveFolderId(parsed?.storePhotoFolderId);
       const checkInFolder = extractDriveFolderId(parsed?.checkInPhotoFolderId);
+      const rawGas =
+        parsed?.gasUrl && typeof parsed.gasUrl === 'string' && parsed.gasUrl.trim()
+          ? parsed.gasUrl.trim()
+          : '';
+      const resolvedGasUrl =
+        !rawGas || rawGas === LEGACY_DEFAULT_GAS_URL ? DEFAULT_GAS_URL : rawGas;
       return {
-        gasUrl:
-          parsed?.gasUrl && typeof parsed.gasUrl === 'string' && parsed.gasUrl.trim()
-            ? parsed.gasUrl.trim()
-            : undefined,
+        gasUrl: resolvedGasUrl,
         spreadsheetId:
           parsed?.spreadsheetId && typeof parsed.spreadsheetId === 'string' && parsed.spreadsheetId.trim()
             ? parsed.spreadsheetId.trim()
             : DEFAULT_SPREADSHEET_ID,
         storePhotoFolderId: storeFolder || DEFAULT_STORE_PHOTO_FOLDER_ID,
-        checkInPhotoFolderId: checkInFolder,
+        checkInPhotoFolderId: checkInFolder || DEFAULT_CHECKIN_PHOTO_FOLDER_ID,
       };
     }
   } catch {
     // ignore storage errors
   }
   return {
+    gasUrl: DEFAULT_GAS_URL,
     spreadsheetId: DEFAULT_SPREADSHEET_ID,
     storePhotoFolderId: DEFAULT_STORE_PHOTO_FOLDER_ID,
-    checkInPhotoFolderId: '',
+    checkInPhotoFolderId: DEFAULT_CHECKIN_PHOTO_FOLDER_ID,
   };
 }
 
@@ -110,8 +120,7 @@ function sanitizeFilenamePart(val: string, fallback: string): string {
   return clean || fallback;
 }
 
-const DEFAULT_GAS_URL =
-  'https://script.google.com/macros/s/AKfycbzfqWujgz3EhJJ4fJ6DEf6J6RibJvyp_b8QA2OwVAhN1WG4gVEr2OnrOXtqvJnJqMU9/exec';
+const DEFAULT_GAS_URL = SHEETS_DEFAULT_GAS_URL;
 
 function isValidGasUrl(url?: string): boolean {
   if (!url) return false;
@@ -126,15 +135,86 @@ function isValidGasUrl(url?: string): boolean {
   }
 }
 
+function isStaleGasActionError(rawError?: string): boolean {
+  if (!rawError) return false;
+  return (
+    rawError === 'Invalid action' ||
+    rawError.includes('Invalid action') ||
+    rawError.includes('กรุณาอัปเดตโค้ด Apps Script') ||
+    rawError.includes('อุปกรณ์นี้ยังใช้ลิงก์ Apps Script เวอร์ชันเก่า')
+  );
+}
+
 function formatGasDriveError(rawError: string, gasUrl?: string): string {
-  if (rawError === 'Invalid action') {
-    return 'กรุณาอัปเดตโค้ด Apps Script (Code.gs v4) ที่เมนูตั้งค่า > Google Drive รูปภาพ และ Deploy เวอร์ชันใหม่';
+  if (
+    rawError === 'Invalid action' ||
+    rawError.includes('Invalid action') ||
+    rawError.includes('กรุณาอัปเดตโค้ด Apps Script')
+  ) {
+    return 'อุปกรณ์นี้ยังใช้ลิงก์ Apps Script เวอร์ชันเก่า — กรุณาเปิดแอปบนเครื่องที่ตั้งค่าไว้แล้วกด "บันทึกการตั้งค่า" ในหน้าตั้งค่า 1 ครั้ง (เพื่อให้ซิงค์ไปทุกเครื่องอัตโนมัติ) หรือวางลิงก์ Apps Script (v4) ที่เมนูตั้งค่า > Google Sheets';
   }
   if (rawError.includes('DriveApp') && (rawError.includes('permission') || rawError.includes('auth/drive'))) {
     const shortUrl = (gasUrl || DEFAULT_GAS_URL).slice(-22);
     return `Apps Script (...${shortUrl}) ยังไม่มีสิทธิ์ Google Drive — จุดสำคัญ: ในหน้าขอสิทธิ์ของ Google ต้อง "ติ๊กถูกช่องสี่เหลี่ยม Google Drive (หรือ เลือกทั้งหมด)" ก่อนกด "ดำเนินการต่อ" แล้วรัน authorizeDrive ให้ผ่าน จากนั้นสร้าง New deployment (ดำเนินการในฐานะ: ฉัน / ทุกคน)\n[รายละเอียดจาก Google: ${rawError}]`;
   }
   return rawError;
+}
+
+async function trySelfHealDriveSettingsFromCloud(
+  spreadsheetId: string,
+  failedGasUrl?: string
+): Promise<{
+  gasUrl?: string;
+  spreadsheetId: string;
+  storePhotoFolderId: string;
+  checkInPhotoFolderId: string;
+} | null> {
+  try {
+    const cloud = await fetchSharedSystemConfig(spreadsheetId, failedGasUrl);
+    if (!cloud?.gasUrl) return null;
+    const currentEffective = (failedGasUrl || DEFAULT_GAS_URL).trim();
+    if (cloud.gasUrl.trim() === currentEffective) return null;
+
+    let merged: Record<string, any> = {};
+    try {
+      const saved = localStorage.getItem('iora_sheets_config');
+      if (saved) merged = JSON.parse(saved) || {};
+    } catch {
+      merged = {};
+    }
+
+    const updated = {
+      ...merged,
+      spreadsheetId: merged.spreadsheetId || spreadsheetId,
+      gasUrl: cloud.gasUrl.trim(),
+      storePhotoFolderId:
+        extractDriveFolderId(cloud.storePhotoFolderId) ||
+        extractDriveFolderId(merged.storePhotoFolderId) ||
+        '',
+      checkInPhotoFolderId:
+        extractDriveFolderId(cloud.checkInPhotoFolderId) ||
+        extractDriveFolderId(merged.checkInPhotoFolderId) ||
+        '',
+    };
+
+    try {
+      localStorage.setItem('iora_sheets_config', JSON.stringify(updated));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('iora_sheets_config_synced', { detail: updated }));
+      }
+    } catch {
+      // ignore storage errors
+    }
+
+    return {
+      gasUrl: updated.gasUrl,
+      spreadsheetId: updated.spreadsheetId || spreadsheetId,
+      storePhotoFolderId: updated.storePhotoFolderId || DEFAULT_STORE_PHOTO_FOLDER_ID,
+      checkInPhotoFolderId: updated.checkInPhotoFolderId || DEFAULT_CHECKIN_PHOTO_FOLDER_ID,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function postDirectToGas(
@@ -212,29 +292,39 @@ export async function uploadStorePhotoToDrive(
   const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
   const base64Data = compressedDataUrl.replace(/^data:[a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+;base64,/, '');
 
-  const data = await callDriveApiWithFallback(
-    '/api/drive/upload-store-photo',
-    {
-      category: 'storefront',
-      parentFolderId: storePhotoFolderId,
-      storeName: cleanStoreName,
-      slotNumber,
-      imageDataUrl: compressedDataUrl,
-      gasUrl,
-      spreadsheetId,
-    },
-    {
-      action: 'uploadDrivePhoto',
-      spreadsheetId,
-      parentFolderId: storePhotoFolderId,
-      category: 'storefront',
-      storeName: cleanStoreName,
-      slotNumber,
-      base64Data,
-      mimeType,
-    },
-    gasUrl
-  );
+  const performUpload = (cfg: { gasUrl?: string; spreadsheetId: string; storePhotoFolderId: string }) =>
+    callDriveApiWithFallback(
+      '/api/drive/upload-store-photo',
+      {
+        category: 'storefront',
+        parentFolderId: cfg.storePhotoFolderId,
+        storeName: cleanStoreName,
+        slotNumber,
+        imageDataUrl: compressedDataUrl,
+        gasUrl: cfg.gasUrl,
+        spreadsheetId: cfg.spreadsheetId,
+      },
+      {
+        action: 'uploadDrivePhoto',
+        spreadsheetId: cfg.spreadsheetId,
+        parentFolderId: cfg.storePhotoFolderId,
+        category: 'storefront',
+        storeName: cleanStoreName,
+        slotNumber,
+        base64Data,
+        mimeType,
+      },
+      cfg.gasUrl
+    );
+
+  let data = await performUpload({ gasUrl, spreadsheetId, storePhotoFolderId });
+
+  if (!data?.success && isStaleGasActionError(data?.error)) {
+    const healed = await trySelfHealDriveSettingsFromCloud(spreadsheetId, gasUrl);
+    if (healed) {
+      data = await performUpload(healed);
+    }
+  }
 
   if (!data?.success) {
     throw new Error(data?.error || 'บันทึกรูปถ่ายร้านค้าลง Google Drive ไม่สำเร็จ');
@@ -273,40 +363,61 @@ export async function uploadCheckInPhotoToDrive(
   const safeSales = sanitizeFilenamePart(options.salespersonName || '', 'พนักงาน');
   const customFileName = `${year}-${month}-${day}_${hour}${minute}_${safeStore}_${safeSales}.jpg`;
 
-  const hasDedicatedCheckInFolder = Boolean(checkInPhotoFolderId);
-  const targetParentFolderId = checkInPhotoFolderId || storePhotoFolderId;
   const cleanStoreName = String(options.storeName || '').trim() || 'ร้านค้า';
   const mimeMatch = compressedDataUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,/);
   const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
   const base64Data = compressedDataUrl.replace(/^data:[a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+;base64,/, '');
 
-  const data = await callDriveApiWithFallback(
-    '/api/drive/upload-store-photo',
-    {
-      category: 'checkin',
-      parentFolderId: targetParentFolderId,
-      useCheckInRootSubfolder: !hasDedicatedCheckInFolder,
-      subFolderName,
-      customFileName,
-      storeName: cleanStoreName,
-      imageDataUrl: compressedDataUrl,
-      gasUrl,
-      spreadsheetId,
-    },
-    {
-      action: 'uploadDrivePhoto',
-      spreadsheetId,
-      parentFolderId: targetParentFolderId,
-      category: 'checkin',
-      useCheckInRootSubfolder: !hasDedicatedCheckInFolder,
-      subFolderName,
-      customFileName,
-      storeName: cleanStoreName,
-      base64Data,
-      mimeType,
-    },
-    gasUrl
-  );
+  const performCheckInUpload = (cfg: {
+    gasUrl?: string;
+    spreadsheetId: string;
+    storePhotoFolderId: string;
+    checkInPhotoFolderId: string;
+  }) => {
+    const hasDedicated = Boolean(cfg.checkInPhotoFolderId);
+    const parentId = cfg.checkInPhotoFolderId || cfg.storePhotoFolderId;
+    return callDriveApiWithFallback(
+      '/api/drive/upload-store-photo',
+      {
+        category: 'checkin',
+        parentFolderId: parentId,
+        useCheckInRootSubfolder: !hasDedicated,
+        subFolderName,
+        customFileName,
+        storeName: cleanStoreName,
+        imageDataUrl: compressedDataUrl,
+        gasUrl: cfg.gasUrl,
+        spreadsheetId: cfg.spreadsheetId,
+      },
+      {
+        action: 'uploadDrivePhoto',
+        spreadsheetId: cfg.spreadsheetId,
+        parentFolderId: parentId,
+        category: 'checkin',
+        useCheckInRootSubfolder: !hasDedicated,
+        subFolderName,
+        customFileName,
+        storeName: cleanStoreName,
+        base64Data,
+        mimeType,
+      },
+      cfg.gasUrl
+    );
+  };
+
+  let data = await performCheckInUpload({
+    gasUrl,
+    spreadsheetId,
+    storePhotoFolderId,
+    checkInPhotoFolderId,
+  });
+
+  if (!data?.success && isStaleGasActionError(data?.error)) {
+    const healed = await trySelfHealDriveSettingsFromCloud(spreadsheetId, gasUrl);
+    if (healed) {
+      data = await performCheckInUpload(healed);
+    }
+  }
 
   if (!data?.success) {
     throw new Error(data?.error || 'บันทึกรูปเช็คอินลง Google Drive ไม่สำเร็จ');
@@ -343,20 +454,30 @@ export async function testDriveFolderConnection(
   const effectiveGasUrl = overrideGasUrl?.trim() || configured.gasUrl;
   const effectiveSpreadsheetId = overrideSpreadsheetId?.trim() || configured.spreadsheetId;
 
-  const data = await callDriveApiWithFallback(
-    '/api/drive/test-folder',
-    {
-      folderId,
-      gasUrl: effectiveGasUrl,
-      spreadsheetId: effectiveSpreadsheetId,
-    },
-    {
-      action: 'testDriveFolder',
-      spreadsheetId: effectiveSpreadsheetId,
-      folderId,
-    },
-    effectiveGasUrl
-  );
+  const runFolderTest = (targetGasUrl?: string) =>
+    callDriveApiWithFallback(
+      '/api/drive/test-folder',
+      {
+        folderId,
+        gasUrl: targetGasUrl,
+        spreadsheetId: effectiveSpreadsheetId,
+      },
+      {
+        action: 'testDriveFolder',
+        spreadsheetId: effectiveSpreadsheetId,
+        folderId,
+      },
+      targetGasUrl
+    );
+
+  let data = await runFolderTest(effectiveGasUrl);
+
+  if (!data?.success && !overrideGasUrl && isStaleGasActionError(data?.error)) {
+    const healed = await trySelfHealDriveSettingsFromCloud(effectiveSpreadsheetId, effectiveGasUrl);
+    if (healed?.gasUrl) {
+      data = await runFolderTest(healed.gasUrl);
+    }
+  }
 
   if (!data?.success) {
     return {
