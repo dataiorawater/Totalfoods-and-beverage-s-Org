@@ -35,8 +35,6 @@ import {
   uploadStorePhotoToDrive,
   extractDriveFileId,
   getDriveImageDisplayUrl,
-  getDriveViewUrl,
-  isGoogleDriveUrl,
 } from '../services/googleDrive';
 import {
   THAI_DAYS,
@@ -1380,48 +1378,32 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                 )}
               </div>
 
-              {/* Footer: Thumbnail Switcher + Open in Google Drive */}
-              <div className="p-3 bg-slate-950/95 border-t border-white/10 flex items-center justify-between gap-3 flex-wrap">
-                {totalPhotos > 1 ? (
-                  <div className="flex items-center gap-2">
-                    {viewingGallery.photos.map((pUrl, pIdx) => (
-                      <button
-                        key={`lb-thumb-${pIdx}`}
-                        type="button"
-                        onClick={() =>
-                          setViewingGallery((prev) => (prev ? { ...prev, index: pIdx } : null))
-                        }
-                        className={`w-11 h-11 rounded-lg overflow-hidden border-2 transition-all cursor-pointer ${
-                          pIdx === viewingGallery.index
-                            ? 'border-blue-400 ring-2 ring-blue-400/40'
-                            : 'border-white/15 opacity-60 hover:opacity-100'
-                        }`}
-                      >
-                        <img
-                          src={getDriveImageDisplayUrl(pUrl, 200)}
-                          onError={(e) => handlePhotoImgError(e, pUrl, 200)}
-                          alt={`รูปย่อที่ ${pIdx + 1}`}
-                          className="w-full h-full object-cover"
-                        />
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="text-[11px] text-slate-400">รูปถ่ายหน้าร้านค้า</span>
-                )}
-
-                {isGoogleDriveUrl(activePhoto) && getDriveViewUrl(activePhoto) && (
-                  <a
-                    href={getDriveViewUrl(activePhoto)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-semibold transition-colors ml-auto"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>เปิดใน Google Drive</span>
-                  </a>
-                )}
-              </div>
+              {/* Footer: Thumbnail Switcher (when multiple photos) */}
+              {totalPhotos > 1 && (
+                <div className="p-3 bg-slate-950/95 border-t border-white/10 flex items-center justify-center gap-2">
+                  {viewingGallery.photos.map((pUrl, pIdx) => (
+                    <button
+                      key={`lb-thumb-${pIdx}`}
+                      type="button"
+                      onClick={() =>
+                        setViewingGallery((prev) => (prev ? { ...prev, index: pIdx } : null))
+                      }
+                      className={`w-11 h-11 rounded-lg overflow-hidden border-2 transition-all cursor-pointer ${
+                        pIdx === viewingGallery.index
+                          ? 'border-blue-400 ring-2 ring-blue-400/40'
+                          : 'border-white/15 opacity-60 hover:opacity-100'
+                      }`}
+                    >
+                      <img
+                        src={getDriveImageDisplayUrl(pUrl, 200)}
+                        onError={(e) => handlePhotoImgError(e, pUrl, 200)}
+                        alt={`รูปย่อที่ ${pIdx + 1}`}
+                        className="w-full h-full object-cover"
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         );
