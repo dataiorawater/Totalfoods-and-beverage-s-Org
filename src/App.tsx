@@ -1860,6 +1860,14 @@ export default function App() {
           ) : activeTab === 'routes' ? (
             <RouteManagementView
               routes={routes}
+              customers={customers}
+              checkIns={checkIns}
+              staffList={staffList}
+              currentUser={currentUser}
+              dailySchedules={dailySchedules}
+              onSaveDailySchedule={handleSaveDailySchedule}
+              onBatchSaveDailySchedules={handleBatchSaveDailySchedules}
+              onDeleteDailySchedule={handleDeleteDailySchedule}
               onSaveRoute={handleSaveRoute}
               onDeleteRoute={handleDeleteRoute}
               isProcessing={isLoadingData}

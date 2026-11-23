@@ -26,15 +26,12 @@ import {
   Plus,
   Trash2,
   Edit3,
-  ExternalLink,
 } from 'lucide-react';
 import { Customer, StaffUser, StoreCheckIn, Route, DailyRouteSchedule } from '../types';
 import { calculateDistanceMeters, formatDistance, extractCustomerCoords, compressImageFile } from '../utils/geoUtils';
 import {
   uploadCheckInPhotoToDrive,
   getDriveImageDisplayUrl,
-  getDriveViewUrl,
-  isGoogleDriveUrl,
 } from '../services/googleDrive';
 import {
   getTodayDateIso,
@@ -51,7 +48,6 @@ import {
   doesCheckInBelongToUser,
   getRouteColor,
 } from '../utils/callPlanUtils';
-import { CallPlanCalendarModal } from './CallPlanCalendarModal';
 
 interface StoreCheckInViewProps {
   customers: Customer[];
@@ -150,7 +146,6 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
 
   // 3. Date Selection & Simulated Calendar Modal State
   const [selectedDate, setSelectedDate] = useState<string>(() => getTodayDateIso());
-  const [isCalendarModalOpen, setIsCalendarModalOpen] = useState<boolean>(false);
   const [isQuickDayEditorOpen, setIsQuickDayEditorOpen] = useState<boolean>(false);
   const [quickEditingRouteIds, setQuickEditingRouteIds] = useState<string[]>([]);
   const [quickEditingNotes, setQuickEditingNotes] = useState<string>('');
@@ -980,24 +975,6 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                   พรุ่งนี้
                 </button>
               </div>
-
-              {/* Simulated Calendar Button */}
-              <div className="flex items-center gap-2 self-start md:self-auto">
-                <button
-                  type="button"
-                  onClick={() => setIsCalendarModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:to-indigo-800 active:scale-95 text-white text-xs font-bold shadow-xs transition-all cursor-pointer border border-blue-400/30"
-                  title="เปิดปฏิทินจำลองเพื่อจัดตารางสายวิ่งรายวันและกำหนดวันไหนวิ่งสายไหนได้ด้วยตัวเอง"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
-                  <span>ปฏิทินจำลองแผนวิ่งสาย (Call Plan Calendar)</span>
-                  {Object.keys(activeDailySchedules).length > 0 && (
-                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-400 text-slate-900 font-extrabold shadow-2xs">
-                      {Object.keys(activeDailySchedules).length}
-                    </span>
-                  )}
-                </button>
-              </div>
             </div>
 
             {/* Row 2: Mode Switcher & Filters */}
@@ -1771,18 +1748,8 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
-                    <a
-                      href={item.mapsUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors"
-                    >
-                      <Navigation className="w-3.5 h-3.5" />
-                      <span>ดูพิกัด GPS</span>
-                    </a>
-
-                    {onOpenOrderForCustomer && (
+                  {onOpenOrderForCustomer && (
+                    <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
                       <button
                         type="button"
                         onClick={() => {
@@ -1803,8 +1770,8 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                         <ShoppingBag className="w-3.5 h-3.5" />
                         <span>เปิดออเดอร์</span>
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               ))}
 
@@ -2144,23 +2111,11 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
             <button
               type="button"
               onClick={() => setViewingPhotoUrl(null)}
+              aria-label="ปิดภาพขยาย"
               className="absolute top-3 right-3 p-2 bg-black/60 text-white rounded-full hover:bg-black/90 cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
-            {isGoogleDriveUrl(viewingPhotoUrl) && getDriveViewUrl(viewingPhotoUrl) && (
-              <div className="p-3 bg-slate-950/90 border-t border-white/10 flex items-center justify-end">
-                <a
-                  href={getDriveViewUrl(viewingPhotoUrl)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-semibold transition-colors"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>เปิดดูใน Google Drive</span>
-                </a>
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -2361,28 +2316,6 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
           </div>
         </div>
       )}
-
-      {/* =========================================================================
-          SIMULATED CALENDAR MODAL (Full Month Interactive Planner)
-         ========================================================================= */}
-      <CallPlanCalendarModal
-        isOpen={isCalendarModalOpen}
-        onClose={() => setIsCalendarModalOpen(false)}
-        routes={routes}
-        customers={customers}
-        checkIns={checkIns}
-        dailySchedules={activeDailySchedules}
-        onSaveDailySchedule={handleSaveDailySchedule}
-        onBatchSaveDailySchedules={handleBatchSaveDailySchedules}
-        onDeleteDailySchedule={handleDeleteDailySchedule}
-        selectedDate={selectedDate}
-        onSelectDate={(dateStr) => {
-          setSelectedDate(dateStr);
-          setCallPlanMode('date');
-        }}
-        staffList={staffList}
-        currentUser={currentUser}
-      />
     </div>
   );
 };

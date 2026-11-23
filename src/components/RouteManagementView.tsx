@@ -1,10 +1,19 @@
 import React, { useState } from 'react';
-import { Route } from '../types';
-import { Navigation, Plus, Save, Trash2, X, RefreshCw, Calendar } from 'lucide-react';
-import { THAI_DAYS, ThaiDay, THAI_DAY_COLORS } from '../utils/callPlanUtils';
+import { Route, Customer, StoreCheckIn, StaffUser, DailyRouteSchedule } from '../types';
+import { Navigation, Plus, Save, RefreshCw, Calendar, Sparkles } from 'lucide-react';
+import { THAI_DAYS, ThaiDay, THAI_DAY_COLORS, getTodayDateIso } from '../utils/callPlanUtils';
+import { CallPlanCalendarModal } from './CallPlanCalendarModal';
 
 interface RouteManagementViewProps {
   routes: Route[];
+  customers?: Customer[];
+  checkIns?: StoreCheckIn[];
+  staffList?: StaffUser[];
+  currentUser?: StaffUser;
+  dailySchedules?: Record<string, DailyRouteSchedule>;
+  onSaveDailySchedule?: (dateStr: string, schedule: DailyRouteSchedule) => void;
+  onBatchSaveDailySchedules?: (schedules: Record<string, DailyRouteSchedule>) => void;
+  onDeleteDailySchedule?: (dateStr: string) => void;
   onSaveRoute: (route: Route) => Promise<boolean>;
   onDeleteRoute: (routeId: string) => Promise<boolean>;
   isProcessing: boolean;
@@ -12,11 +21,21 @@ interface RouteManagementViewProps {
 
 export const RouteManagementView: React.FC<RouteManagementViewProps> = ({
   routes,
+  customers = [],
+  checkIns = [],
+  staffList = [],
+  currentUser,
+  dailySchedules = {},
+  onSaveDailySchedule,
+  onBatchSaveDailySchedules,
+  onDeleteDailySchedule,
   onSaveRoute,
   onDeleteRoute,
   isProcessing
 }) => {
   const [editingRoute, setEditingRoute] = useState<Partial<Route> | null>(null);
+  const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(() => getTodayDateIso());
 
   const handleToggleDay = (day: ThaiDay) => {
     const currentDays = (editingRoute?.visitDays || []) as ThaiDay[];
@@ -41,7 +60,7 @@ export const RouteManagementView: React.FC<RouteManagementViewProps> = ({
     <div className="w-full max-w-5xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-300">
       <div className="w-full bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+        <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/80">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
               <Navigation className="w-5 h-5" />
@@ -54,6 +73,24 @@ export const RouteManagementView: React.FC<RouteManagementViewProps> = ({
                 กำหนดรหัสสาย พนักงานขายประจำสาย และระบุวันในสัปดาห์ที่ต้องเข้าพบลูกค้า
               </p>
             </div>
+          </div>
+
+          {/* Simulated Calendar Button */}
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsCalendarModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:to-indigo-800 active:scale-95 text-white text-xs font-bold shadow-xs transition-all cursor-pointer border border-blue-400/30"
+              title="เปิดปฏิทินจำลองเพื่อจัดตารางสายวิ่งรายวันและกำหนดวันไหนวิ่งสายไหนได้ด้วยตัวเอง"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse shrink-0" />
+              <span>ปฏิทินจำลองแผนการวิ่งสาย</span>
+              {Object.keys(dailySchedules).length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-400 text-slate-900 font-extrabold shadow-2xs">
+                  {Object.keys(dailySchedules).length}
+                </span>
+              )}
+            </button>
           </div>
         </div>
 
@@ -225,6 +262,23 @@ export const RouteManagementView: React.FC<RouteManagementViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Simulated Call Plan Calendar Modal */}
+      <CallPlanCalendarModal
+        isOpen={isCalendarModalOpen}
+        onClose={() => setIsCalendarModalOpen(false)}
+        routes={routes}
+        customers={customers}
+        checkIns={checkIns}
+        dailySchedules={dailySchedules}
+        onSaveDailySchedule={onSaveDailySchedule || (() => {})}
+        onBatchSaveDailySchedules={onBatchSaveDailySchedules || (() => {})}
+        onDeleteDailySchedule={onDeleteDailySchedule || (() => {})}
+        selectedDate={selectedCalendarDate}
+        onSelectDate={(dateStr) => setSelectedCalendarDate(dateStr)}
+        staffList={staffList}
+        currentUser={currentUser}
+      />
     </div>
   );
 };
