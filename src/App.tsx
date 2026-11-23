@@ -457,12 +457,30 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'orders' | 'dashboard' | 'customers' | 'checkin' | 'expenses' | 'users' | 'routes' | 'export' | 'new_order' | 'logistics' | 'deposits' | 'hired_vehicles' | 'maintenance'>('dashboard');
   const [checkInEntryCount, setCheckInEntryCount] = useState<number>(0);
 
+  const SALES_ALLOWED_TABS: ReadonlyArray<typeof activeTab> = [
+    'customers',
+    'checkin',
+    'orders',
+    'expenses',
+    'dashboard',
+    'new_order',
+  ];
+
   const handleSelectTab = (tab: typeof activeTab) => {
+    if (currentUser.role === 'sales' && !SALES_ALLOWED_TABS.includes(tab)) {
+      return;
+    }
     if (tab === 'checkin') {
       setCheckInEntryCount((prev) => prev + 1);
     }
     setActiveTab(tab);
   };
+
+  useEffect(() => {
+    if (currentUser.role === 'sales' && !SALES_ALLOWED_TABS.includes(activeTab)) {
+      setActiveTab('dashboard');
+    }
+  }, [currentUser.role, activeTab]);
 
   // 2. Integration Configs
   const [sheetsConfig, setSheetsConfig] = useState<SheetsConfig>(() => {

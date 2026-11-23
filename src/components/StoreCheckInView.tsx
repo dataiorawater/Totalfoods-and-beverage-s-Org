@@ -773,7 +773,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
         {/* Top Row: Title on Left + GPS Status & Refresh on Top-Right */}
         <div className="flex items-center justify-between gap-2 min-w-0">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700 shadow-2xs shrink-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm shadow-blue-600/20 shrink-0">
               <MapPin className="w-4.5 h-4.5 sm:w-5 sm:h-5" />
             </div>
             <h1 className="text-sm sm:text-lg font-bold text-slate-900 leading-tight truncate">

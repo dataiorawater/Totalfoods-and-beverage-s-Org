@@ -120,6 +120,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const isViewer = currentUser.role === 'viewer';
   const isAdmin = currentUser.role === 'admin';
+  const isSales = currentUser.role === 'sales';
 
   return (
     <>
@@ -377,7 +378,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             </nav>
           </div>
 
-          {/* Group 2: Logistics Menu (แยกออกจากเมนูพนักงานขายอย่างชัดเจน) */}
+          {/* Group 2: Logistics Menu (แยกออกจากเมนูพนักงานขายอย่างชัดเจน - ซ่อนสำหรับพนักงานขาย) */}
+          {!isSales && (
           <div>
             <div className="px-3 mb-2 flex items-center justify-between">
               <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
@@ -588,8 +590,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             </nav>
           </div>
+          )}
 
-          {/* Group 3: Tools & Administration */}
+          {/* Group 3: Tools & Administration (ซ่อนสำหรับพนักงานขาย) */}
+          {!isSales && (
           <div>
             <div className="px-3 mb-2 flex items-center justify-between">
               <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
@@ -725,6 +729,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </nav>
           </div>
+          )}
 
           <div className="mt-auto pt-6 border-t border-slate-200/60">
             {/* User Info Bar at bottom of sidebar */}
@@ -931,7 +936,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </div>
               </div>
 
-              {/* Menu Group: Logistics (แยกออกจากเมนูพนักงานขาย) */}
+              {/* Menu Group: Logistics (แยกออกจากเมนูพนักงานขาย - ซ่อนสำหรับพนักงานขาย) */}
+              {!isSales && (
               <div>
                 <div className="px-3 mb-2 flex items-center justify-between">
                   <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
@@ -1135,8 +1141,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </button>
                 </div>
               </div>
+              )}
 
-              {/* Menu Group: Admin */}
+              {/* Menu Group: Admin (ซ่อนสำหรับพนักงานขาย) */}
+              {!isSales && (
               <div>
                 <div className="px-3 mb-2 flex items-center justify-between">
                   <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
@@ -1261,6 +1269,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   )}
                 </div>
               </div>
+              )}
 
               {/* Menu Group: Account */}
               <div className="pt-2 border-t border-slate-100">
