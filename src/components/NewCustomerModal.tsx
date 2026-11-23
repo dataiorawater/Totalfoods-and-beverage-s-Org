@@ -167,16 +167,14 @@ export const NewCustomerModal: React.FC<NewCustomerModalProps> = ({
       });
 
       if (success) {
-        setSuccessMsg('บันทึกข้อมูลลูกค้าลง Google Sheets เรียบร้อยแล้ว');
-        setTimeout(() => {
-          setName('');
-          setPhone('');
-          setAddress('');
-          setRouteName('');
-          setMapsUrl('');
-          setPhotoUrls([]);
-          onClose();
-        }, 1200);
+        setName('');
+        setPhone('');
+        setAddress('');
+        setRouteName('');
+        setMapsUrl('');
+        setPhotoUrls([]);
+        setSuccessMsg(null);
+        onClose();
       } else {
         setErrorMsg('ไม่สามารถบันทึกลง Google Sheets ได้ กรุณาตรวจสอบการเชื่อมต่อ');
       }

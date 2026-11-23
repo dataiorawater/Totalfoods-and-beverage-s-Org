@@ -69,6 +69,8 @@ import {
 import { logoutGoogle } from './services/auth';
 import { sendLineNotification } from './services/lineNotify';
 import { playNotificationChime } from './utils/audio';
+import { extractCustomerCoords } from './utils/geoUtils';
+import { getDriveImageDisplayUrl } from './services/googleDrive';
 
 // Components
 import { Navbar } from './components/Navbar';
@@ -99,6 +101,9 @@ import {
   X,
   ChevronDown,
   RefreshCw,
+  MapPin,
+  Phone,
+  Store,
 } from 'lucide-react';
 
 // Helper to parse dates that might be in Thai format (DD/MM/YYYY) or ISO
@@ -513,6 +518,10 @@ export default function App() {
   const [isRoleSwitcherOpen, setIsRoleSwitcherOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectedOrderForDetail, setSelectedOrderForDetail] = useState<Order | null>(null);
+  const [savedCustomerSuccessPopup, setSavedCustomerSuccessPopup] = useState<{
+    customer: Customer;
+    isEdit: boolean;
+  } | null>(null);
 
   // Confirmation dialog
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -1295,11 +1304,21 @@ export default function App() {
         String(r.name || '').trim().toLowerCase() === rawRoute.toLowerCase()
     );
     const resolvedRouteId = matchedRoute?.id || rawRoute;
-    const newCustomer = {
+    const isEditMode = Boolean(custData.id);
+    const parsedCoords = extractCustomerCoords({
+      id: custData.id || '',
+      name: custData.name,
+      phone: custData.phone,
+      address: custData.address,
+      mapsUrl: custData.mapsUrl,
+    });
+    const newCustomer: Customer = {
       id: custData.id || `CUST-${Date.now()}`,
       ...custData,
       routeName: resolvedRouteId,
       routeId: resolvedRouteId || undefined,
+      latitude: parsedCoords?.lat,
+      longitude: parsedCoords?.lng,
       photoUrls: Array.isArray(custData.photoUrls) ? custData.photoUrls.slice(0, 3) : [],
       updatedAt: nowUtcPlus7
     };
@@ -1316,13 +1335,17 @@ export default function App() {
 
     if (sheetsConfig?.spreadsheetId) {
       try {
-        await saveCustomerToSheet(sheetsConfig.spreadsheetId, newCustomer as import('./types').Customer);
+        await saveCustomerToSheet(sheetsConfig.spreadsheetId, newCustomer);
+        playNotificationChime('success');
+        setSavedCustomerSuccessPopup({ customer: newCustomer, isEdit: isEditMode });
         return true;
       } catch (err) {
         console.warn('saveCustomerToSheet error:', err);
         return false;
       }
     }
+    playNotificationChime('success');
+    setSavedCustomerSuccessPopup({ customer: newCustomer, isEdit: isEditMode });
     return true;
   };
 
@@ -2057,6 +2080,101 @@ export default function App() {
           onConfirm={confirmDialog.onConfirm}
           onClose={() => setConfirmDialog((prev) => ({ ...prev, isOpen: false }))}
         />
+      )}
+
+      {/* Popup ยืนยันการบันทึกข้อมูลลูกค้าสำเร็จ + ชวนเช็คอินร้านนี้ทันที */}
+      {savedCustomerSuccessPopup && (
+        <div
+          className="fixed inset-0 z-[70] bg-slate-900/65 backdrop-blur-[2px] flex items-center justify-center p-4"
+          onClick={() => setSavedCustomerSuccessPopup(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl max-w-sm w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+          >
+            <div className="relative p-5 sm:p-6 text-center">
+              <button
+                type="button"
+                onClick={() => setSavedCustomerSuccessPopup(null)}
+                aria-label="ปิดหน้าต่าง"
+                className="absolute top-3.5 right-3.5 p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="w-14 h-14 mx-auto mb-3.5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center ring-8 ring-emerald-50">
+                <CheckCircle2 className="w-8 h-8" />
+              </div>
+
+              <h3 className="text-lg font-extrabold text-slate-900">
+                {savedCustomerSuccessPopup.isEdit ? 'อัปเดตข้อมูลสำเร็จ!' : 'บันทึกข้อมูลสำเร็จ!'}
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                บันทึกข้อมูลร้านค้าลงฐานข้อมูลเรียบร้อยแล้ว
+              </p>
+
+              {/* Saved Store Summary */}
+              <div className="mt-4 p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-3 text-left">
+                {savedCustomerSuccessPopup.customer.photoUrls?.[0] ? (
+                  <img
+                    src={getDriveImageDisplayUrl(savedCustomerSuccessPopup.customer.photoUrls[0], 200)}
+                    alt={savedCustomerSuccessPopup.customer.name}
+                    className="w-12 h-12 rounded-lg object-cover border border-slate-200 shrink-0 bg-white"
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-lg bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center shrink-0">
+                    <Store className="w-5 h-5" />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-slate-900 truncate">
+                    {savedCustomerSuccessPopup.customer.name}
+                  </p>
+                  {savedCustomerSuccessPopup.customer.phone && (
+                    <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5 truncate">
+                      <Phone className="w-3 h-3 shrink-0 text-slate-400" />
+                      <span>{savedCustomerSuccessPopup.customer.phone}</span>
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Prompt Question */}
+              <div className="mt-4 p-3.5 rounded-xl bg-emerald-50/80 border border-emerald-200/80">
+                <p className="text-sm font-bold text-emerald-900">
+                  ต้องการเช็คอินร้านนี้เลยไหม?
+                </p>
+                <p className="text-[11px] text-emerald-700 mt-0.5">
+                  กดปุ่มด้านล่างเพื่อเข้าหน้าเช็คอินร้านนี้ได้ทันที
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="mt-5 flex flex-col sm:flex-row gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetCustomer = savedCustomerSuccessPopup.customer;
+                    setSavedCustomerSuccessPopup(null);
+                    setPreselectedCustomerForCheckIn(targetCustomer);
+                    handleSelectTab('checkin');
+                  }}
+                  className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white text-sm font-bold shadow-sm transition-all cursor-pointer"
+                >
+                  <MapPin className="w-4 h-4 shrink-0" />
+                  <span>เช็คอินร้านนี้เลย</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSavedCustomerSuccessPopup(null)}
+                  className="sm:w-28 inline-flex items-center justify-center px-4 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-[0.98] text-slate-700 text-sm font-semibold transition-all cursor-pointer"
+                >
+                  ไว้ทีหลัง
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
