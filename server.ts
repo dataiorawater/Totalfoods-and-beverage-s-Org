@@ -71,19 +71,51 @@ async function getServiceAccountDriveToken(): Promise<string | null> {
   return cachedServiceAccountToken.token;
 }
 
-function normalizeStoreFolderName(storeName: string): string {
-  const cleaned = String(storeName || '')
+function sanitizeDriveName(name: unknown, fallback = 'ร้านค้าใหม่'): string {
+  const cleaned = String(name || '')
     .trim()
-    .replace(/[\\/:*?"<>|]+/g, ' ')
+    .replace(/[\\/:*?"<>|\r\n]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  return cleaned || 'ร้านค้าใหม่';
+  return cleaned || fallback;
 }
 
-async function ensureStoreSubfolderWithToken(accessToken: string, storeName: string): Promise<string> {
-  const escaped = storeName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+function validateDriveId(id: unknown): string | null {
+  if (typeof id !== 'string') return null;
+  const trimmed = id.trim();
+  if (!trimmed) return null;
+  return /^[a-zA-Z0-9_-]{10,120}$/.test(trimmed) ? trimmed : null;
+}
+
+const ALLOWED_GAS_HOSTS = new Set(['script.google.com', 'script.googleusercontent.com']);
+
+function resolveValidatedGasUrl(candidate: unknown): string | null {
+  const raw =
+    (typeof candidate === 'string' && candidate.trim()) ||
+    process.env.GAS_URL?.trim() ||
+    DEFAULT_GAS_URL;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== 'https:' || !ALLOWED_GAS_HOSTS.has(parsed.hostname.toLowerCase())) {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+const ALLOWED_IMAGE_MIMES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']);
+
+async function ensureSubfolderWithToken(
+  accessToken: string,
+  parentFolderId: string,
+  folderName: string
+): Promise<string> {
+  const safeName = sanitizeDriveName(folderName, 'อื่นๆ');
+  const escaped = safeName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
   const q = encodeURIComponent(
-    `name='${escaped}' and mimeType='application/vnd.google-apps.folder' and '${PARENT_DRIVE_FOLDER_ID}' in parents and trashed=false`
+    `name='${escaped}' and mimeType='application/vnd.google-apps.folder' and '${parentFolderId}' in parents and trashed=false`
   );
 
   const searchRes = await fetch(
@@ -109,16 +141,16 @@ async function ensureStoreSubfolderWithToken(accessToken: string, storeName: str
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        name: storeName,
+        name: safeName,
         mimeType: 'application/vnd.google-apps.folder',
-        parents: [PARENT_DRIVE_FOLDER_ID],
+        parents: [parentFolderId],
       }),
     }
   );
 
   if (!createRes.ok) {
     const errText = await createRes.text();
-    throw new Error(`ไม่สามารถสร้างโฟลเดอร์ "${storeName}" ใน Google Drive ได้ (${createRes.status}): ${errText}`);
+    throw new Error(`ไม่สามารถสร้างโฟลเดอร์ "${safeName}" ใน Google Drive ได้ (${createRes.status}): ${errText}`);
   }
 
   const created = (await createRes.json()) as { id: string };
@@ -138,33 +170,99 @@ async function startServer() {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  // Backend Google Drive upload for customer store photos (no client sign-in required)
+  // Backend Google Drive upload for storefront & check-in photos (no client sign-in required)
   app.post('/api/drive/upload-store-photo', async (req, res) => {
     try {
-      const { storeName, slotNumber, imageDataUrl, gasUrl, spreadsheetId } = req.body || {};
+      const {
+        storeName,
+        slotNumber,
+        imageDataUrl,
+        gasUrl,
+        spreadsheetId,
+        parentFolderId,
+        category,
+        subFolderName,
+        customFileName,
+        useCheckInRootSubfolder,
+      } = req.body || {};
 
       if (!imageDataUrl || typeof imageDataUrl !== 'string') {
         return res.status(400).json({ success: false, error: 'ไม่พบข้อมูลรูปภาพสำหรับอัปโหลด' });
       }
 
-      const cleanStoreName = normalizeStoreFolderName(storeName);
-      const slot = Number(slotNumber) || 1;
       const mimeMatch = imageDataUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,/);
-      const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+      const rawMime = mimeMatch ? mimeMatch[1].toLowerCase() : 'image/jpeg';
+      if (!ALLOWED_IMAGE_MIMES.has(rawMime)) {
+        return res.status(400).json({
+          success: false,
+          error: 'รองรับเฉพาะไฟล์รูปภาพ (.jpg, .png, .webp, .gif) เท่านั้น',
+        });
+      }
+      const mimeType = rawMime === 'image/jpg' ? 'image/jpeg' : rawMime;
       const base64Data = imageDataUrl.replace(/^data:[a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+;base64,/, '');
-      const fileName = `${cleanStoreName} รูปที่ ${slot}.jpg`;
+      if (!base64Data || base64Data.length > 15 * 1024 * 1024) {
+        return res.status(400).json({
+          success: false,
+          error: 'ขนาดไฟล์รูปภาพไม่ถูกต้องหรือใหญ่เกินกำหนด',
+        });
+      }
+
+      const targetParentFolderId =
+        (parentFolderId ? validateDriveId(parentFolderId) : null) || PARENT_DRIVE_FOLDER_ID;
+      if (parentFolderId && !validateDriveId(parentFolderId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'รหัสโฟลเดอร์ Google Drive (Folder ID) ไม่ถูกต้อง',
+        });
+      }
+
+      const photoCategory = category === 'checkin' ? 'checkin' : 'storefront';
+      const cleanStoreName = sanitizeDriveName(storeName, 'ร้านค้าใหม่');
+      const slot = Number(slotNumber) || 1;
+      const cleanSubFolderName =
+        typeof subFolderName === 'string' && subFolderName.trim()
+          ? sanitizeDriveName(subFolderName, '')
+          : '';
+      const cleanCustomFileName =
+        typeof customFileName === 'string' && customFileName.trim()
+          ? sanitizeDriveName(customFileName, '')
+          : '';
+      const fileName =
+        cleanCustomFileName ||
+        (photoCategory === 'checkin'
+          ? `${cleanStoreName}_checkin.jpg`
+          : `${cleanStoreName} รูปที่ ${slot}.jpg`);
 
       // 1. Try Google Service Account if configured on backend
       const saToken = await getServiceAccountDriveToken();
       if (saToken) {
-        const folderId = await ensureStoreSubfolderWithToken(saToken, cleanStoreName);
+        let folderId = targetParentFolderId;
+        let folderName = cleanStoreName;
+
+        if (photoCategory === 'checkin') {
+          if (useCheckInRootSubfolder) {
+            folderId = await ensureSubfolderWithToken(saToken, folderId, 'รูปการเช็คอิน');
+            folderName = 'รูปการเช็คอิน';
+          }
+          if (cleanSubFolderName) {
+            folderId = await ensureSubfolderWithToken(saToken, folderId, cleanSubFolderName);
+            folderName = cleanSubFolderName;
+          }
+        } else {
+          folderId = await ensureSubfolderWithToken(saToken, folderId, cleanStoreName);
+          folderName = cleanStoreName;
+        }
+
         const imageBuffer = Buffer.from(base64Data, 'base64');
         const boundary = `----storephoto${Date.now().toString(16)}`;
         const metadataJson = JSON.stringify({
           name: fileName,
           mimeType,
           parents: [folderId],
-          description: `รูปถ่ายร้านค้า ${cleanStoreName} รูปที่ ${slot}`,
+          description:
+            photoCategory === 'checkin'
+              ? `รูปเช็คอินร้านค้า ${cleanStoreName}`
+              : `รูปถ่ายร้านค้า ${cleanStoreName} รูปที่ ${slot}`,
         });
 
         const multipartBody = Buffer.concat([
@@ -215,16 +313,20 @@ async function startServer() {
           fileId: uploaded.id,
           fileName: uploaded.name || fileName,
           folderId,
-          folderName: cleanStoreName,
+          folderName,
           webViewLink: uploaded.webViewLink || `https://drive.google.com/file/d/${uploaded.id}/view`,
         });
       }
 
       // 2. Fallback to Google Apps Script backend
-      const targetGasUrl =
-        (typeof gasUrl === 'string' && gasUrl.trim()) ||
-        process.env.GAS_URL?.trim() ||
-        DEFAULT_GAS_URL;
+      const targetGasUrl = resolveValidatedGasUrl(gasUrl);
+      if (!targetGasUrl) {
+        return res.status(400).json({
+          success: false,
+          error: 'Google Apps Script URL ไม่ถูกต้อง (ต้องเป็น https://script.google.com/...)',
+        });
+      }
+
       const targetSpreadsheetId =
         (typeof spreadsheetId === 'string' && spreadsheetId.trim()) ||
         process.env.SPREADSHEET_ID?.trim() ||
@@ -236,9 +338,13 @@ async function startServer() {
         body: JSON.stringify({
           action: 'uploadDrivePhoto',
           spreadsheetId: targetSpreadsheetId,
-          parentFolderId: PARENT_DRIVE_FOLDER_ID,
+          parentFolderId: targetParentFolderId,
+          category: photoCategory,
           storeName: cleanStoreName,
           slotNumber: slot,
+          subFolderName: cleanSubFolderName || undefined,
+          customFileName: cleanCustomFileName || undefined,
+          useCheckInRootSubfolder: Boolean(useCheckInRootSubfolder),
           base64Data,
           mimeType,
         }),
@@ -247,7 +353,7 @@ async function startServer() {
 
       const rawText = await gasRes.text();
       if (rawText.includes('<!DOCTYPE html>') || rawText.includes('<html')) {
-        return res.status(502).json({
+        return res.status(200).json({
           success: false,
           error:
             'ระบบหลังบ้าน Google Apps Script ยังไม่ได้เปิดสิทธิ์ Anyone หรือยังไม่ได้อนุญาตสิทธิ์ DriveApp กรุณา Deploy Apps Script ใหม่',
@@ -258,21 +364,30 @@ async function startServer() {
       try {
         gasJson = JSON.parse(rawText);
       } catch {
-        return res.status(502).json({
+        return res.status(200).json({
           success: false,
           error: `การตอบกลับจากระบบหลังบ้านไม่ถูกต้อง: ${rawText.slice(0, 120)}`,
         });
       }
 
       if (gasJson.error) {
-        if (gasJson.error === 'Invalid action') {
-          return res.status(501).json({
+        const errStr = String(gasJson.error);
+        if (errStr === 'Invalid action') {
+          return res.status(200).json({
             success: false,
             error:
-              'กรุณาอัปเดตโค้ด Apps Script (Code.gs) ที่เมนูตั้งค่า > ฐานข้อมูล Google Sheets และ Deploy เวอร์ชันใหม่ เพื่อเปิดใช้งานการอัปโหลดรูปลง Google Drive หลังบ้าน (หรือตั้งค่า GOOGLE_CLIENT_EMAIL / GOOGLE_PRIVATE_KEY)',
+              'กรุณาอัปเดตโค้ด Apps Script (Code.gs v4) ที่เมนูตั้งค่า > Google Drive รูปภาพ และ Deploy เวอร์ชันใหม่ เพื่อเปิดใช้งานการอัปโหลดรูปลง Google Drive',
           });
         }
-        return res.status(500).json({ success: false, error: String(gasJson.error) });
+        if (errStr.includes('DriveApp') && (errStr.includes('permission') || errStr.includes('auth/drive'))) {
+          const shortUrl = targetGasUrl.slice(-22);
+          return res.status(200).json({
+            success: false,
+            error:
+              `Apps Script (...${shortUrl}) ยังไม่มีสิทธิ์ Google Drive — จุดสำคัญที่มักพลาด: ในหน้าขอสิทธิ์ของ Google ต้อง "ติ๊กถูกช่องสี่เหลี่ยม Google Drive (หรือ เลือกทั้งหมด)" ก่อนกด "ดำเนินการต่อ (Continue)" (Google ไม่ติ๊กให้อัตโนมัติ) แล้วรัน authorizeDrive ให้ขึ้นสำเร็จ จากนั้นสร้าง New deployment (ดำเนินการในฐานะ: ฉัน / ผู้มีสิทธิ์เข้าถึง: ทุกคน)\n[รายละเอียดจาก Google: ${errStr}]`,
+          });
+        }
+        return res.status(200).json({ success: false, error: errStr });
       }
 
       return res.json({
@@ -280,7 +395,7 @@ async function startServer() {
         fileId: gasJson.fileId,
         fileName: gasJson.fileName || fileName,
         folderId: gasJson.folderId,
-        folderName: gasJson.folderName || cleanStoreName,
+        folderName: gasJson.folderName || cleanSubFolderName || cleanStoreName,
         webViewLink: gasJson.webViewLink || `https://drive.google.com/file/d/${gasJson.fileId}/view`,
       });
     } catch (err: any) {
@@ -292,18 +407,137 @@ async function startServer() {
     }
   });
 
+  // Backend Google Drive Folder connection test endpoint
+  app.post('/api/drive/test-folder', async (req, res) => {
+    try {
+      const { folderId, gasUrl, spreadsheetId } = req.body || {};
+      const validFolderId = validateDriveId(folderId);
+      if (!validFolderId) {
+        return res.status(400).json({
+          success: false,
+          error: 'รหัสโฟลเดอร์ Google Drive (Folder ID) ไม่ถูกต้อง กรุณาคัดลอก ID หรือ URL ของโฟลเดอร์อีกครั้ง',
+        });
+      }
+
+      const saToken = await getServiceAccountDriveToken();
+      if (saToken) {
+        const checkRes = await fetch(
+          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(validFolderId)}?fields=id,name,mimeType,webViewLink&supportsAllDrives=true`,
+          {
+            headers: { Authorization: `Bearer ${saToken}` },
+          }
+        );
+        if (!checkRes.ok) {
+          return res.status(400).json({
+            success: false,
+            error: `ไม่พบโฟลเดอร์หรือไม่มีสิทธิ์เข้าถึง (${checkRes.status})`,
+          });
+        }
+        const meta = (await checkRes.json()) as { id: string; name: string; mimeType?: string; webViewLink?: string };
+        if (meta.mimeType && meta.mimeType !== 'application/vnd.google-apps.folder') {
+          return res.status(400).json({
+            success: false,
+            error: 'รหัสที่ระบุไม่ใช่โฟลเดอร์ Google Drive',
+          });
+        }
+        return res.json({
+          success: true,
+          folderId: meta.id,
+          folderName: meta.name,
+          folderUrl: meta.webViewLink || `https://drive.google.com/drive/folders/${meta.id}`,
+        });
+      }
+
+      const targetGasUrl = resolveValidatedGasUrl(gasUrl);
+      if (!targetGasUrl) {
+        return res.status(400).json({
+          success: false,
+          error: 'Google Apps Script URL ไม่ถูกต้อง (ต้องเป็น https://script.google.com/...)',
+        });
+      }
+
+      const targetSpreadsheetId =
+        (typeof spreadsheetId === 'string' && spreadsheetId.trim()) ||
+        process.env.SPREADSHEET_ID?.trim() ||
+        DEFAULT_SPREADSHEET_ID;
+
+      const gasRes = await fetch(targetGasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'testDriveFolder',
+          spreadsheetId: targetSpreadsheetId,
+          folderId: validFolderId,
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+
+      const rawText = await gasRes.text();
+      if (rawText.includes('<!DOCTYPE html>') || rawText.includes('<html')) {
+        return res.status(200).json({
+          success: false,
+          error:
+            'Google Apps Script ยังไม่ได้เปิดสิทธิ์ Anyone หรือยังไม่ได้อนุญาตสิทธิ์ DriveApp กรุณา Deploy ใหม่',
+        });
+      }
+
+      let gasJson: Record<string, any> = {};
+      try {
+        gasJson = JSON.parse(rawText);
+      } catch {
+        return res.status(200).json({
+          success: false,
+          error: 'การตอบกลับจาก Apps Script ไม่ถูกต้อง',
+        });
+      }
+
+      if (gasJson.error) {
+        const errStr = String(gasJson.error);
+        if (errStr === 'Invalid action') {
+          return res.status(200).json({
+            success: false,
+            error:
+              'Apps Script เดิมยังไม่รองรับการทดสอบโฟลเดอร์ กรุณาคัดลอกโค้ด Apps Script เวอร์ชันล่าสุด (v4) ไปวางและกด Deploy เวอร์ชันใหม่',
+          });
+        }
+        if (errStr.includes('DriveApp') && (errStr.includes('permission') || errStr.includes('auth/drive'))) {
+          const shortUrl = targetGasUrl.slice(-22);
+          return res.status(200).json({
+            success: false,
+            error:
+              `Apps Script (...${shortUrl}) ยังไม่มีสิทธิ์ Google Drive — ในหน้าขอสิทธิ์ของ Google ต้อง "ติ๊กถูกช่อง Google Drive (เลือกทั้งหมด)" ก่อนกดดำเนินการต่อ แล้วรัน authorizeDrive ให้สำเร็จ จากนั้นสร้าง New deployment (ดำเนินการในฐานะ: ฉัน / ทุกคน)\n[รายละเอียดจาก Google: ${errStr}]`,
+          });
+        }
+        return res.status(200).json({ success: false, error: errStr });
+      }
+
+      return res.json({
+        success: true,
+        folderId: gasJson.folderId || validFolderId,
+        folderName: gasJson.folderName || 'Google Drive Folder',
+        folderUrl: gasJson.folderUrl || `https://drive.google.com/drive/folders/${validFolderId}`,
+      });
+    } catch (err: any) {
+      return res.status(500).json({
+        success: false,
+        error: err?.message || 'เกิดข้อผิดพลาดในการทดสอบโฟลเดอร์ Google Drive',
+      });
+    }
+  });
+
   // Backend Google Drive delete endpoint
   app.post('/api/drive/delete-store-photo', async (req, res) => {
     try {
       const { fileId, gasUrl, spreadsheetId } = req.body || {};
-      if (!fileId || typeof fileId !== 'string') {
-        return res.status(400).json({ success: false, error: 'ไม่พบรหัสไฟล์ที่ต้องการลบ' });
+      const validFileId = validateDriveId(fileId);
+      if (!validFileId) {
+        return res.status(400).json({ success: false, error: 'รหัสไฟล์ที่ต้องการลบไม่ถูกต้อง' });
       }
 
       const saToken = await getServiceAccountDriveToken();
       if (saToken) {
         const delRes = await fetch(
-          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`,
+          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(validFileId)}?supportsAllDrives=true`,
           {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${saToken}` },
@@ -316,10 +550,14 @@ async function startServer() {
         return res.json({ success: true });
       }
 
-      const targetGasUrl =
-        (typeof gasUrl === 'string' && gasUrl.trim()) ||
-        process.env.GAS_URL?.trim() ||
-        DEFAULT_GAS_URL;
+      const targetGasUrl = resolveValidatedGasUrl(gasUrl);
+      if (!targetGasUrl) {
+        return res.status(400).json({
+          success: false,
+          error: 'Google Apps Script URL ไม่ถูกต้อง (ต้องเป็น https://script.google.com/...)',
+        });
+      }
+
       const targetSpreadsheetId =
         (typeof spreadsheetId === 'string' && spreadsheetId.trim()) ||
         process.env.SPREADSHEET_ID?.trim() ||
@@ -331,7 +569,7 @@ async function startServer() {
         body: JSON.stringify({
           action: 'deleteDrivePhoto',
           spreadsheetId: targetSpreadsheetId,
-          fileId,
+          fileId: validFileId,
         }),
         signal: AbortSignal.timeout(15000),
       });

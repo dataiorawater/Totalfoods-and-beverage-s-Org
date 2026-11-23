@@ -115,10 +115,29 @@ export function formatThaiDate(
   return `${dateNum} ${monthName} ${yearNum}`;
 }
 
+const UTC_PLUS_7_OFFSET_MS = 7 * 60 * 60 * 1000;
+
 /**
- * Formats a database date/time value (ISO UTC from Google Apps Script, Thai DD/MM/YYYY,
- * YYYY-MM-DD HH:mm:ss, JS Date string, or Sheets serial number) into accurate
- * Thailand local date & time (Asia/Bangkok, Buddhist Era DD/MM/BBBB HH:mm:ss น.).
+ * Returns an unambiguous ISO 8601 timestamp explicitly in Thailand UTC+7
+ * (e.g. '2026-11-23T13:45:44+07:00') so Google Sheets and browsers always
+ * preserve the exact instant without timezone drift.
+ */
+export function formatNowUtcPlus7Iso(date: Date = new Date()): string {
+  const pad2 = (n: number) => String(n).padStart(2, '0');
+  const bkk = new Date(date.getTime() + UTC_PLUS_7_OFFSET_MS);
+  const year = bkk.getUTCFullYear();
+  const month = pad2(bkk.getUTCMonth() + 1);
+  const day = pad2(bkk.getUTCDate());
+  const hour = pad2(bkk.getUTCHours());
+  const min = pad2(bkk.getUTCMinutes());
+  const sec = pad2(bkk.getUTCSeconds());
+  return `${year}-${month}-${day}T${hour}:${min}:${sec}+07:00`;
+}
+
+/**
+ * Formats a database date/time value (ISO UTC / ISO +07:00 from Google Apps Script,
+ * Thai DD/MM/YYYY, YYYY-MM-DD HH:mm:ss, JS Date string, or Sheets serial number)
+ * into accurate Thailand local date & time (UTC+7 / Asia/Bangkok, Buddhist Era DD/MM/BBBB HH:mm:ss น.).
  */
 export function formatDatabaseDateTime(raw?: string | number | null): string {
   if (raw === undefined || raw === null) return '';
@@ -144,25 +163,16 @@ export function formatDatabaseDateTime(raw?: string | number | null): string {
     return `${dateStr} ${timeStr} น.`;
   };
 
-  const formatDateInBangkok = (date: Date, hasTime = true) => {
+  // Deterministic UTC+7 conversion (immune to device/browser timezone or ICU hour-24 quirks)
+  const formatDateInUtcPlus7 = (date: Date, hasTime = true) => {
     if (isNaN(date.getTime())) return str;
-    const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Asia/Bangkok',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    }).formatToParts(date);
-    const get = (type: string) => Number(parts.find((p) => p.type === type)?.value || '0');
-    const day = get('day');
-    const month = get('month');
-    const year = get('year');
-    const hour = get('hour') % 24;
-    const min = get('minute');
-    const sec = get('second');
+    const bkk = new Date(date.getTime() + UTC_PLUS_7_OFFSET_MS);
+    const day = bkk.getUTCDate();
+    const month = bkk.getUTCMonth() + 1;
+    const year = bkk.getUTCFullYear();
+    const hour = bkk.getUTCHours();
+    const min = bkk.getUTCMinutes();
+    const sec = bkk.getUTCSeconds();
     return hasTime ? formatParts(day, month, year, hour, min, sec) : formatParts(day, month, year);
   };
 
@@ -186,19 +196,41 @@ export function formatDatabaseDateTime(raw?: string | number | null): string {
     }
   }
 
-  // 2. ISO 8601 string with time (e.g. '2026-11-22T03:30:15.000Z' or '2569-11-22T03:30:15.000Z')
+  // 2. ISO 8601 string with time (e.g. '2026-11-23T06:45:44.000Z', '2026-11-23T13:45:44+07:00',
+  //    or legacy Sheets-parsed Buddhist Era '2569-11-23T13:45:44.000Z')
   const isoMatch = str.match(
     /^(\d{4})-(\d{1,2})-(\d{1,2})[T ](\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/i
   );
   if (isoMatch) {
     const [, yStr, mStr, dStr, hStr, minStr, secStr, tz] = isoMatch;
     const rawYear = Number(yStr);
+
+    // Legacy rows where Thai local (+7) Buddhist datetime ('DD/MM/2569 HH:mm:ss') was
+    // stored in a UTC-configured Google Sheet and serialized back by Apps Script with 'Z':
+    // the wall-clock time is ALREADY in UTC+7, so do NOT shift +7 a second time.
+    if (rawYear > 2400 && tz && tz.toUpperCase() === 'Z') {
+      return formatParts(
+        Number(dStr),
+        Number(mStr),
+        rawYear,
+        Number(hStr),
+        Number(minStr),
+        secStr !== undefined ? Number(secStr) : undefined
+      );
+    }
+
     if (tz) {
       const normalizedYear = rawYear > 2400 ? rawYear - 543 : rawYear;
-      const normalizedIso = `${normalizedYear}-${mStr.padStart(2, '0')}-${dStr.padStart(2, '0')}T${hStr.padStart(2, '0')}:${minStr}:${(secStr || '00').padStart(2, '0')}${tz}`;
+      const normalizedTz =
+        tz.toUpperCase() === 'Z'
+          ? 'Z'
+          : tz.includes(':')
+            ? tz
+            : `${tz.slice(0, 3)}:${tz.slice(3)}`;
+      const normalizedIso = `${normalizedYear}-${mStr.padStart(2, '0')}-${dStr.padStart(2, '0')}T${hStr.padStart(2, '0')}:${minStr}:${(secStr || '00').padStart(2, '0')}${normalizedTz}`;
       const d = new Date(normalizedIso);
       if (!isNaN(d.getTime())) {
-        return formatDateInBangkok(d, true);
+        return formatDateInUtcPlus7(d, true);
       }
     } else {
       return formatParts(
@@ -254,7 +286,7 @@ export function formatDatabaseDateTime(raw?: string | number | null): string {
   // 5. Fallback for JS Date strings (e.g. 'Sun Nov 22 2026 10:30:15 GMT+0700 ...')
   const parsed = new Date(str);
   if (!isNaN(parsed.getTime())) {
-    return formatDateInBangkok(parsed, true);
+    return formatDateInUtcPlus7(parsed, true);
   }
 
   return str;

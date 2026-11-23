@@ -1,4 +1,27 @@
-export const GOOGLE_APPS_SCRIPT_CODE = `function doPost(e) {
+export const GOOGLE_APPS_SCRIPT_MANIFEST = `{
+  "timeZone": "Asia/Bangkok",
+  "dependencies": {},
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8",
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+  ],
+  "webapp": {
+    "executeAs": "USER_DEPLOYING",
+    "access": "ANYONE_ANONYMOUS"
+  }
+}`;
+
+export const GOOGLE_APPS_SCRIPT_CODE = `// กดปุ่ม "เรียกใช้ (Run)" ที่ฟังก์ชันนี้ 1 ครั้ง เพื่อกดอนุญาตสิทธิ์ Google Drive & Sheets
+function authorizeDrive() {
+  const rootName = DriveApp.getRootFolder().getName();
+  const ssName = SpreadsheetApp.getActiveSpreadsheet() ? SpreadsheetApp.getActiveSpreadsheet().getName() : "OK";
+  Logger.log("Permission granted! Drive Root: " + rootName + " | Sheet: " + ssName);
+  return { driveRoot: rootName, sheet: ssName };
+}
+
+function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
       return response({ status: "ok", message: "GAS Backend is active" });
@@ -10,12 +33,46 @@ export const GOOGLE_APPS_SCRIPT_CODE = `function doPost(e) {
       return response({ status: "ok", message: "GAS connection successful" });
     }
 
-    // Google Drive Store Photo Upload
+    // Helper: find or create a subfolder inside a Drive parent folder
+    const getOrCreateSubFolder = (parent, name) => {
+      const clean = String(name || "")
+        .trim()
+        .replace(/[\\\\/:*?"<>|\\r\\n]+/g, " ")
+        .replace(/\\s+/g, " ")
+        .trim();
+      const targetName = clean || "อื่นๆ";
+      const iter = parent.getFoldersByName(targetName);
+      return iter.hasNext() ? iter.next() : parent.createFolder(targetName);
+    };
+
+    // Google Drive Folder Connection Test
+    if (action === "testDriveFolder") {
+      const folderId = String(payload.folderId || "").trim();
+      if (!folderId) {
+        return response({ error: "Missing folderId" }, 400);
+      }
+      try {
+        const folder = DriveApp.getFolderById(folderId);
+        return response({
+          success: true,
+          folderId: folder.getId(),
+          folderName: folder.getName(),
+          folderUrl: folder.getUrl()
+        });
+      } catch (folderErr) {
+        return response({
+          error: "ไม่สามารถเข้าถึงโฟลเดอร์ Google Drive ได้ กรุณาตรวจสอบ Folder ID หรือสิทธิ์เข้าถึงของบัญชี Google (" + folderErr.toString() + ")"
+        }, 400);
+      }
+    }
+
+    // Google Drive Photo Upload (Storefront & Check-in)
     if (action === "uploadDrivePhoto") {
-      const parentFolderId = payload.parentFolderId || "1OMgGdY7DM78UviFNLJ-Wi_t_ayjsH5V4";
+      const parentFolderId = String(payload.parentFolderId || "1OMgGdY7DM78UviFNLJ-Wi_t_ayjsH5V4").trim();
+      const category = payload.category === "checkin" ? "checkin" : "storefront";
       const rawStoreName = String(payload.storeName || "ร้านค้าใหม่")
         .trim()
-        .replace(/[\\\\/:*?"<>|]+/g, " ")
+        .replace(/[\\\\/:*?"<>|\\r\\n]+/g, " ")
         .replace(/\\s+/g, " ")
         .trim();
       const storeName = rawStoreName || "ร้านค้าใหม่";
@@ -27,16 +84,37 @@ export const GOOGLE_APPS_SCRIPT_CODE = `function doPost(e) {
         return response({ error: "Missing base64Data" }, 400);
       }
 
-      const parentFolder = DriveApp.getFolderById(parentFolderId);
-      const subFolders = parentFolder.getFoldersByName(storeName);
-      const storeFolder = subFolders.hasNext()
-        ? subFolders.next()
-        : parentFolder.createFolder(storeName);
+      let targetFolder = DriveApp.getFolderById(parentFolderId);
+      let fileName = "";
 
-      const fileName = storeName + " รูปที่ " + slotNumber + ".jpg";
+      if (category === "checkin") {
+        // Optional root subfolder when check-in folder is not separated yet
+        if (payload.useCheckInRootSubfolder) {
+          targetFolder = getOrCreateSubFolder(targetFolder, "รูปการเช็คอิน");
+        }
+        const subFolderName = String(payload.subFolderName || "").trim();
+        if (subFolderName) {
+          targetFolder = getOrCreateSubFolder(targetFolder, subFolderName);
+        }
+        const rawCustomName = String(payload.customFileName || "")
+          .trim()
+          .replace(/[\\\\/:*?"<>|\\r\\n]+/g, " ")
+          .replace(/\\s+/g, " ")
+          .trim();
+        fileName = rawCustomName || (storeName + "_checkin.jpg");
+      } else {
+        targetFolder = getOrCreateSubFolder(targetFolder, storeName);
+        const rawCustomName = String(payload.customFileName || "")
+          .trim()
+          .replace(/[\\\\/:*?"<>|\\r\\n]+/g, " ")
+          .replace(/\\s+/g, " ")
+          .trim();
+        fileName = rawCustomName || (storeName + " รูปที่ " + slotNumber + ".jpg");
+      }
+
       const bytes = Utilities.base64Decode(base64Data);
       const blob = Utilities.newBlob(bytes, mimeType, fileName);
-      const file = storeFolder.createFile(blob);
+      const file = targetFolder.createFile(blob);
 
       try {
         file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
@@ -47,8 +125,8 @@ export const GOOGLE_APPS_SCRIPT_CODE = `function doPost(e) {
         success: true,
         fileId: fileId,
         fileName: file.getName(),
-        folderId: storeFolder.getId(),
-        folderName: storeFolder.getName(),
+        folderId: targetFolder.getId(),
+        folderName: targetFolder.getName(),
         webViewLink: "https://drive.google.com/file/d/" + fileId + "/view"
       });
     }
@@ -164,6 +242,6 @@ function response(data, code = 200) {
 
 // Support GET requests for testing
 function doGet(e) {
-  return response({ status: "ok", message: "GAS Backend is running successfully v3 (Sheets + Drive)" });
+  return response({ status: "ok", message: "GAS Backend is running successfully v4 (Sheets + Drive Storefront & Check-in)" });
 }
 `;

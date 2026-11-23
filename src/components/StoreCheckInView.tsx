@@ -26,9 +26,16 @@ import {
   Plus,
   Trash2,
   Edit3,
+  ExternalLink,
 } from 'lucide-react';
 import { Customer, StaffUser, StoreCheckIn, Route, DailyRouteSchedule } from '../types';
 import { calculateDistanceMeters, formatDistance, extractCustomerCoords, compressImageFile } from '../utils/geoUtils';
+import {
+  uploadCheckInPhotoToDrive,
+  getDriveImageDisplayUrl,
+  getDriveViewUrl,
+  isGoogleDriveUrl,
+} from '../services/googleDrive';
 import {
   getTodayDateIso,
   formatDateIso,
@@ -657,6 +664,17 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
         second: '2-digit',
       });
 
+      // Upload check-in photo to Google Drive (stores only Drive link in Google Sheets)
+      let finalPhotoUrl = photoDataUrl;
+      if (photoDataUrl.startsWith('data:')) {
+        const uploaded = await uploadCheckInPhotoToDrive(photoDataUrl, {
+          storeName,
+          salespersonName: currentUser.name,
+          date: now,
+        });
+        finalPhotoUrl = uploaded.webViewLink;
+      }
+
       // Calculate distance if known customer
       let distanceMeters: number | undefined = undefined;
       if (selectedCustomer) {
@@ -680,7 +698,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
         longitude: lng,
         accuracy: accuracy || undefined,
         mapsUrl: `https://maps.google.com/?q=${lat.toFixed(6)},${lng.toFixed(6)}`,
-        photoUrl: photoDataUrl,
+        photoUrl: finalPhotoUrl,
         notes: visitNote.trim() ? `${visitPurpose} - ${visitNote.trim()}` : visitPurpose,
         distanceMeters,
         syncedToSheets: false,
@@ -1714,7 +1732,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                         title="คลิกเพื่อดูภาพขยาย"
                       >
                         <img
-                          src={item.photoUrl}
+                          src={getDriveImageDisplayUrl(item.photoUrl, 400)}
                           alt={item.storeName}
                           loading="lazy"
                           decoding="async"
@@ -2100,7 +2118,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                   title={!photoDataUrl ? 'กรุณาถ่ายรูปหน้าร้านก่อนการบันทึก' : 'กดบันทึกเช็คอิน'}
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>{isSubmitting ? 'กำลังบันทึก...' : 'บันทึกการเช็คอิน'}</span>
+                  <span>{isSubmitting ? 'กำลังอัปโหลดรูปและบันทึก...' : 'บันทึกการเช็คอิน'}</span>
                 </button>
               </div>
             </form>
@@ -2116,12 +2134,12 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="relative max-w-2xl w-full max-h-[85vh] bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/20"
+            className="relative max-w-2xl w-full max-h-[85vh] bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/20 flex flex-col"
           >
             <img
-              src={viewingPhotoUrl}
+              src={getDriveImageDisplayUrl(viewingPhotoUrl, 1400)}
               alt="Storefront Zoom"
-              className="w-full h-full object-contain max-h-[80vh]"
+              className="w-full h-full object-contain max-h-[78vh]"
             />
             <button
               type="button"
@@ -2130,6 +2148,19 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
             >
               <X className="w-5 h-5" />
             </button>
+            {isGoogleDriveUrl(viewingPhotoUrl) && getDriveViewUrl(viewingPhotoUrl) && (
+              <div className="p-3 bg-slate-950/90 border-t border-white/10 flex items-center justify-end">
+                <a
+                  href={getDriveViewUrl(viewingPhotoUrl)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-semibold transition-colors"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>เปิดดูใน Google Drive</span>
+                </a>
+              </div>
+            )}
           </div>
         </div>
       )}

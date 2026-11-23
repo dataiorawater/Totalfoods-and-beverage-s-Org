@@ -26,7 +26,7 @@ import {
   INITIAL_MAINTENANCE_RECORDS,
   INITIAL_ROUTES,
 } from './data/mockData';
-import { formatDatabaseDateTime } from './utils/callPlanUtils';
+import { formatNowUtcPlus7Iso } from './utils/callPlanUtils';
 
 import {
   appendOrderToSheet,
@@ -1142,7 +1142,7 @@ export default function App() {
     visitDays?: string[];
     photoUrls?: string[];
   }): Promise<boolean> => {
-    const nowFormatted = formatDatabaseDateTime(new Date().toISOString()).replace(/\s*น\.$/, '');
+    const nowUtcPlus7 = formatNowUtcPlus7Iso();
     const rawRoute = String(custData.routeName || '').trim();
     const matchedRoute = routes.find(
       (r) =>
@@ -1156,7 +1156,7 @@ export default function App() {
       routeName: resolvedRouteId,
       routeId: resolvedRouteId || undefined,
       photoUrls: Array.isArray(custData.photoUrls) ? custData.photoUrls.slice(0, 3) : [],
-      updatedAt: nowFormatted
+      updatedAt: nowUtcPlus7
     };
     
     setCustomers(prev => {

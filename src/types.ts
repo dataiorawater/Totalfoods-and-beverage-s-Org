@@ -168,6 +168,8 @@ export interface SheetsConfig {
   sheetName: string;
   spreadsheetUrl: string;
   gasUrl?: string;
+  storePhotoFolderId?: string;
+  checkInPhotoFolderId?: string;
   lastSyncTime?: string;
   autoSync: boolean;
 }

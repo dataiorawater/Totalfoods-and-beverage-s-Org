@@ -3,7 +3,14 @@ import { SheetsConfig, LineSettings, StaffUser } from '../types';
 import { sendLineNotification } from '../services/lineNotify';
 import { googleSignIn } from '../services/auth';
 import { testGasConnection, fixAndAlignOrderHeaders, ORDER_HEADERS_CANONICAL } from '../services/googleSheets';
-import { GOOGLE_APPS_SCRIPT_CODE } from '../data/gasScriptCode';
+import {
+  DEFAULT_STORE_PHOTO_FOLDER_ID,
+  extractDriveFolderId,
+  getDriveFolderUrl,
+  testDriveFolderConnection,
+  DriveFolderTestResult,
+} from '../services/googleDrive';
+import { GOOGLE_APPS_SCRIPT_CODE, GOOGLE_APPS_SCRIPT_MANIFEST } from '../data/gasScriptCode';
 import {
   X,
   FileSpreadsheet,
@@ -29,6 +36,10 @@ import {
   ChevronUp,
   Table,
   Sparkles,
+  HardDrive,
+  FolderOpen,
+  Camera,
+  MapPin,
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -75,7 +86,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   
   onRefreshFromSheets,
 }) => {
-  const [activeTab, setActiveTab] = useState<'sheets' | 'line'>('sheets');
+  const [activeTab, setActiveTab] = useState<'sheets' | 'drive' | 'line'>('sheets');
 
   // Google Sheets state
   const [spreadsheetId, setSpreadsheetId] = useState(sheetsConfig?.spreadsheetId || '');
@@ -85,10 +96,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [sheetsMessage, setSheetsMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [driveSheets, setDriveSheets] = useState<Array<{ id: string; name: string }>>([]);
 
+  // Google Drive Photo Folder state (separate storefront & check-in folders)
+  const [storePhotoFolderId, setStorePhotoFolderId] = useState(sheetsConfig?.storePhotoFolderId || '');
+  const [checkInPhotoFolderId, setCheckInPhotoFolderId] = useState(sheetsConfig?.checkInPhotoFolderId || '');
+  const [isTestingStoreFolder, setIsTestingStoreFolder] = useState(false);
+  const [storeFolderTestResult, setStoreFolderTestResult] = useState<DriveFolderTestResult | null>(null);
+  const [isTestingCheckInFolder, setIsTestingCheckInFolder] = useState(false);
+  const [checkInFolderTestResult, setCheckInFolderTestResult] = useState<DriveFolderTestResult | null>(null);
+  const [driveMessage, setDriveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   // GAS Test & Code state
   const [isTestingGas, setIsTestingGas] = useState(false);
   const [gasTestResult, setGasTestResult] = useState<{ success: boolean; message: string; isHtml?: boolean } | null>(null);
   const [isCopiedGasCode, setIsCopiedGasCode] = useState(false);
+  const [isCopiedManifest, setIsCopiedManifest] = useState(false);
   const [showCodePreview, setShowCodePreview] = useState(false);
 
   // Line Settings state
@@ -109,10 +130,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setSpreadsheetId(sheetsConfig?.spreadsheetId || '');
       setSheetName(sheetsConfig?.sheetName || 'รายการออเดอร์ (Orders)');
       setGasUrl(sheetsConfig?.gasUrl || '');
+      setStorePhotoFolderId(sheetsConfig?.storePhotoFolderId || '');
+      setCheckInPhotoFolderId(sheetsConfig?.checkInPhotoFolderId || '');
       setLineEnabled(lineSettings?.enabled || false);
       setLineToken(lineSettings?.token || '');
       setLineWebhookUrl(lineSettings?.webhookUrl || '');
       setSheetsMessage(null);
+      setDriveMessage(null);
+      setStoreFolderTestResult(null);
+      setCheckInFolderTestResult(null);
       setLineTestResult(null);
       setGasTestResult(null);
     }
@@ -153,6 +179,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
+  // Copy appsscript.json Manifest (forces Google Drive OAuth scope)
+  const handleCopyManifest = async () => {
+    try {
+      await navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_MANIFEST);
+      setIsCopiedManifest(true);
+      setTimeout(() => setIsCopiedManifest(false), 2500);
+    } catch {
+      const textArea = document.createElement('textarea');
+      textArea.value = GOOGLE_APPS_SCRIPT_MANIFEST;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setIsCopiedManifest(true);
+      setTimeout(() => setIsCopiedManifest(false), 2500);
+    }
+  };
+
   // Handle Google Sign In
   const handleGoogleLogin = async () => {
     setIsLoggingInGoogle(true);
@@ -181,6 +225,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   }
 
+  const resolvedStoreFolderId = extractDriveFolderId(storePhotoFolderId) || DEFAULT_STORE_PHOTO_FOLDER_ID;
+  const resolvedCheckInFolderId = extractDriveFolderId(checkInPhotoFolderId);
+
   const handleSaveSheetsConfig = () => {
     let cleanId = spreadsheetId.trim();
     if (cleanId.includes('/d/')) {
@@ -198,9 +245,92 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         ? `https://docs.google.com/spreadsheets/d/${cleanId}/edit`
         : '',
       gasUrl: gasUrl.trim(),
+      storePhotoFolderId: extractDriveFolderId(storePhotoFolderId) || sheetsConfig?.storePhotoFolderId || '',
+      checkInPhotoFolderId: extractDriveFolderId(checkInPhotoFolderId) || sheetsConfig?.checkInPhotoFolderId || '',
     };
     onUpdateSheetsConfig(updated);
     setSheetsMessage({ type: 'success', text: 'บันทึกการตั้งค่า Google Sheets เรียบร้อย' });
+  };
+
+  const handleSaveDriveConfig = () => {
+    setDriveMessage(null);
+    const rawStore = storePhotoFolderId.trim();
+    const rawCheckIn = checkInPhotoFolderId.trim();
+
+    const cleanStoreId = rawStore ? extractDriveFolderId(rawStore) : '';
+    const cleanCheckInId = rawCheckIn ? extractDriveFolderId(rawCheckIn) : '';
+
+    if (rawStore && !cleanStoreId) {
+      setDriveMessage({
+        type: 'error',
+        text: 'รูปแบบ Folder ID / ลิงก์ของโฟลเดอร์รูปร้านค้าไม่ถูกต้อง กรุณาคัดลอก URL โฟลเดอร์ Google Drive อีกครั้ง',
+      });
+      return;
+    }
+
+    if (rawCheckIn && !cleanCheckInId) {
+      setDriveMessage({
+        type: 'error',
+        text: 'รูปแบบ Folder ID / ลิงก์ของโฟลเดอร์รูปเช็คอินไม่ถูกต้อง กรุณาคัดลอก URL โฟลเดอร์ Google Drive อีกครั้ง',
+      });
+      return;
+    }
+
+    const updated: SheetsConfig = {
+      ...sheetsConfig,
+      spreadsheetId: currentCleanId || sheetsConfig.spreadsheetId,
+      sheetName: sheetName.trim() || sheetsConfig.sheetName || 'รายการออเดอร์ (Orders)',
+      gasUrl: gasUrl.trim() || sheetsConfig.gasUrl || '',
+      storePhotoFolderId: cleanStoreId,
+      checkInPhotoFolderId: cleanCheckInId,
+    };
+    setStorePhotoFolderId(cleanStoreId);
+    setCheckInPhotoFolderId(cleanCheckInId);
+    onUpdateSheetsConfig(updated);
+    setDriveMessage({
+      type: 'success',
+      text: 'บันทึกการตั้งค่าโฟลเดอร์ Google Drive สำหรับรูปร้านค้าและรูปเช็คอินเรียบร้อยแล้ว',
+    });
+  };
+
+  const handleTestStoreFolder = async () => {
+    setIsTestingStoreFolder(true);
+    setStoreFolderTestResult(null);
+    try {
+      const target = storePhotoFolderId.trim() || DEFAULT_STORE_PHOTO_FOLDER_ID;
+      const res = await testDriveFolderConnection(target, gasUrl, currentCleanId);
+      setStoreFolderTestResult(res);
+    } catch (err: any) {
+      setStoreFolderTestResult({
+        success: false,
+        message: err?.message || 'ไม่สามารถทดสอบการเชื่อมต่อโฟลเดอร์รูปร้านค้าได้',
+      });
+    } finally {
+      setIsTestingStoreFolder(false);
+    }
+  };
+
+  const handleTestCheckInFolder = async () => {
+    if (!checkInPhotoFolderId.trim()) {
+      setCheckInFolderTestResult({
+        success: false,
+        message: 'กรุณาระบุ Folder ID หรือลิงก์โฟลเดอร์รูปเช็คอินก่อนกดทดสอบ',
+      });
+      return;
+    }
+    setIsTestingCheckInFolder(true);
+    setCheckInFolderTestResult(null);
+    try {
+      const res = await testDriveFolderConnection(checkInPhotoFolderId, gasUrl, currentCleanId);
+      setCheckInFolderTestResult(res);
+    } catch (err: any) {
+      setCheckInFolderTestResult({
+        success: false,
+        message: err?.message || 'ไม่สามารถทดสอบการเชื่อมต่อโฟลเดอร์รูปเช็คอินได้',
+      });
+    } finally {
+      setIsTestingCheckInFolder(false);
+    }
   };
 
   // Adjust and Align Order Headers on Google Sheets
@@ -303,7 +433,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               การเชื่อมต่อ & ตั้งค่าระบบ
             </h3>
             <p className="text-xs text-slate-500">
-              Google Sheets Database และ LINE Notification
+              Google Sheets, Google Drive รูปภาพ และ LINE Notification
             </p>
           </div>
           <button
@@ -315,10 +445,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Tab switcher */}
-        <div className="flex border-b border-slate-200 bg-slate-50/50 px-4 pt-2">
+        <div className="flex border-b border-slate-200 bg-slate-50/50 px-3 sm:px-4 pt-2 overflow-x-auto">
           <button
             onClick={() => setActiveTab('sheets')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'sheets'
                 ? 'border-blue-600 text-blue-800 bg-white rounded-t-lg shadow-2xs'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -332,8 +462,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
 
           <button
+            onClick={() => setActiveTab('drive')}
+            className={`flex items-center gap-2 px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'drive'
+                ? 'border-emerald-600 text-emerald-800 bg-white rounded-t-lg shadow-2xs'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <HardDrive className="w-4 h-4 text-emerald-600" />
+            <span>Google Drive รูปภาพ</span>
+            {(sheetsConfig?.storePhotoFolderId || sheetsConfig?.checkInPhotoFolderId) ? (
+              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+            ) : null}
+          </button>
+
+          <button
             onClick={() => setActiveTab('line')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'line'
                 ? 'border-blue-600 text-blue-800 bg-white rounded-t-lg shadow-2xs'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -705,7 +850,315 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
           )}
-          {/* TAB 2: LINE NOTIFICATION */}
+
+          {/* TAB 2: GOOGLE DRIVE PHOTOS */}
+          {activeTab === 'drive' && (
+            <div className="space-y-4">
+              {driveMessage && (
+                <div
+                  className={`p-3 rounded-xl text-xs font-medium flex items-center gap-2 ${
+                    driveMessage.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      : 'bg-rose-50 text-rose-800 border border-rose-200'
+                  }`}
+                >
+                  {driveMessage.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                  )}
+                  <span>{driveMessage.text}</span>
+                </div>
+              )}
+
+              <div className="bg-emerald-50/70 p-4 rounded-xl border border-emerald-200/80 flex items-start gap-3">
+                <HardDrive className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <h4 className="text-sm font-bold text-emerald-900">
+                    เก็บรูปภาพแยกโฟลเดอร์บน Google Drive อัตโนมัติ
+                  </h4>
+                  <p className="text-xs text-emerald-800 leading-relaxed">
+                    ระบบจะอัปโหลดรูปหน้าร้านค้าและรูปการเช็คอินขึ้น Google Drive ผ่าน Google Apps Script โดยอัตโนมัติ (พนักงานไม่ต้องล็อกอิน Google) และบันทึกเฉพาะ <strong>ลิงก์รูปภาพ</strong> ลงใน Google Sheets เพื่อให้ฐานข้อมูลโหลดเร็วและไม่เกินขีดจำกัดเซลล์
+                  </p>
+                </div>
+              </div>
+
+              {/* 1. Storefront Photos Folder */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2.5 shadow-2xs">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                      <Camera className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">
+                        1. โฟลเดอร์เก็บรูปหน้าร้านค้า (Storefront)
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        สร้างโฟลเดอร์ย่อยตามชื่อร้านค้าอัตโนมัติ (บังคับ 1–3 รูปต่อร้าน)
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {resolvedStoreFolderId && (
+                      <a
+                        href={getDriveFolderUrl(resolvedStoreFolderId)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
+                      >
+                        <FolderOpen className="w-3.5 h-3.5" />
+                        <span>เปิดโฟลเดอร์</span>
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleTestStoreFolder}
+                      disabled={isTestingStoreFolder}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
+                    >
+                      {isTestingStoreFolder ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>กำลังทดสอบ...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Activity className="w-3.5 h-3.5" />
+                          <span>ทดสอบโฟลเดอร์</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Google Drive Folder ID หรือ URL โฟลเดอร์รูปร้านค้า
+                  </label>
+                  <input
+                    type="text"
+                    value={storePhotoFolderId}
+                    onChange={(e) => {
+                      setStorePhotoFolderId(e.target.value);
+                      setStoreFolderTestResult(null);
+                    }}
+                    placeholder={`วางลิงก์โฟลเดอร์ หรือ Folder ID (ค่าเริ่มต้น: ${DEFAULT_STORE_PHOTO_FOLDER_ID})`}
+                    className="w-full px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-1 block">
+                    วางได้ทั้ง URL เต็ม (เช่น https://drive.google.com/drive/folders/1abc...) หรือเฉพาะรหัส Folder ID • หากเว้นว่างจะใช้โฟลเดอร์ค่าเริ่มต้นของระบบ
+                  </span>
+                </div>
+
+                {storeFolderTestResult && (
+                  <div
+                    className={`p-2.5 rounded-lg text-[11px] flex items-start gap-2 ${
+                      storeFolderTestResult.success
+                        ? 'bg-emerald-50 text-emerald-900 border border-emerald-200'
+                        : 'bg-rose-50 text-rose-900 border border-rose-200'
+                    }`}
+                  >
+                    {storeFolderTestResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    )}
+                    <span>{storeFolderTestResult.message}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* 2. Check-in Photos Folder */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2.5 shadow-2xs">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                      <MapPin className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">
+                        2. โฟลเดอร์เก็บรูปการเช็คอิน (Check-in)
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        แยกโฟลเดอร์ย่อยตามเดือน (YYYY-MM) และตั้งชื่อไฟล์ตามวันเวลา-ชื่อร้าน-ชื่อเซลล์อัตโนมัติ
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {resolvedCheckInFolderId && (
+                      <a
+                        href={getDriveFolderUrl(resolvedCheckInFolderId)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
+                      >
+                        <FolderOpen className="w-3.5 h-3.5" />
+                        <span>เปิดโฟลเดอร์</span>
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleTestCheckInFolder}
+                      disabled={isTestingCheckInFolder || !checkInPhotoFolderId.trim()}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
+                    >
+                      {isTestingCheckInFolder ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>กำลังทดสอบ...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Activity className="w-3.5 h-3.5" />
+                          <span>ทดสอบโฟลเดอร์</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Google Drive Folder ID หรือ URL โฟลเดอร์รูปเช็คอิน
+                  </label>
+                  <input
+                    type="text"
+                    value={checkInPhotoFolderId}
+                    onChange={(e) => {
+                      setCheckInPhotoFolderId(e.target.value);
+                      setCheckInFolderTestResult(null);
+                    }}
+                    placeholder="วางลิงก์โฟลเดอร์ Google Drive สำหรับเก็บรูปเช็คอินโดยเฉพาะ"
+                    className="w-full px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-1 block">
+                    แนะนำให้สร้างโฟลเดอร์แยกต่างหากสำหรับรูปเช็คอิน • หากยังไม่ระบุ ระบบจะสร้างโฟลเดอร์ย่อยชื่อ &quot;รูปการเช็คอิน&quot; ไว้ในโฟลเดอร์รูปร้านค้าให้อัตโนมัติ
+                  </span>
+                </div>
+
+                {checkInFolderTestResult && (
+                  <div
+                    className={`p-2.5 rounded-lg text-[11px] flex items-start gap-2 ${
+                      checkInFolderTestResult.success
+                        ? 'bg-emerald-50 text-emerald-900 border border-emerald-200'
+                        : 'bg-rose-50 text-rose-900 border border-rose-200'
+                    }`}
+                  >
+                    {checkInFolderTestResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    )}
+                    <span>{checkInFolderTestResult.message}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Save Drive Folders Button */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveDriveConfig}
+                  className="flex-1 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-colors shadow-sm cursor-pointer"
+                >
+                  บันทึกการตั้งค่าโฟลเดอร์ Google Drive
+                </button>
+              </div>
+
+              {/* Quick Setup Guide + Copy v4 GAS Script */}
+              <div className="bg-slate-50 rounded-xl border border-slate-200 p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <Code className="w-4 h-4 text-slate-600" />
+                    <span className="text-xs font-bold text-slate-800">
+                      ขั้นตอนเตรียม Google Drive & อัปเดต Apps Script (ทำครั้งเดียว)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={handleCopyGasCode}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all shadow-2xs cursor-pointer ${
+                        isCopiedGasCode
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-slate-800 hover:bg-slate-900 text-white'
+                      }`}
+                    >
+                      {isCopiedGasCode ? (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>คัดลอก Code.gs แล้ว!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>คัดลอก Code.gs (v4)</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleCopyManifest}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all shadow-2xs cursor-pointer ${
+                        isCopiedManifest
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-amber-600 hover:bg-amber-700 text-white'
+                      }`}
+                    >
+                      {isCopiedManifest ? (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>คัดลอก appsscript.json แล้ว!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>คัดลอก appsscript.json</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-slate-600 space-y-1.5 bg-white p-3 rounded-lg border border-slate-100">
+                  <div className="flex items-start gap-1.5">
+                    <span className="font-bold text-emerald-600 shrink-0">1.</span>
+                    <span>
+                      สร้าง 2 โฟลเดอร์ใน Google Drive (บัญชีเดียวกับ Google Sheets) เช่น <strong>&quot;รูปหน้าร้านค้า&quot;</strong> และ <strong>&quot;รูปการเช็คอิน&quot;</strong> แล้ววาง URL/Folder ID ในช่องด้านบนแล้วกด <strong>บันทึก</strong>
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="font-bold text-emerald-600 shrink-0">2.</span>
+                    <span>
+                      ใน Apps Script วางโค้ด <strong>Code.gs (v4)</strong> แทนที่ของเดิม &gt; ไปที่ไอคอนฟันเฟือง <strong>การตั้งค่าโปรเจกต์ (Project Settings)</strong> &gt; ติ๊กถูก <strong>&quot;แสดงไฟล์ Manifest appsscript.json ในเครื่องมือแก้ไข&quot;</strong> &gt; กลับมาเปิดไฟล์ <code>appsscript.json</code> แล้ววางโค้ดที่คัดลอกจากปุ่มสีส้มด้านบน &gt; กด <strong>บันทึก (Ctrl+S)</strong>
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="font-bold text-amber-600 shrink-0">3.</span>
+                    <span>
+                      <strong className="text-amber-800 bg-amber-50 px-1 rounded">อนุญาตสิทธิ์ Drive (สำคัญมาก!):</strong> กลับมาที่ <code>Code.gs</code> กดปุ่ม <strong>เรียกใช้ (Run)</strong> ที่ฟังก์ชัน <code>authorizeDrive</code> &gt; กด <strong>ตรวจสอบสิทธิ์</strong> &gt; เลือกบัญชี Google &gt; กด <strong>ขั้นสูง</strong> &gt; ในหน้าถัดไป <strong className="text-rose-700 underline">ต้องติ๊กถูกช่องสี่เหลี่ยม &quot;เลือกทั้งหมด&quot; หรือช่อง Google Drive ด้วยตัวเอง</strong> (Google ไม่ได้ติ๊กให้) แล้วจึงกด <strong>ดำเนินการต่อ (Continue)</strong> — ดูแถบด้านล่างต้องขึ้น <code>Execution completed</code> ไม่มีตัวแดง
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="font-bold text-emerald-600 shrink-0">4.</span>
+                    <span>
+                      กด <strong>ทำให้ใช้งานได้ (Deploy) &gt; การทำให้ใช้งานได้ใหม่ (New deployment)</strong> &gt; เลือก <strong>เว็บแอป</strong> &gt; ตั้ง <strong>ดำเนินการในฐานะ: ฉัน (Me)</strong> และ <strong>ผู้มีสิทธิ์เข้าถึง: ทุกคน (Anyone)</strong> &gt; กด <strong>ทำให้ใช้งานได้</strong> แล้วนำ <strong>Web App URL ใหม่ (/exec)</strong> มาวางที่แท็บ <strong>ฐานข้อมูล Google Sheets</strong> แล้วกดบันทึก
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="font-bold text-emerald-600 shrink-0">5.</span>
+                    <span>
+                      กลับมากดปุ่ม <strong>&quot;ทดสอบโฟลเดอร์&quot;</strong> ทั้ง 2 ช่องด้านบน หากขึ้นสีเขียวพร้อมชื่อโฟลเดอร์ถือว่าพร้อมใช้งานทันที
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: LINE NOTIFICATION */}
           {activeTab === 'line' && (
             <div className="space-y-4">
               {lineTestResult && (

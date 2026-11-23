@@ -1159,6 +1159,7 @@ export const parseCustomers = (values: any[]): Customer[] => {
       longitude: row[7] ? parseFloat(row[7]) : undefined,
       notes: row[8] !== undefined && row[8] !== null ? String(row[8]) : '',
       updatedAt: row[9] !== undefined && row[9] !== null ? String(row[9]) : '',
+      photoUrls: parsePhotoUrlsCell(row[10]),
     };
   });
 };

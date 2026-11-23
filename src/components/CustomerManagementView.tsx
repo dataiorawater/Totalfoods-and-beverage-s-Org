@@ -24,8 +24,20 @@ import {
   Filter,
   CheckCircle,
   X,
+  Image as ImageIcon,
+  ChevronLeft,
+  ChevronRight,
+  Edit3,
 } from 'lucide-react';
 import { Customer, StaffUser, Route } from '../types';
+import { StorePhotoUploader } from './StorePhotoUploader';
+import {
+  uploadStorePhotoToDrive,
+  extractDriveFileId,
+  getDriveImageDisplayUrl,
+  getDriveViewUrl,
+  isGoogleDriveUrl,
+} from '../services/googleDrive';
 import {
   THAI_DAYS,
   ThaiDay,
@@ -56,6 +68,7 @@ interface CustomerManagementViewProps {
     mapsUrl: string;
     routeName?: string;
     visitDays?: string[];
+    photoUrls?: string[];
   }) => Promise<boolean>;
   onRefreshCustomers: () => Promise<void>;
   onOpenOrderForCustomer: (customer: Customer) => void;
@@ -85,13 +98,20 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
   const [routeName, setRouteName] = useState('');
   const [mapsUrl, setMapsUrl] = useState('');
   const [visitDays, setVisitDays] = useState<ThaiDay[]>([]);
+  const [photoUrls, setPhotoUrls] = useState<string[]>([]);
 
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadStatusText, setUploadStatusText] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [viewingGallery, setViewingGallery] = useState<{
+    storeName: string;
+    photos: string[];
+    index: number;
+  } | null>(null);
 
   // Call Plan & Daily Route Filters (default to 'all' so customer directory & search work immediately across all customers)
   const [filterMode, setFilterMode] = useState<'today' | 'all' | 'by_route'>('all');
@@ -356,9 +376,35 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
       setErrorMsg('กรุณากรอกลิ้งก์โลเคชั่น (Google Maps Link) หรือกดจับพิกัด GPS');
       return;
     }
+    if (photoUrls.length < 1) {
+      setErrorMsg('กรุณาแนบรูปถ่ายหน้าร้านค้าอย่างน้อย 1 รูป (สูงสุด 3 รูป)');
+      return;
+    }
 
     setIsSubmitting(true);
+    setUploadStatusText(null);
     try {
+      const pendingPhotos = photoUrls.slice(0, 3);
+      const pendingLocalCount = pendingPhotos.filter((p) => p.startsWith('data:')).length;
+      const finalPhotoUrls: string[] = [...pendingPhotos];
+      let uploadedSoFar = 0;
+
+      for (let i = 0; i < finalPhotoUrls.length; i++) {
+        const currentUrl = finalPhotoUrls[i];
+        if (currentUrl && currentUrl.startsWith('data:')) {
+          uploadedSoFar += 1;
+          setUploadStatusText(
+            `กำลังอัปโหลดรูปที่ ${uploadedSoFar}/${pendingLocalCount} ลง Google Drive...`
+          );
+          const uploaded = await uploadStorePhotoToDrive(currentUrl, cleanName, i + 1);
+          finalPhotoUrls[i] = uploaded.webViewLink;
+        }
+      }
+
+      // Sync uploaded URLs into form state so retries won't re-upload already succeeded photos
+      setPhotoUrls(finalPhotoUrls);
+      setUploadStatusText('กำลังบันทึกข้อมูลลูกค้า...');
+
       const success = await onSaveCustomer({
         id: editingId || undefined,
         name: cleanName,
@@ -367,6 +413,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
         mapsUrl: cleanMapsUrl,
         routeName: cleanRouteName,
         visitDays,
+        photoUrls: finalPhotoUrls,
       });
 
       if (success) {
@@ -383,6 +430,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
         setRouteName('');
         setMapsUrl('');
         setVisitDays([]);
+        setPhotoUrls([]);
         setErrorMsg(null);
         setIsFormModalOpen(false);
       } else {
@@ -392,6 +440,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
       setErrorMsg(err.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูลลูกค้า');
     } finally {
       setIsSubmitting(false);
+      setUploadStatusText(null);
     }
   };
 
@@ -421,6 +470,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     setRouteName('');
     setMapsUrl('');
     setVisitDays([]);
+    setPhotoUrls([]);
     setErrorMsg(null);
     setSuccessMsg(null);
     setIsFormModalOpen(true);
@@ -436,6 +486,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     setRouteName(String(matchedRoute?.id || c.routeId || c.routeName || ''));
     setMapsUrl(String(c.mapsUrl || ''));
     setVisitDays((c.visitDays || []) as ThaiDay[]);
+    setPhotoUrls(Array.isArray(c.photoUrls) ? c.photoUrls.filter(Boolean).slice(0, 3) : []);
     setErrorMsg(null);
     setIsFormModalOpen(true);
   };
@@ -450,6 +501,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     setRouteName('');
     setMapsUrl('');
     setVisitDays([]);
+    setPhotoUrls([]);
     setErrorMsg(null);
   };
 
@@ -463,6 +515,37 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [isFormModalOpen, isSubmitting]);
+
+  useEffect(() => {
+    if (!viewingGallery) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setViewingGallery(null);
+      } else if (e.key === 'ArrowRight' && viewingGallery.photos.length > 1) {
+        setViewingGallery((prev) =>
+          prev ? { ...prev, index: (prev.index + 1) % prev.photos.length } : null
+        );
+      } else if (e.key === 'ArrowLeft' && viewingGallery.photos.length > 1) {
+        setViewingGallery((prev) =>
+          prev
+            ? { ...prev, index: (prev.index - 1 + prev.photos.length) % prev.photos.length }
+            : null
+        );
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [viewingGallery]);
+
+  const handlePhotoImgError = (e: React.SyntheticEvent<HTMLImageElement>, rawUrl: string, size = 400) => {
+    const img = e.currentTarget;
+    if (img.dataset.fallbackTried === '1') return;
+    img.dataset.fallbackTried = '1';
+    const fileId = extractDriveFileId(rawUrl);
+    if (fileId) {
+      img.src = `https://lh3.googleusercontent.com/d/${fileId}=w${size}`;
+    }
+  };
 
   return (
     <div className="space-y-4 sm:space-y-5">
@@ -787,54 +870,134 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                   targetDay: todayThai,
                   routes: scopedRoutes,
                 });
+                const custPhotos = Array.isArray(cust.photoUrls)
+                  ? cust.photoUrls.filter((u) => Boolean(getDriveImageDisplayUrl(u, 300))).slice(0, 3)
+                  : [];
+                const primaryPhoto = custPhotos[0];
+                const extraPhotos = custPhotos.slice(1);
 
                 return (
                   <div
                     key={`${cust.id || cust?.name || 'cust'}-${cust.phone || ''}-${idx}`}
-                    className={`content-auto bg-white rounded-2xl p-4 border transition-all group ${
+                    className={`content-auto bg-white rounded-2xl p-3 sm:p-4 border transition-all group ${
                       isTodayPlan && filterMode !== 'today'
                         ? 'border-blue-300 ring-1 ring-blue-500/10 shadow-xs'
                         : 'border-slate-200/80 shadow-xs hover:border-blue-300'
                     }`}
                   >
-                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                      {/* Left: Customer Info */}
-                      <div className="space-y-2 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-slate-900 text-sm">
+                    {/* Main Compact Row: Photo on Left + Store Details on Right */}
+                    <div className="flex items-start gap-3">
+                      {/* Left: Storefront Photo Preview / Mini-Gallery */}
+                      <div className="w-20 sm:w-24 shrink-0 flex flex-col gap-1">
+                        {primaryPhoto ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setViewingGallery({
+                                storeName: cust.name || 'ร้านค้า',
+                                photos: custPhotos,
+                                index: 0,
+                              })
+                            }
+                            title="แตะเพื่อดูรูปหน้าร้านค้าขนาดใหญ่"
+                            className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 hover:border-blue-400 hover:ring-2 hover:ring-blue-500/20 transition-all cursor-pointer block"
+                          >
+                            <img
+                              src={getDriveImageDisplayUrl(primaryPhoto, 400)}
+                              onError={(e) => handlePhotoImgError(e, primaryPhoto, 400)}
+                              alt={`${cust.name} รูปหน้าร้าน`}
+                              loading="lazy"
+                              decoding="async"
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                            />
+                            {custPhotos.length > 1 && (
+                              <span className="absolute bottom-1 right-1 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-slate-900/75 text-white text-[10px] font-bold backdrop-blur-[1px]">
+                                <Camera className="w-2.5 h-2.5" />
+                                <span>{custPhotos.length}</span>
+                              </span>
+                            )}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleEditClick(cust)}
+                            title="ยังไม่มีรูปร้านค้า แตะเพื่อเพิ่มรูป"
+                            className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl border border-dashed border-slate-200 bg-slate-50 hover:bg-blue-50/60 hover:border-blue-300 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-blue-600 transition-colors cursor-pointer"
+                          >
+                            <Camera className="w-5 h-5" />
+                            <span className="text-[10px] font-medium leading-none">เพิ่มรูป</span>
+                          </button>
+                        )}
+
+                        {/* Extra Photos (2nd & 3rd) Mini Strip directly below main photo */}
+                        {extraPhotos.length > 0 && (
+                          <div className="grid grid-cols-2 gap-1">
+                            {extraPhotos.map((pUrl, extraIdx) => (
+                              <button
+                                key={`${cust.id || idx}-extra-${extraIdx}`}
+                                type="button"
+                                onClick={() =>
+                                  setViewingGallery({
+                                    storeName: cust.name || 'ร้านค้า',
+                                    photos: custPhotos,
+                                    index: extraIdx + 1,
+                                  })
+                                }
+                                title={`ดูรูปหน้าร้านที่ ${extraIdx + 2}`}
+                                className="relative h-8 sm:h-9 w-full rounded-lg overflow-hidden border border-slate-200 bg-slate-100 hover:border-blue-400 transition-all cursor-pointer"
+                              >
+                                <img
+                                  src={getDriveImageDisplayUrl(pUrl, 240)}
+                                  onError={(e) => handlePhotoImgError(e, pUrl, 240)}
+                                  alt={`${cust.name} รูปที่ ${extraIdx + 2}`}
+                                  loading="lazy"
+                                  decoding="async"
+                                  className="w-full h-full object-cover"
+                                />
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Right: Store Info & Top-Right Edit Button */}
+                      <div className="min-w-0 flex-1 space-y-1.5">
+                        {/* Top Header: Store Name + Edit Button */}
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="font-bold text-slate-900 text-sm sm:text-[15px] leading-snug line-clamp-2">
                             {cust?.name}
-                          </span>
-                          
+                          </h4>
+                          <button
+                            type="button"
+                            onClick={() => handleEditClick(cust)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:text-blue-700 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 rounded-lg transition-colors cursor-pointer shrink-0"
+                            title="แก้ไขข้อมูลลูกค้า"
+                          >
+                            <Edit3 className="w-3 h-3" />
+                            <span>แก้ไข</span>
+                          </button>
+                        </div>
+
+                        {/* Compact Badges: Route + Today Plan + Visit Days */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           {cust.routeName && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800">
-                              <Navigation className="w-2.5 h-2.5" />
-                              <span>{cust.routeName}</span>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-100 text-blue-800">
+                              <Navigation className="w-2.5 h-2.5 shrink-0" />
+                              <span className="truncate max-w-[140px] sm:max-w-none">{cust.routeName}</span>
                             </span>
                           )}
 
                           {isTodayPlan && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                            <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800">
                               <span>⭐ นัดเยี่ยมวันนี้</span>
                             </span>
                           )}
 
-                          <a
-                            href={`tel:${cust.phone}`}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
-                          >
-                            <Phone className="w-3 h-3" />
-                            <span>{cust.phone}</span>
-                          </a>
-                        </div>
-
-                        {/* Customer visit days badges */}
-                        {cust.visitDays && cust.visitDays.length > 0 && (
-                          <div className="flex items-center gap-1 flex-wrap">
-                            <span className="text-[10px] text-slate-400">วันเข้าเยี่ยม:</span>
-                            {cust.visitDays.map((d) => (
+                          {cust.visitDays && cust.visitDays.length > 0 &&
+                            cust.visitDays.map((d) => (
                               <span
                                 key={d}
-                                className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${
+                                className={`text-[10px] px-1.5 py-0.5 rounded-md font-semibold ${
                                   d === todayThai
                                     ? 'bg-blue-600 text-white font-bold'
                                     : 'bg-slate-100 text-slate-600'
@@ -843,62 +1006,62 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                                 {d}
                               </span>
                             ))}
-                          </div>
-                        )}
+                        </div>
 
+                        {/* Address with Copy button */}
                         {cust.address && (
-                          <div className="flex items-start gap-1.5 text-xs text-slate-600">
+                          <div className="flex items-start gap-1 text-xs text-slate-600 leading-relaxed">
                             <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                            <span className="line-clamp-2">{cust.address}</span>
+                            <span className="line-clamp-2 flex-1 min-w-0">{cust.address}</span>
                             <button
                               type="button"
                               onClick={() => handleCopy(cust.address, `addr-${idx}`)}
                               title="คัดลอกที่อยู่"
-                              className="text-slate-400 hover:text-slate-600 shrink-0 ml-1 cursor-pointer"
+                              className="p-1 -m-0.5 text-slate-400 hover:text-blue-600 shrink-0 cursor-pointer rounded"
                             >
                               {copiedId === `addr-${idx}` ? (
-                                <Check className="w-3 h-3 text-blue-600" />
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
                               ) : (
-                                <Copy className="w-3 h-3" />
+                                <Copy className="w-3.5 h-3.5" />
                               )}
                             </button>
                           </div>
                         )}
+                      </div>
+                    </div>
 
-                        <div className="flex items-center gap-3 text-[11px] text-slate-500 flex-wrap">
-                          {cust.mapsUrl && (
-                            <a
-                              href={cust.mapsUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 font-semibold hover:underline"
-                            >
-                              <ExternalLink className="w-3 h-3" />
-                              <span>เปิดแผนที่ Google Maps</span>
-                            </a>
-                          )}
+                    {/* Compact Mobile-Friendly Footer: Phone + Map Quick Actions & Updated Timestamp */}
+                    <div className="mt-2.5 pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {cust.phone && (
+                          <a
+                            href={`tel:${cust.phone}`}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200/80 hover:bg-blue-100 active:scale-[0.98] transition-all"
+                          >
+                            <Phone className="w-3.5 h-3.5 shrink-0" />
+                            <span>{cust.phone}</span>
+                          </a>
+                        )}
 
-                          {cust.updatedAt && (
-                            <span className="flex items-center gap-1 text-slate-400">
-                              <Clock className="w-3 h-3" />
-                              <span>อัปเดต: {formatDatabaseDateTime(cust.updatedAt)}</span>
-                            </span>
-                          )}
-                        </div>
+                        {cust.mapsUrl && (
+                          <a
+                            href={cust.mapsUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 hover:bg-emerald-100 active:scale-[0.98] transition-all"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                            <span>แผนที่</span>
+                          </a>
+                        )}
                       </div>
 
-                      {/* Right: Actions */}
-                      <div className="flex items-center gap-1.5 sm:self-center shrink-0 flex-wrap">
-                        {/* Edit Button */}
-                        <button
-                          type="button"
-                          onClick={() => handleEditClick(cust)}
-                          className="px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-blue-700 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 rounded-xl transition-colors cursor-pointer"
-                          title="นำข้อมูลไปแก้ไขในฟอร์ม"
-                        >
-                          แก้ไข
-                        </button>
-                      </div>
+                      {cust.updatedAt && (
+                        <span className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] text-slate-400 ml-auto">
+                          <Clock className="w-3 h-3 shrink-0" />
+                          <span>อัปเดต: {formatDatabaseDateTime(cust.updatedAt)}</span>
+                        </span>
+                      )}
                     </div>
                   </div>
                 );
@@ -1092,6 +1255,16 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                 </div>
               </div>
 
+              {/* 6. Storefront Photos (Required 1-3 photos, stored on Google Drive) */}
+              <StorePhotoUploader
+                photos={photoUrls}
+                onChange={setPhotoUrls}
+                storeName={name}
+                maxPhotos={3}
+                minPhotos={1}
+                disabled={isSubmitting}
+              />
+
               {/* Modal Actions */}
               <div className="pt-3 border-t border-slate-200/80 flex items-center justify-end gap-2.5">
                 <button
@@ -1114,7 +1287,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                   {isSubmitting ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>กำลังบันทึก...</span>
+                      <span>{uploadStatusText || 'กำลังบันทึก...'}</span>
                     </>
                   ) : (
                     <>
@@ -1128,6 +1301,131 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Storefront Photo Gallery Lightbox Modal */}
+      {viewingGallery && viewingGallery.photos[viewingGallery.index] && (() => {
+        const activePhoto = viewingGallery.photos[viewingGallery.index];
+        const totalPhotos = viewingGallery.photos.length;
+        return (
+          <div
+            onClick={() => setViewingGallery(null)}
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-xs animate-in fade-in"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="relative max-w-2xl w-full max-h-[90vh] bg-slate-950 rounded-2xl overflow-hidden shadow-2xl border border-white/15 flex flex-col"
+            >
+              {/* Lightbox Header */}
+              <div className="px-4 py-3 bg-slate-950/95 border-b border-white/10 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <h4 className="text-sm font-bold text-white truncate">
+                    {viewingGallery.storeName}
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    รูปถ่ายหน้าร้านค้า {viewingGallery.index + 1} / {totalPhotos}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setViewingGallery(null)}
+                  aria-label="ปิดภาพขยาย"
+                  className="p-1.5 bg-white/10 text-white rounded-full hover:bg-white/20 cursor-pointer shrink-0"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Active Photo Viewer */}
+              <div className="relative flex-1 bg-black flex items-center justify-center min-h-[260px] max-h-[65vh] overflow-hidden">
+                <img
+                  key={activePhoto}
+                  src={getDriveImageDisplayUrl(activePhoto, 1400)}
+                  onError={(e) => handlePhotoImgError(e, activePhoto, 1400)}
+                  alt={`${viewingGallery.storeName} รูปที่ ${viewingGallery.index + 1}`}
+                  className="w-full h-full object-contain max-h-[65vh]"
+                />
+
+                {totalPhotos > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setViewingGallery((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                index: (prev.index - 1 + prev.photos.length) % prev.photos.length,
+                              }
+                            : null
+                        )
+                      }
+                      aria-label="รูปก่อนหน้า"
+                      className="absolute left-2.5 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-black/85 text-white border border-white/15 cursor-pointer"
+                    >
+                      <ChevronLeft className="w-5 h-5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setViewingGallery((prev) =>
+                          prev ? { ...prev, index: (prev.index + 1) % prev.photos.length } : null
+                        )
+                      }
+                      aria-label="รูปถัดไป"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-black/85 text-white border border-white/15 cursor-pointer"
+                    >
+                      <ChevronRight className="w-5 h-5" />
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Footer: Thumbnail Switcher + Open in Google Drive */}
+              <div className="p-3 bg-slate-950/95 border-t border-white/10 flex items-center justify-between gap-3 flex-wrap">
+                {totalPhotos > 1 ? (
+                  <div className="flex items-center gap-2">
+                    {viewingGallery.photos.map((pUrl, pIdx) => (
+                      <button
+                        key={`lb-thumb-${pIdx}`}
+                        type="button"
+                        onClick={() =>
+                          setViewingGallery((prev) => (prev ? { ...prev, index: pIdx } : null))
+                        }
+                        className={`w-11 h-11 rounded-lg overflow-hidden border-2 transition-all cursor-pointer ${
+                          pIdx === viewingGallery.index
+                            ? 'border-blue-400 ring-2 ring-blue-400/40'
+                            : 'border-white/15 opacity-60 hover:opacity-100'
+                        }`}
+                      >
+                        <img
+                          src={getDriveImageDisplayUrl(pUrl, 200)}
+                          onError={(e) => handlePhotoImgError(e, pUrl, 200)}
+                          alt={`รูปย่อที่ ${pIdx + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-[11px] text-slate-400">รูปถ่ายหน้าร้านค้า</span>
+                )}
+
+                {isGoogleDriveUrl(activePhoto) && getDriveViewUrl(activePhoto) && (
+                  <a
+                    href={getDriveViewUrl(activePhoto)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-semibold transition-colors ml-auto"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>เปิดใน Google Drive</span>
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
