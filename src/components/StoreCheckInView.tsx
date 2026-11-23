@@ -24,8 +24,6 @@ import {
   ChevronRight,
   CalendarDays,
   Plus,
-  Trash2,
-  Edit3,
 } from 'lucide-react';
 import { Customer, StaffUser, StoreCheckIn, Route, DailyRouteSchedule } from '../types';
 import { calculateDistanceMeters, formatDistance, extractCustomerCoords, compressImageFile } from '../utils/geoUtils';
@@ -38,15 +36,12 @@ import {
   formatDateIso,
   formatThaiDate,
   getThaiDayFromDate,
-  getEffectiveRoutesForDate,
   isCustomerInDatePlan,
   isCustomerInRoute,
-  doesRouteRunOnDay,
   doesRouteBelongToSales,
   doesRouteBelongToUser,
   isCustomerBelongingToUser,
   doesCheckInBelongToUser,
-  getRouteColor,
 } from '../utils/callPlanUtils';
 
 interface StoreCheckInViewProps {
@@ -144,11 +139,8 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     }
   };
 
-  // 3. Date Selection & Simulated Calendar Modal State
+  // 3. Date Selection State
   const [selectedDate, setSelectedDate] = useState<string>(() => getTodayDateIso());
-  const [isQuickDayEditorOpen, setIsQuickDayEditorOpen] = useState<boolean>(false);
-  const [quickEditingRouteIds, setQuickEditingRouteIds] = useState<string[]>([]);
-  const [quickEditingNotes, setQuickEditingNotes] = useState<string>('');
 
   // 4. Role Access & Call Plan Mode Filters
   const canViewAllRoutes = currentUser.role === 'admin' || currentUser.role === 'manager';
@@ -334,91 +326,6 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     setSelectedDate(formatDateIso(dateObj));
   };
 
-  const handleSetToday = () => {
-    setSelectedDate(getTodayDateIso());
-  };
-
-  const handleSetTomorrow = () => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    setSelectedDate(formatDateIso(d));
-  };
-
-  // Quick day route assignment modal handlers
-  const handleOpenQuickDayEditor = () => {
-    const schedule = activeDailySchedules[selectedDate];
-    if (schedule) {
-      const visibleIds = canViewAllRoutes
-        ? [...schedule.routeIds]
-        : schedule.routeIds.filter((id) => scopedRouteIdSet.has(id));
-      setQuickEditingRouteIds(visibleIds);
-      setQuickEditingNotes(schedule.notes || '');
-    } else {
-      const thaiDay = getThaiDayFromDate(selectedDate);
-      const defIds = scopedRoutes
-        .filter((r) => doesRouteRunOnDay(r, thaiDay))
-        .map((r) => r.id);
-      setQuickEditingRouteIds(defIds);
-      setQuickEditingNotes('');
-    }
-    setIsQuickDayEditorOpen(true);
-  };
-
-  const handleToggleQuickRoute = (routeId: string) => {
-    setQuickEditingRouteIds((prev) =>
-      prev.includes(routeId) ? prev.filter((id) => id !== routeId) : [...prev, routeId]
-    );
-  };
-
-  const handleSaveQuickDayEditor = () => {
-    let finalRouteIds = [...quickEditingRouteIds];
-    if (!canViewAllRoutes) {
-      // Preserve route assignments belonging to other salespeople so saving doesn't wipe them
-      const existingSchedule = activeDailySchedules[selectedDate];
-      const thaiDay = getThaiDayFromDate(selectedDate);
-      const otherRouteIds = existingSchedule
-        ? existingSchedule.routeIds.filter((id) => !scopedRouteIdSet.has(id))
-        : routes
-            .filter((r) => !scopedRouteIdSet.has(r.id) && doesRouteRunOnDay(r, thaiDay))
-            .map((r) => r.id);
-      finalRouteIds = Array.from(new Set([...otherRouteIds, ...quickEditingRouteIds]));
-    }
-
-    const newSchedule: DailyRouteSchedule = {
-      date: selectedDate,
-      routeIds: finalRouteIds,
-      notes: quickEditingNotes.trim() || undefined,
-      updatedAt: new Date().toISOString(),
-    };
-    handleSaveDailySchedule(selectedDate, newSchedule);
-    setIsQuickDayEditorOpen(false);
-  };
-
-  const handleRevertQuickDayEditor = () => {
-    if (canViewAllRoutes) {
-      handleDeleteDailySchedule(selectedDate);
-    } else {
-      const existingSchedule = activeDailySchedules[selectedDate];
-      if (existingSchedule) {
-        const otherRouteIds = existingSchedule.routeIds.filter((id) => !scopedRouteIdSet.has(id));
-        if (otherRouteIds.length === 0) {
-          handleDeleteDailySchedule(selectedDate);
-        } else {
-          const thaiDay = getThaiDayFromDate(selectedDate);
-          const ownDefaultIds = scopedRoutes
-            .filter((r) => doesRouteRunOnDay(r, thaiDay))
-            .map((r) => r.id);
-          handleSaveDailySchedule(selectedDate, {
-            ...existingSchedule,
-            routeIds: Array.from(new Set([...otherRouteIds, ...ownDefaultIds])),
-            updatedAt: new Date().toISOString(),
-          });
-        }
-      }
-    }
-    setIsQuickDayEditorOpen(false);
-  };
-
   // Sales rep filter options (for Admin & Manager)
   const salesOptions = useMemo(() => {
     if (staffList && staffList.length > 0) {
@@ -433,16 +340,6 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     });
     return Array.from(salesSet);
   }, [staffList, routes, customers]);
-
-  // Routes active on the currently selected/viewed date
-  const effectiveRoutesForSelectedDate = useMemo(() => {
-    return getEffectiveRoutesForDate({
-      dateStr: selectedDate,
-      dailySchedules: activeDailySchedules,
-      routes: scopedRoutes,
-      selectedSales: canViewAllRoutes ? effectiveSelectedSales : undefined,
-    });
-  }, [selectedDate, activeDailySchedules, scopedRoutes, canViewAllRoutes, effectiveSelectedSales]);
 
   // Track check-ins performed on the SELECTED DATE (scoped to user role)
   const selectedDateCheckInStatus = useMemo(() => {
@@ -788,102 +685,100 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
         </div>
       )}
 
-      {/* Header & GPS Status Banner */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700 shadow-2xs">
-              <MapPin className="w-5 h-5" />
+      {/* Header & GPS Status Banner (Compact Mobile-First Layout) */}
+      <div className="bg-white rounded-2xl p-3 sm:p-4 border border-slate-200/80 shadow-xs space-y-2.5 sm:space-y-3">
+        {/* Top Row: Title on Left + GPS Status & Refresh on Top-Right */}
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700 shadow-2xs shrink-0">
+              <MapPin className="w-4.5 h-4.5 sm:w-5 sm:h-5" />
             </div>
-            <div>
-              <h1 className="text-base sm:text-lg font-bold text-slate-900 leading-tight">
-                เช็คอินร้านค้า (Store Check-in)
-              </h1>
-              <p className="text-xs text-slate-500">
-                ค้นหาร้านค้าใกล้เคียงตามระยะทาง GPS บันทึกเวลา พิกัด และถ่ายภาพหน้าร้าน
-              </p>
-            </div>
-          </div>
-
-          {/* Sub-tab Navigation */}
-          <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-xl self-start sm:self-auto border border-slate-200/60">
-            <button
-              id="subtab-checkin-search"
-              type="button"
-              onClick={() => setActiveSubTab('checkin')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                activeSubTab === 'checkin'
-                  ? 'bg-white text-blue-700 shadow-2xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Navigation className="w-3.5 h-3.5" />
-              <span>ค้นหาร้านเช็คอิน</span>
-            </button>
-            <button
-              id="subtab-checkin-history"
-              type="button"
-              onClick={() => setActiveSubTab('history')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                activeSubTab === 'history'
-                  ? 'bg-white text-blue-700 shadow-2xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Clock className="w-3.5 h-3.5" />
-              <span>ประวัติเช็คอิน</span>
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-100 text-blue-800 font-bold">
-                {scopedCheckIns.length}
+            <h1 className="text-sm sm:text-lg font-bold text-slate-900 leading-tight truncate">
+              เช็คอินร้านค้า
+              <span className="hidden sm:inline text-slate-500 font-semibold text-sm ml-1.5">
+                (Store Check-in)
               </span>
-            </button>
+            </h1>
           </div>
-        </div>
 
-        {/* GPS Live Bar */}
-        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <div className="flex items-center gap-1.5">
+          {/* Top-Right Compact GPS Status + Refresh */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <div
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold ${
+                currentLat
+                  ? 'bg-emerald-50/80 border-emerald-200 text-emerald-800'
+                  : 'bg-amber-50 border-amber-200 text-amber-800'
+              }`}
+              title={
+                currentLat && currentLng
+                  ? `พิกัด: ${currentLat.toFixed(5)}, ${currentLng.toFixed(5)}${accuracy ? ` (ความแม่นยำ ±${accuracy} ม.)` : ''}${lastLocationUpdateTime ? ` • อัปเดต ${lastLocationUpdateTime}` : ''}`
+                  : 'กำลังค้นหาสัญญาณ GPS...'
+              }
+            >
               <span
-                className={`w-2.5 h-2.5 rounded-full ${
+                className={`w-2 h-2 rounded-full shrink-0 ${
                   currentLat ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
                 }`}
               />
-              <span className="font-bold text-slate-800">
-                {currentLat ? 'เชื่อมต่อสัญญาณ GPS แล้ว' : 'กำลังค้นหาสัญญาณ GPS...'}
+              <span className="whitespace-nowrap">
+                <span className="sm:hidden">{currentLat ? 'GPS พร้อม' : 'ค้นหา GPS...'}</span>
+                <span className="hidden sm:inline">
+                  {currentLat ? 'เชื่อมต่อ GPS แล้ว' : 'กำลังค้นหา GPS...'}
+                  {currentLat && accuracy ? ` (±${accuracy} ม.)` : ''}
+                </span>
               </span>
             </div>
 
-            {currentLat && currentLng && (
-              <span className="font-mono text-[11px] text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200">
-                📍 {currentLat.toFixed(5)}, {currentLng.toFixed(5)}
-                {accuracy ? ` (ความแม่นยำ ±${accuracy} ม.)` : ''}
-              </span>
-            )}
-
-            {lastLocationUpdateTime && (
-              <span className="text-slate-400 text-[11px]">
-                อัปเดตล่าสุด: {lastLocationUpdateTime}
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 self-end md:self-auto flex-wrap">
             <button
               id="btn-refresh-gps"
               type="button"
               onClick={requestCurrentLocation}
               disabled={isLocating}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-semibold text-xs transition-colors cursor-pointer disabled:opacity-50"
+              aria-label="รีเฟรชพิกัด GPS"
               title="กดเพื่อตรวจจับตำแหน่งปัจจุบันใหม่อีกครั้ง"
+              className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 active:scale-95 border border-slate-200 text-slate-700 font-semibold text-[11px] inline-flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50 shrink-0"
             >
               <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${isLocating ? 'animate-spin' : ''}`} />
-              <span>{isLocating ? 'กำลังค้นหาพิกัด...' : 'รีเฟรชพิกัด GPS'}</span>
+              <span className="hidden md:inline">{isLocating ? 'กำลังค้นหา...' : 'รีเฟรช GPS'}</span>
             </button>
           </div>
         </div>
 
+        {/* Bottom Row: Sub-tab Navigation (ค้นหาร้านเช็คอิน / ประวัติเช็คอิน) */}
+        <div className="grid grid-cols-2 sm:inline-flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-xl border border-slate-200/60 w-full sm:w-auto">
+          <button
+            id="subtab-checkin-search"
+            type="button"
+            onClick={() => setActiveSubTab('checkin')}
+            className={`px-3 py-2 sm:py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              activeSubTab === 'checkin'
+                ? 'bg-white text-blue-700 shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Navigation className="w-3.5 h-3.5 shrink-0" />
+            <span>ค้นหาร้านเช็คอิน</span>
+          </button>
+          <button
+            id="subtab-checkin-history"
+            type="button"
+            onClick={() => setActiveSubTab('history')}
+            className={`px-3 py-2 sm:py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              activeSubTab === 'history'
+                ? 'bg-white text-blue-700 shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5 shrink-0" />
+            <span>ประวัติเช็คอิน</span>
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-100 text-blue-800 font-bold">
+              {scopedCheckIns.length}
+            </span>
+          </button>
+        </div>
+
         {locationError && (
-          <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-start gap-2">
+          <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <div className="flex-1">
               <span className="font-semibold">{locationError}</span>
@@ -908,8 +803,39 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
               DAILY ROUTE & CALL PLAN FILTER TOOLBAR
              ========================================================================= */}
           <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
-            {/* Row 1: Date Navigation Bar & Calendar Simulator Trigger */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-100">
+            {/* Row 1 (Top): Salesperson Filter */}
+            <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
+              {canViewAllRoutes ? (
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl w-full sm:w-auto max-w-full min-w-0">
+                  <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span className="text-[11px] font-medium text-slate-500 whitespace-nowrap shrink-0">เซลล์:</span>
+                  <select
+                    value={selectedSales}
+                    onChange={(e) => setSelectedSales(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer w-full sm:w-auto min-w-0 truncate"
+                  >
+                    <option value="all">ทุกคน (All Sales)</option>
+                    {salesOptions.map((sales) => (
+                      <option key={sales} value={sales}>
+                        {sales}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 bg-blue-50/80 border border-blue-200 px-2.5 py-1.5 rounded-xl max-w-full min-w-0">
+                  <User className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <span className="text-[11px] font-medium text-blue-600 whitespace-nowrap shrink-0">เซลล์:</span>
+                  <span className="text-xs font-bold text-blue-900 truncate">{currentUser.name}</span>
+                  <span className="text-[10px] font-semibold text-blue-700 bg-white/80 px-1.5 py-0.5 rounded-md border border-blue-200/80 whitespace-nowrap shrink-0">
+                    เฉพาะสายของฉัน
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Row 2: Visit Date Picker & Visit Status Filter */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                   <CalendarDays className="w-4 h-4 text-blue-600" />
@@ -954,116 +880,10 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
-
-                {/* Quick Date Shortcuts */}
-                <button
-                  type="button"
-                  onClick={handleSetToday}
-                  className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    isSelectedDateToday
-                      ? 'bg-blue-600 text-white shadow-2xs'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  วันนี้
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSetTomorrow}
-                  className="px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors cursor-pointer"
-                >
-                  พรุ่งนี้
-                </button>
-              </div>
-            </div>
-
-            {/* Row 2: Mode Switcher & Filters */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <Filter className="w-4 h-4 text-slate-500 shrink-0" />
-                <span className="text-xs font-bold text-slate-700">
-                  โหมดแสดงผล:
-                </span>
-              </div>
-
-              {/* Mode Buttons */}
-              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5">
-                <button
-                  type="button"
-                  onClick={() => setCallPlanMode('date')}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs whitespace-nowrap ${
-                    callPlanMode === 'date'
-                      ? 'bg-blue-600 text-white shadow-blue-500/20'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  <Calendar className="w-3.5 h-3.5" />
-                  <span>ตามวันที่เลือก ({formatThaiDate(selectedDate, { shortMonth: true })})</span>
-                  <span
-                    className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                      callPlanMode === 'date' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700'
-                    }`}
-                  >
-                    {datePlanCount}
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setCallPlanMode('all')}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs whitespace-nowrap ${
-                    callPlanMode === 'all'
-                      ? 'bg-blue-600 text-white shadow-blue-500/20'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  <span>ร้านค้าทั้งหมด</span>
-                  <span
-                    className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                      callPlanMode === 'all' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700'
-                    }`}
-                  >
-                    {scopedCustomers.length}
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            {/* Row 3: Secondary Selectors (Salesperson, Route, Day, Visit Status) */}
-            <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
-              <div className="flex flex-wrap items-center gap-2">
-                {/* Sales rep selector (Admin & Manager can switch; Sales locked to own routes) */}
-                {canViewAllRoutes ? (
-                  <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl">
-                    <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <span className="text-[11px] font-medium text-slate-500 whitespace-nowrap">เซลล์:</span>
-                    <select
-                      value={selectedSales}
-                      onChange={(e) => setSelectedSales(e.target.value)}
-                      className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
-                    >
-                      <option value="all">ทุกคน (All Sales)</option>
-                      {salesOptions.map((sales) => (
-                        <option key={sales} value={sales}>
-                          {sales}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5 bg-blue-50/80 border border-blue-200 px-2.5 py-1 rounded-xl">
-                    <User className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                    <span className="text-[11px] font-medium text-blue-600 whitespace-nowrap">เซลล์:</span>
-                    <span className="text-xs font-bold text-blue-900 whitespace-nowrap">{currentUser.name}</span>
-                    <span className="text-[10px] font-semibold text-blue-700 bg-white/80 px-1.5 py-0.5 rounded-md border border-blue-200/80">
-                      เฉพาะสายของฉัน
-                    </span>
-                  </div>
-                )}
               </div>
 
               {/* Visit Status Filter (All / Not visited / Visited) */}
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/60 self-start sm:self-auto">
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/60 self-start md:self-auto">
                 <button
                   type="button"
                   onClick={() => setVisitStatusFilter('all')}
@@ -1102,98 +922,35 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
 
             {/* Daily Call Plan Progress & Summary Banner (Date-Based) */}
             {callPlanMode === 'date' && (
-              <div className="mt-2 p-3 sm:p-3.5 rounded-2xl bg-gradient-to-r from-blue-50/90 via-indigo-50/80 to-slate-50 border border-blue-200/80 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs shadow-2xs">
-                <div className="space-y-1.5 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold text-blue-900 flex items-center gap-1.5 text-xs">
-                      <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                      <span>สายที่กำหนดวิ่ง:</span>
-                      <span className="text-slate-700">
-                        {formatThaiDate(selectedDate, { withDayOfWeek: true, shortMonth: true })}
-                      </span>
-                    </span>
-
-                    {/* Badge indicating whether custom or weekly */}
-                    {activeDailySchedules[selectedDate] ? (
-                      <span className="px-2 py-0.5 bg-amber-100 text-amber-800 border border-amber-300 rounded-md text-[10px] font-extrabold flex items-center gap-1">
-                        <Edit3 className="w-2.5 h-2.5 text-amber-600" />
-                        <span>กำหนดพิเศษเฉพาะวัน</span>
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 bg-blue-100 text-blue-800 border border-blue-200 rounded-md text-[10px] font-bold">
-                        รอบปกติประจำวัน{selectedDateThaiDay}
-                      </span>
-                    )}
-
-                    {/* Quick Button to customize routes for this day */}
-                    <button
-                      type="button"
-                      onClick={handleOpenQuickDayEditor}
-                      className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-white hover:bg-blue-50 border border-blue-300 text-blue-700 font-bold text-[11px] transition-colors cursor-pointer shadow-2xs ml-auto sm:ml-0"
-                    >
-                      <Edit3 className="w-3 h-3 text-blue-600" />
-                      <span>ปรับเปลี่ยนสายวิ่งของวันนี้</span>
-                    </button>
-                  </div>
-
-                  {/* Active Routes list */}
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {effectiveRoutesForSelectedDate.length > 0 ? (
-                      effectiveRoutesForSelectedDate.map((r, rIdx) => {
-                        const palette = getRouteColor(r.id || rIdx);
-                        return (
-                          <span
-                            key={r.id}
-                            className={`px-2 py-0.5 border rounded-lg text-[11px] font-bold shadow-2xs flex items-center gap-1 ${palette.bg} ${palette.text} ${palette.border}`}
-                          >
-                            <span className={`w-1.5 h-1.5 rounded-full ${palette.dot}`} />
-                            <span>{r.name}</span>
-                            {r.salesrepName && <span className="text-[10px] opacity-75">({r.salesrepName})</span>}
-                          </span>
-                        );
-                      })
-                    ) : (
-                      <span className="text-slate-500 italic text-[11px]">
-                        ยังไม่มีสายส่งวิ่งในวันที่นี้ (คลิก "ปรับเปลี่ยนสายวิ่งของวันนี้" เพื่อเพิ่มสายส่ง)
-                      </span>
-                    )}
-                  </div>
-
-                  {activeDailySchedules[selectedDate]?.notes && (
-                    <div className="text-[11px] text-amber-800 bg-amber-50/80 px-2.5 py-1 rounded-lg border border-amber-200/80 flex items-center gap-1.5">
-                      <span className="font-bold">หมายเหตุ:</span>
-                      <span>{activeDailySchedules[selectedDate].notes}</span>
-                    </div>
-                  )}
-
-                  {/* Stats line */}
-                  <div className="text-[11px] text-slate-600 flex items-center gap-2 pt-0.5">
-                    <span>
-                      เป้าหมายร้านค้า: <strong className="text-blue-700 font-bold">{datePlanCount}</strong> ร้าน | เช็คอินแล้ว:{' '}
-                      <strong className="text-emerald-700 font-bold">{dateCompletedCount}</strong> ร้าน
-                    </span>
-                  </div>
+              <div className="mt-2 p-3 sm:p-3.5 rounded-2xl bg-gradient-to-r from-blue-50/90 via-indigo-50/80 to-slate-50 border border-blue-200/80 flex flex-col md:flex-row md:items-center justify-between gap-2.5 text-xs shadow-2xs">
+                {/* Stats line */}
+                <div className="text-xs text-slate-700 flex items-center flex-wrap gap-x-2 gap-y-1">
+                  <span>
+                    เป้าหมายร้านค้า: <strong className="text-blue-700 font-bold">{datePlanCount}</strong> ร้าน
+                  </span>
+                  <span className="text-slate-300">|</span>
+                  <span>
+                    เช็คอินแล้ว: <strong className="text-emerald-700 font-bold">{dateCompletedCount}</strong> ร้าน
+                  </span>
                 </div>
 
                 {/* Progress bar */}
-                {datePlanCount > 0 && (
-                  <div className="w-full md:w-40 flex flex-col gap-1 shrink-0 self-start md:self-center">
-                    <div className="flex justify-between text-[10px] font-bold text-slate-600">
-                      <span>ความคืบหน้า</span>
-                      <span className="text-emerald-700 font-black">
-                        {Math.round((dateCompletedCount / datePlanCount) * 100)}%
-                      </span>
-                    </div>
-                    <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden shadow-inner">
-                      <div
-                        className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-500"
-                        style={{
-                          width: `${Math.min(100, Math.round((dateCompletedCount / datePlanCount) * 100))}%`,
-                        }}
-                      />
-                    </div>
+                <div className="w-full md:w-44 flex flex-col gap-1 shrink-0">
+                  <div className="flex justify-between text-[10px] font-bold text-slate-600">
+                    <span>ความคืบหน้า</span>
+                    <span className="text-emerald-700 font-black">
+                      {datePlanCount > 0 ? Math.round((dateCompletedCount / datePlanCount) * 100) : 0}%
+                    </span>
                   </div>
-                )}
+                  <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden shadow-inner">
+                    <div
+                      className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-500"
+                      style={{
+                        width: `${datePlanCount > 0 ? Math.min(100, Math.round((dateCompletedCount / datePlanCount) * 100)) : 0}%`,
+                      }}
+                    />
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -1278,31 +1035,8 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                 <Building2 className="w-10 h-10 text-slate-300 mx-auto" />
                 <p className="text-sm font-bold text-slate-700">ไม่พบร้านค้าตามเงื่อนไขที่เลือก</p>
                 <p className="text-xs text-slate-500 max-w-md mx-auto">
-                  {callPlanMode === 'date'
-                    ? `ไม่มีร้านค้าในสายส่งที่กำหนดวิ่งสำหรับวันที่ ${formatThaiDate(selectedDate, { withDayOfWeek: true, shortMonth: true })} หรือเข้าเยี่ยมครบแล้ว`
-                    : 'คุณสามารถปรับตัวกรองด้านบนเพื่อค้นหาร้านค้าที่ต้องการเช็คอิน'}
+                  ไม่มีร้านค้าในสายส่งที่กำหนดวิ่งสำหรับวันที่ {formatThaiDate(selectedDate, { withDayOfWeek: true, shortMonth: true })} หรือเข้าเยี่ยมครบแล้ว
                 </p>
-                <div className="flex items-center justify-center gap-2 pt-1 flex-wrap">
-                  {callPlanMode === 'date' && (
-                    <button
-                      type="button"
-                      onClick={handleOpenQuickDayEditor}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold hover:bg-blue-100 cursor-pointer"
-                    >
-                      <Edit3 className="w-3.5 h-3.5 text-blue-600" />
-                      <span>+ กำหนดสายวิ่งสำหรับวันนี้</span>
-                    </button>
-                  )}
-                  {callPlanMode !== 'all' && (
-                    <button
-                      type="button"
-                      onClick={() => setCallPlanMode('all')}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200 cursor-pointer"
-                    >
-                      <span>ดูร้านค้าทั้งหมด ({scopedCustomers.length})</span>
-                    </button>
-                  )}
-                </div>
               </div>
             ) : (
               filteredStores.map(({ customer, coords, distanceMeters }, idx) => {
@@ -2116,203 +1850,6 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
             >
               <X className="w-5 h-5" />
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* =========================================================================
-          QUICK DAY ROUTE ASSIGNMENT MODAL (Inline Day Editor)
-         ========================================================================= */}
-      {isQuickDayEditorOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
-            {/* Header */}
-            <div className="p-4 sm:p-5 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center">
-                  <CalendarDays className="w-5 h-5 text-amber-300" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-base leading-tight">
-                    กำหนดสายวิ่งสำหรับวันนี้
-                  </h3>
-                  <p className="text-xs text-blue-100 font-medium">
-                    {formatThaiDate(selectedDate, { withDayOfWeek: true, shortMonth: false })}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsQuickDayEditorOpen(false)}
-                className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="p-4 sm:p-5 overflow-y-auto space-y-4 text-xs">
-              <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
-                <span className="font-bold text-slate-800">
-                  เลือกสายส่งที่ต้องการวิ่ง ({quickEditingRouteIds.length} สาย):
-                </span>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setQuickEditingRouteIds(scopedRoutes.map((r) => r.id))}
-                    className="text-[11px] font-bold text-blue-600 hover:underline cursor-pointer"
-                  >
-                    เลือกทั้งหมด
-                  </button>
-                  <span className="text-slate-300">|</span>
-                  <button
-                    type="button"
-                    onClick={() => setQuickEditingRouteIds([])}
-                    className="text-[11px] font-bold text-slate-500 hover:text-slate-800 cursor-pointer"
-                  >
-                    ล้างการเลือก
-                  </button>
-                  <span className="text-slate-300">|</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const thaiDay = getThaiDayFromDate(selectedDate);
-                      const defIds = scopedRoutes
-                        .filter((r) => doesRouteRunOnDay(r, thaiDay))
-                        .map((r) => r.id);
-                      setQuickEditingRouteIds(defIds);
-                    }}
-                    className="text-[11px] font-bold text-emerald-600 hover:underline cursor-pointer"
-                  >
-                    ตามรอบสัปดาห์
-                  </button>
-                </div>
-              </div>
-
-              {/* Routes Checklist */}
-              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                {scopedRoutes.length === 0 ? (
-                  <div className="p-4 rounded-xl bg-slate-50 text-slate-500 text-center">
-                    {canViewAllRoutes
-                      ? 'ยังไม่มีข้อมูลสายส่งในระบบ'
-                      : `ยังไม่มีสายการเข้าเยี่ยมที่กำหนดให้ ${currentUser.name}`}
-                  </div>
-                ) : (
-                  scopedRoutes.map((route, idx) => {
-                    const isChecked = quickEditingRouteIds.includes(route.id);
-                    const palette = getRouteColor(route.id || idx);
-                    const customerCount = scopedCustomers.filter((c) => isCustomerInRoute(c, route)).length;
-
-                    return (
-                      <div
-                        key={route.id}
-                        onClick={() => handleToggleQuickRoute(route.id)}
-                        className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                          isChecked
-                            ? 'bg-blue-50/70 border-blue-300 shadow-2xs ring-1 ring-blue-500/20'
-                            : 'bg-white border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${
-                              isChecked
-                                ? 'bg-blue-600 border-blue-600 text-white'
-                                : 'border-slate-300 bg-white'
-                            }`}
-                          >
-                            {isChecked && <Check className="w-3.5 h-3.5" />}
-                          </div>
-
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-slate-800 text-xs">
-                                {route.name}
-                              </span>
-                              <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${palette.bg} ${palette.text} border ${palette.border}`}>
-                                {route.id}
-                              </span>
-                            </div>
-                            <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2">
-                              {route.salesrepName && (
-                                <span>เซลล์: {route.salesrepName}</span>
-                              )}
-                              {route.visitDays && route.visitDays.length > 0 && (
-                                <span>(รอบปกติ: {route.visitDays.join(', ')})</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-xl">
-                          👥 {customerCount} ร้าน
-                        </span>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              {/* Special Notes */}
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">
-                  หมายเหตุ / บันทึกพิเศษสำหรับวันนี้:
-                </label>
-                <input
-                  type="text"
-                  value={quickEditingNotes}
-                  onChange={(e) => setQuickEditingNotes(e.target.value)}
-                  placeholder="เช่น ส่งรอบพิเศษเช้า, สลับสายกับวันจันทร์"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
-                />
-              </div>
-
-              {/* Summary */}
-              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
-                <div>
-                  <span className="text-slate-500">เป้าหมายร้านค้ารวม: </span>
-                  <strong className="text-slate-900 font-bold text-sm">
-                    {scopedCustomers.filter((c) =>
-                      scopedRoutes
-                        .filter((r) => quickEditingRouteIds.includes(r.id))
-                        .some((r) => isCustomerInRoute(c, r))
-                    ).length}{' '}
-                    ร้านค้า
-                  </strong>
-                </div>
-
-                {activeDailySchedules[selectedDate] && (
-                  <button
-                    type="button"
-                    onClick={handleRevertQuickDayEditor}
-                    className="inline-flex items-center gap-1 text-rose-600 hover:text-rose-700 font-bold text-xs cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>กลับไปใช้รอบปกติ</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => setIsQuickDayEditorOpen(false)}
-                className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs cursor-pointer"
-              >
-                ยกเลิก
-              </button>
-
-              <button
-                type="button"
-                onClick={handleSaveQuickDayEditor}
-                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs cursor-pointer shadow-2xs"
-              >
-                <Check className="w-4 h-4" />
-                <span>บันทึกแผนวิ่งสายวันนี้</span>
-              </button>
-            </div>
           </div>
         </div>
       )}
