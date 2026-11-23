@@ -24,6 +24,8 @@ import {
   ChevronRight,
   CalendarDays,
   Plus,
+  Edit3,
+  RotateCcw,
 } from 'lucide-react';
 import { Customer, StaffUser, StoreCheckIn, Route, DailyRouteSchedule } from '../types';
 import { calculateDistanceMeters, formatDistance, extractCustomerCoords, compressImageFile } from '../utils/geoUtils';
@@ -38,10 +40,12 @@ import {
   getThaiDayFromDate,
   isCustomerInDatePlan,
   isCustomerInRoute,
+  doesRouteRunOnDay,
   doesRouteBelongToSales,
   doesRouteBelongToUser,
   isCustomerBelongingToUser,
   doesCheckInBelongToUser,
+  getRouteColor,
 } from '../utils/callPlanUtils';
 
 interface StoreCheckInViewProps {
@@ -139,8 +143,10 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     }
   };
 
-  // 3. Date Selection State
+  // 3. Date Selection & Route Change Modal State
   const [selectedDate, setSelectedDate] = useState<string>(() => getTodayDateIso());
+  const [isRouteChangeModalOpen, setIsRouteChangeModalOpen] = useState<boolean>(false);
+  const [editingRouteIds, setEditingRouteIds] = useState<string[]>([]);
 
   // 4. Role Access & Call Plan Mode Filters
   const canViewAllRoutes = currentUser.role === 'admin' || currentUser.role === 'manager';
@@ -170,6 +176,22 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
   }, [canViewAllRoutes, routes, currentUser]);
 
   const scopedRouteIdSet = useMemo(() => new Set(scopedRoutes.map((r) => r.id)), [scopedRoutes]);
+
+  // Routes visible inside the "ปรับเปลี่ยน" modal:
+  // - Sales role strictly sees ONLY their own routes
+  // - Admin/Manager sees the selected salesperson's routes (or all if 'all' is selected)
+  const editableRoutesForModal = useMemo(() => {
+    if (!canViewAllRoutes) return scopedRoutes;
+    if (effectiveSelectedSales !== 'all') {
+      return scopedRoutes.filter((r) => doesRouteBelongToSales(r, effectiveSelectedSales));
+    }
+    return scopedRoutes;
+  }, [canViewAllRoutes, scopedRoutes, effectiveSelectedSales]);
+
+  const editableRouteIdSet = useMemo(
+    () => new Set(editableRoutesForModal.map((r) => r.id)),
+    [editableRoutesForModal]
+  );
 
   // Customers scoped to current user role
   const scopedCustomers = useMemo(() => {
@@ -324,6 +346,68 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     const dateObj = new Date(y, m - 1, d);
     dateObj.setDate(dateObj.getDate() + 1);
     setSelectedDate(formatDateIso(dateObj));
+  };
+
+  // Self-service route change modal handlers (scoped strictly to salesperson's own routes)
+  const handleOpenRouteChangeModal = () => {
+    const existingSchedule = activeDailySchedules[selectedDate];
+    if (existingSchedule) {
+      setEditingRouteIds(existingSchedule.routeIds.filter((id) => editableRouteIdSet.has(id)));
+    } else {
+      const thaiDay = getThaiDayFromDate(selectedDate);
+      const defaultIds = editableRoutesForModal
+        .filter((r) => doesRouteRunOnDay(r, thaiDay))
+        .map((r) => r.id);
+      setEditingRouteIds(defaultIds);
+    }
+    setIsRouteChangeModalOpen(true);
+  };
+
+  const handleToggleEditingRoute = (routeId: string) => {
+    setEditingRouteIds((prev) =>
+      prev.includes(routeId) ? prev.filter((id) => id !== routeId) : [...prev, routeId]
+    );
+  };
+
+  const handleSaveRouteChange = () => {
+    const existingSchedule = activeDailySchedules[selectedDate];
+    const thaiDay = getThaiDayFromDate(selectedDate);
+    // Preserve route assignments belonging to other salespeople so saving never overwrites theirs
+    const otherRouteIds = existingSchedule
+      ? existingSchedule.routeIds.filter((id) => !editableRouteIdSet.has(id))
+      : routes
+          .filter((r) => !editableRouteIdSet.has(r.id) && doesRouteRunOnDay(r, thaiDay))
+          .map((r) => r.id);
+
+    const finalRouteIds = Array.from(new Set([...otherRouteIds, ...editingRouteIds]));
+    handleSaveDailySchedule(selectedDate, {
+      date: selectedDate,
+      routeIds: finalRouteIds,
+      notes: existingSchedule?.notes,
+      updatedAt: new Date().toISOString(),
+    });
+    setIsRouteChangeModalOpen(false);
+  };
+
+  const handleRevertRouteChangeToDefault = () => {
+    const existingSchedule = activeDailySchedules[selectedDate];
+    if (existingSchedule) {
+      const otherRouteIds = existingSchedule.routeIds.filter((id) => !editableRouteIdSet.has(id));
+      if (otherRouteIds.length === 0) {
+        handleDeleteDailySchedule(selectedDate);
+      } else {
+        const thaiDay = getThaiDayFromDate(selectedDate);
+        const ownDefaultIds = editableRoutesForModal
+          .filter((r) => doesRouteRunOnDay(r, thaiDay))
+          .map((r) => r.id);
+        handleSaveDailySchedule(selectedDate, {
+          ...existingSchedule,
+          routeIds: Array.from(new Set([...otherRouteIds, ...ownDefaultIds])),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    }
+    setIsRouteChangeModalOpen(false);
   };
 
   // Sales rep filter options (for Admin & Manager)
@@ -803,10 +887,10 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
               DAILY ROUTE & CALL PLAN FILTER TOOLBAR
              ========================================================================= */}
           <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
-            {/* Row 1 (Top): Salesperson Filter */}
+            {/* Row 1 (Top): Salesperson Filter & Self-service Route Change Button */}
             <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
               {canViewAllRoutes ? (
-                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl w-full sm:w-auto max-w-full min-w-0">
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl flex-1 sm:flex-initial max-w-full min-w-0">
                   <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                   <span className="text-[11px] font-medium text-slate-500 whitespace-nowrap shrink-0">เซลล์:</span>
                   <select
@@ -827,11 +911,20 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                   <User className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                   <span className="text-[11px] font-medium text-blue-600 whitespace-nowrap shrink-0">เซลล์:</span>
                   <span className="text-xs font-bold text-blue-900 truncate">{currentUser.name}</span>
-                  <span className="text-[10px] font-semibold text-blue-700 bg-white/80 px-1.5 py-0.5 rounded-md border border-blue-200/80 whitespace-nowrap shrink-0">
+                  <span className="hidden sm:inline-block text-[10px] font-semibold text-blue-700 bg-white/80 px-1.5 py-0.5 rounded-md border border-blue-200/80 whitespace-nowrap shrink-0">
                     เฉพาะสายของฉัน
                   </span>
                 </div>
               )}
+
+              <button
+                type="button"
+                onClick={handleOpenRouteChangeModal}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 active:bg-blue-200 border border-blue-200 text-blue-700 font-bold text-xs transition-colors cursor-pointer shrink-0 shadow-2xs"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                <span>ปรับเปลี่ยน</span>
+              </button>
             </div>
 
             {/* Row 2: Visit Date Picker & Visit Status Filter */}
@@ -882,19 +975,8 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                 </div>
               </div>
 
-              {/* Visit Status Filter (All / Not visited / Visited) */}
+              {/* Visit Status Filter (Not visited / Visited / All) */}
               <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/60 self-start md:self-auto">
-                <button
-                  type="button"
-                  onClick={() => setVisitStatusFilter('all')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                    visitStatusFilter === 'all'
-                      ? 'bg-white text-slate-800 shadow-2xs'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  ทั้งหมด
-                </button>
                 <button
                   type="button"
                   onClick={() => setVisitStatusFilter('unvisited')}
@@ -917,42 +999,61 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                 >
                   ✓ เช็คอินแล้ว
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setVisitStatusFilter('all')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    visitStatusFilter === 'all'
+                      ? 'bg-white text-slate-800 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  ทั้งหมด
+                </button>
               </div>
             </div>
 
             {/* Daily Call Plan Progress & Summary Banner (Date-Based) */}
-            {callPlanMode === 'date' && (
-              <div className="mt-2 p-3 sm:p-3.5 rounded-2xl bg-gradient-to-r from-blue-50/90 via-indigo-50/80 to-slate-50 border border-blue-200/80 flex flex-col md:flex-row md:items-center justify-between gap-2.5 text-xs shadow-2xs">
-                {/* Stats line */}
-                <div className="text-xs text-slate-700 flex items-center flex-wrap gap-x-2 gap-y-1">
-                  <span>
-                    เป้าหมายร้านค้า: <strong className="text-blue-700 font-bold">{datePlanCount}</strong> ร้าน
-                  </span>
-                  <span className="text-slate-300">|</span>
-                  <span>
-                    เช็คอินแล้ว: <strong className="text-emerald-700 font-bold">{dateCompletedCount}</strong> ร้าน
-                  </span>
-                </div>
-
-                {/* Progress bar */}
-                <div className="w-full md:w-44 flex flex-col gap-1 shrink-0">
-                  <div className="flex justify-between text-[10px] font-bold text-slate-600">
-                    <span>ความคืบหน้า</span>
-                    <span className="text-emerald-700 font-black">
-                      {datePlanCount > 0 ? Math.round((dateCompletedCount / datePlanCount) * 100) : 0}%
+            {callPlanMode === 'date' && (() => {
+              const DAILY_CHECKIN_TARGET = 20;
+              const progressPct = Math.round((dateCompletedCount / DAILY_CHECKIN_TARGET) * 100);
+              return (
+                <div className="mt-2 p-3 sm:p-3.5 rounded-2xl bg-gradient-to-r from-blue-50/90 via-indigo-50/80 to-slate-50 border border-blue-200/80 flex flex-col md:flex-row md:items-center justify-between gap-2.5 text-xs shadow-2xs">
+                  {/* Stats line */}
+                  <div className="text-xs text-slate-700 flex items-center flex-wrap gap-x-2 gap-y-1">
+                    <span>
+                      เป้า <strong className="text-blue-700 font-bold">{DAILY_CHECKIN_TARGET}</strong> ร้าน
+                    </span>
+                    <span className="text-slate-300">|</span>
+                    <span>
+                      ทั้งหมด <strong className="text-slate-900 font-bold">{datePlanCount}</strong> ร้าน
+                    </span>
+                    <span className="text-slate-300">|</span>
+                    <span>
+                      เช็คอินแล้ว <strong className="text-emerald-700 font-bold">{dateCompletedCount}</strong> ร้าน
                     </span>
                   </div>
-                  <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden shadow-inner">
-                    <div
-                      className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-500"
-                      style={{
-                        width: `${datePlanCount > 0 ? Math.min(100, Math.round((dateCompletedCount / datePlanCount) * 100)) : 0}%`,
-                      }}
-                    />
+
+                  {/* Progress bar */}
+                  <div className="w-full md:w-44 flex flex-col gap-1 shrink-0">
+                    <div className="flex justify-between text-[10px] font-bold text-slate-600">
+                      <span>ความคืบหน้า</span>
+                      <span className="text-emerald-700 font-black">
+                        {progressPct}%
+                      </span>
+                    </div>
+                    <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden shadow-inner">
+                      <div
+                        className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-500"
+                        style={{
+                          width: `${Math.min(100, progressPct)}%`,
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
 
 
@@ -1850,6 +1951,186 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
             >
               <X className="w-5 h-5" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Self-Service Route Change Modal (Shows only current salesperson's own routes) */}
+      {isRouteChangeModalOpen && (
+        <div
+          onClick={() => setIsRouteChangeModalOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[88vh]"
+          >
+            {/* Header */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-2xl bg-white/15 flex items-center justify-center shrink-0">
+                  <CalendarDays className="w-5 h-5 text-amber-300" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-sm sm:text-base leading-tight truncate">
+                    ปรับเปลี่ยนสายการเข้าเยี่ยม
+                  </h3>
+                  <p className="text-xs text-blue-100 font-medium truncate">
+                    {formatThaiDate(selectedDate, { withDayOfWeek: true, shortMonth: false })}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRouteChangeModalOpen(false)}
+                aria-label="ปิดหน้าต่างปรับเปลี่ยนสายการเข้าเยี่ยม"
+                className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-3 text-xs">
+              <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                <span className="font-bold text-slate-800">
+                  สายเข้าเยี่ยมของฉัน ({editingRouteIds.length}/{editableRoutesForModal.length} สาย)
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setEditingRouteIds([])}
+                    className="text-[11px] font-bold text-slate-500 hover:text-slate-800 cursor-pointer"
+                  >
+                    ล้าง
+                  </button>
+                  <span className="text-slate-300">|</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const thaiDay = getThaiDayFromDate(selectedDate);
+                      const defaultIds = editableRoutesForModal
+                        .filter((r) => doesRouteRunOnDay(r, thaiDay))
+                        .map((r) => r.id);
+                      setEditingRouteIds(defaultIds);
+                    }}
+                    className="text-[11px] font-bold text-emerald-600 hover:underline cursor-pointer"
+                  >
+                    ตามรอบปกติ
+                  </button>
+                </div>
+              </div>
+
+              {/* Routes Checklist */}
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-0.5">
+                {editableRoutesForModal.length === 0 ? (
+                  <div className="p-4 rounded-2xl bg-slate-50 text-slate-500 text-center">
+                    ยังไม่มีสายการเข้าเยี่ยมที่กำหนดให้{' '}
+                    {!canViewAllRoutes || effectiveSelectedSales === 'all'
+                      ? currentUser.name
+                      : effectiveSelectedSales}
+                  </div>
+                ) : (
+                  editableRoutesForModal.map((route, idx) => {
+                    const isChecked = editingRouteIds.includes(route.id);
+                    const palette = getRouteColor(route.id || idx);
+                    const storeCount = scopedCustomers.filter((c) => isCustomerInRoute(c, route)).length;
+
+                    return (
+                      <div
+                        key={route.id}
+                        onClick={() => handleToggleEditingRoute(route.id)}
+                        className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-2.5 ${
+                          isChecked
+                            ? 'bg-blue-50/70 border-blue-300 shadow-2xs ring-1 ring-blue-500/20'
+                            : 'bg-white border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div
+                            className={`w-5 h-5 rounded-md border flex items-center justify-center transition-colors shrink-0 ${
+                              isChecked
+                                ? 'bg-blue-600 border-blue-600 text-white'
+                                : 'border-slate-300 bg-white'
+                            }`}
+                          >
+                            {isChecked && <Check className="w-3.5 h-3.5" />}
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-slate-800 text-xs truncate">
+                                {route.name}
+                              </span>
+                              <span
+                                className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${palette.bg} ${palette.text} border ${palette.border}`}
+                              >
+                                {route.id}
+                              </span>
+                            </div>
+                            {route.visitDays && route.visitDays.length > 0 && (
+                              <div className="text-[11px] text-slate-500 mt-0.5 truncate">
+                                รอบปกติ: {route.visitDays.join(', ')}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-xl whitespace-nowrap shrink-0">
+                          {storeCount} ร้าน
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Selected Summary & Reset */}
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
+                <div>
+                  <span className="text-slate-500">ร้านค้าทั้งหมดในสายที่เลือก: </span>
+                  <strong className="text-slate-900 font-bold text-sm">
+                    {scopedCustomers.filter((c) =>
+                      editableRoutesForModal
+                        .filter((r) => editingRouteIds.includes(r.id))
+                        .some((r) => isCustomerInRoute(c, r))
+                    ).length}{' '}
+                    ร้าน
+                  </strong>
+                </div>
+
+                {activeDailySchedules[selectedDate] && (
+                  <button
+                    type="button"
+                    onClick={handleRevertRouteChangeToDefault}
+                    className="inline-flex items-center gap-1 text-rose-600 hover:text-rose-700 font-bold text-[11px] cursor-pointer shrink-0"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>ใช้รอบปกติ</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Footer Actions */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setIsRouteChangeModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveRouteChange}
+                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs cursor-pointer shadow-2xs"
+              >
+                <Check className="w-4 h-4" />
+                <span>บันทึกสายเข้าเยี่ยม</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
