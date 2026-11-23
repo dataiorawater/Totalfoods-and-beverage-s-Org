@@ -72,7 +72,7 @@ export const NewCustomerModal: React.FC<NewCustomerModalProps> = ({
   }, [canViewAllRoutes, routes, currentUser]);
 
   useEffect(() => {
-    if (!canViewAllRoutes && routeName && !scopedRoutes.some((r) => r.name === routeName)) {
+    if (!canViewAllRoutes && routeName && !scopedRoutes.some((r) => (r.id || r.name) === routeName)) {
       setRouteName('');
     }
   }, [canViewAllRoutes, routeName, scopedRoutes]);
@@ -281,7 +281,7 @@ export const NewCustomerModal: React.FC<NewCustomerModalProps> = ({
                     : '-- โปรดระบุสาย --'}
                 </option>
                 {scopedRoutes.map((r, idx) => (
-                  <option key={`${r.id || r.name}-${idx}`} value={r.name}>
+                  <option key={`${r.id || r.name}-${idx}`} value={r.id || r.name}>
                     {r.id ? `${r.id} - ` : ''}{r.name}{r.salesrepName ? ` • ${r.salesrepName}` : ''}
                   </option>
                 ))}

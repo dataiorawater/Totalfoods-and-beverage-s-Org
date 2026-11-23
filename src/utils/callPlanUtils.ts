@@ -116,6 +116,151 @@ export function formatThaiDate(
 }
 
 /**
+ * Formats a database date/time value (ISO UTC from Google Apps Script, Thai DD/MM/YYYY,
+ * YYYY-MM-DD HH:mm:ss, JS Date string, or Sheets serial number) into accurate
+ * Thailand local date & time (Asia/Bangkok, Buddhist Era DD/MM/BBBB HH:mm:ss น.).
+ */
+export function formatDatabaseDateTime(raw?: string | number | null): string {
+  if (raw === undefined || raw === null) return '';
+  const str = String(raw).trim();
+  if (!str) return '';
+
+  const pad2 = (n: number) => String(n).padStart(2, '0');
+  const toThaiYear = (y: number) => (y < 100 ? 2000 + y + 543 : y > 2400 ? y : y + 543);
+  const formatParts = (
+    day: number,
+    month: number,
+    year: number,
+    hour?: number,
+    min?: number,
+    sec?: number
+  ) => {
+    const dateStr = `${pad2(day)}/${pad2(month)}/${toThaiYear(year)}`;
+    if (hour === undefined || min === undefined) return dateStr;
+    const timeStr =
+      sec !== undefined
+        ? `${pad2(hour)}:${pad2(min)}:${pad2(sec)}`
+        : `${pad2(hour)}:${pad2(min)}`;
+    return `${dateStr} ${timeStr} น.`;
+  };
+
+  const formatDateInBangkok = (date: Date, hasTime = true) => {
+    if (isNaN(date.getTime())) return str;
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Bangkok',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).formatToParts(date);
+    const get = (type: string) => Number(parts.find((p) => p.type === type)?.value || '0');
+    const day = get('day');
+    const month = get('month');
+    const year = get('year');
+    const hour = get('hour') % 24;
+    const min = get('minute');
+    const sec = get('second');
+    return hasTime ? formatParts(day, month, year, hour, min, sec) : formatParts(day, month, year);
+  };
+
+  // 1. Numeric Google Sheets / Excel serial date (e.g. 46348.4375)
+  if (/^\d+(\.\d+)?$/.test(str)) {
+    const serial = Number(str);
+    if (serial > 20000 && serial < 100000) {
+      const utcMs = Math.round((serial - 25569) * 86400 * 1000);
+      const d = new Date(utcMs);
+      if (!isNaN(d.getTime())) {
+        const hasFraction = str.includes('.');
+        return formatParts(
+          d.getUTCDate(),
+          d.getUTCMonth() + 1,
+          d.getUTCFullYear(),
+          hasFraction ? d.getUTCHours() : undefined,
+          hasFraction ? d.getUTCMinutes() : undefined,
+          hasFraction ? d.getUTCSeconds() : undefined
+        );
+      }
+    }
+  }
+
+  // 2. ISO 8601 string with time (e.g. '2026-11-22T03:30:15.000Z' or '2569-11-22T03:30:15.000Z')
+  const isoMatch = str.match(
+    /^(\d{4})-(\d{1,2})-(\d{1,2})[T ](\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/i
+  );
+  if (isoMatch) {
+    const [, yStr, mStr, dStr, hStr, minStr, secStr, tz] = isoMatch;
+    const rawYear = Number(yStr);
+    if (tz) {
+      const normalizedYear = rawYear > 2400 ? rawYear - 543 : rawYear;
+      const normalizedIso = `${normalizedYear}-${mStr.padStart(2, '0')}-${dStr.padStart(2, '0')}T${hStr.padStart(2, '0')}:${minStr}:${(secStr || '00').padStart(2, '0')}${tz}`;
+      const d = new Date(normalizedIso);
+      if (!isNaN(d.getTime())) {
+        return formatDateInBangkok(d, true);
+      }
+    } else {
+      return formatParts(
+        Number(dStr),
+        Number(mStr),
+        rawYear,
+        Number(hStr),
+        Number(minStr),
+        secStr !== undefined ? Number(secStr) : undefined
+      );
+    }
+  }
+
+  // 3. Date-only YYYY-MM-DD
+  const isoDateOnly = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoDateOnly) {
+    return formatParts(Number(isoDateOnly[3]), Number(isoDateOnly[2]), Number(isoDateOnly[1]));
+  }
+
+  // 4. Slash date/time (DD/MM/YYYY or D/M/BBBB with optional HH:mm(:ss) and optional AM/PM)
+  const slashMatch = str.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(AM|PM))?)?(?:\s*น\.)?$/i
+  );
+  if (slashMatch) {
+    const [, p1, p2, yStr, hStr, minStr, secStr, ampm] = slashMatch;
+    let day = Number(p1);
+    let month = Number(p2);
+    if (month > 12 && day <= 12) {
+      const tmp = day;
+      day = month;
+      month = tmp;
+    }
+    const year = Number(yStr);
+    if (hStr !== undefined && minStr !== undefined) {
+      let hour = Number(hStr);
+      if (ampm) {
+        const up = ampm.toUpperCase();
+        if (up === 'PM' && hour < 12) hour += 12;
+        if (up === 'AM' && hour === 12) hour = 0;
+      }
+      return formatParts(
+        day,
+        month,
+        year,
+        hour,
+        Number(minStr),
+        secStr !== undefined ? Number(secStr) : undefined
+      );
+    }
+    return formatParts(day, month, year);
+  }
+
+  // 5. Fallback for JS Date strings (e.g. 'Sun Nov 22 2026 10:30:15 GMT+0700 ...')
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    return formatDateInBangkok(parsed, true);
+  }
+
+  return str;
+}
+
+/**
  * Normalizes day string or attempts to extract day from route name / text
  */
 export function extractDaysFromText(text: string): ThaiDay[] {

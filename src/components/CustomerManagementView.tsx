@@ -23,6 +23,7 @@ import {
   Camera,
   Filter,
   CheckCircle,
+  X,
 } from 'lucide-react';
 import { Customer, StaffUser, Route } from '../types';
 import {
@@ -30,6 +31,7 @@ import {
   ThaiDay,
   THAI_DAY_COLORS,
   getTodayThaiDay,
+  formatDatabaseDateTime,
   isCustomerInDailyPlan,
   isCustomerInRoute,
   doesCustomerMatchRouteById,
@@ -84,6 +86,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
   const [mapsUrl, setMapsUrl] = useState('');
   const [visitDays, setVisitDays] = useState<ThaiDay[]>([]);
 
+  const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -91,8 +94,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Call Plan & Daily Route Filters (default to 'all' so customer directory & search work immediately across all customers)
-  const [filterMode, setFilterMode] = useState<'today' | 'all' | 'by_route' | 'by_day'>('all');
-  const [selectedDay, setSelectedDay] = useState<ThaiDay>(todayThai);
+  const [filterMode, setFilterMode] = useState<'today' | 'all' | 'by_route'>('all');
   const [selectedRouteId, setSelectedRouteId] = useState<string>('all');
   const [selectedSales, setSelectedSales] = useState<string>(
     currentUser?.role === 'sales' ? currentUser.name : 'all'
@@ -105,7 +107,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
 
   useEffect(() => {
     setVisibleCustomerCount(25);
-  }, [searchQuery, filterMode, selectedDay, selectedRouteId, selectedSales]);
+  }, [searchQuery, filterMode, selectedRouteId, selectedSales]);
 
   // Role-based route scoping: admin & manager see all routes; other roles see only their own routes
   const canViewAllRoutes = currentUser?.role === 'admin' || currentUser?.role === 'manager';
@@ -140,7 +142,12 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
   }, [canViewAllRoutes, scopedRoutes, selectedSales]);
 
   useEffect(() => {
-    if (!canViewAllRoutes && !editingId && routeName && !scopedRoutes.some((r) => r.name === routeName)) {
+    if (
+      !canViewAllRoutes &&
+      !editingId &&
+      routeName &&
+      !scopedRoutes.some((r) => (r.id || r.name) === routeName)
+    ) {
       setRouteName('');
     }
   }, [canViewAllRoutes, editingId, routeName, scopedRoutes]);
@@ -174,17 +181,14 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
 
   const effectiveSelectedSales = canViewAllRoutes ? selectedSales : 'all';
 
-  // Target day being viewed
-  const currentViewDay = filterMode === 'today' ? todayThai : selectedDay;
-
-  // Active routes running on target day
+  // Active routes running today
   const dailyRoutesForView = useMemo(() => {
     return scopedRoutes.filter((r) => {
-      const runsToday = doesRouteRunOnDay(r, currentViewDay);
+      const runsToday = doesRouteRunOnDay(r, todayThai);
       const matchesSales = doesRouteBelongToSales(r, effectiveSelectedSales);
       return runsToday && matchesSales;
     });
-  }, [scopedRoutes, currentViewDay, effectiveSelectedSales]);
+  }, [scopedRoutes, todayThai, effectiveSelectedSales]);
 
   // Customer count for today's plan
   const todayPlanCount = useMemo(() => {
@@ -251,15 +255,6 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
           routes: scopedRoutes,
         })
       );
-    } else if (filterMode === 'by_day') {
-      list = list.filter((c) =>
-        isCustomerInDailyPlan({
-          customer: c,
-          targetDay: selectedDay,
-          selectedSales: effectiveSelectedSales,
-          routes: scopedRoutes,
-        })
-      );
     } else if (filterMode === 'by_route') {
       if (selectedRouteId && selectedRouteId !== 'all') {
         const targetRoute = routesForRouteFilter.find((r) => r.id === selectedRouteId);
@@ -287,7 +282,6 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     scopedCustomers,
     filterMode,
     todayThai,
-    selectedDay,
     effectiveSelectedSales,
     selectedRouteId,
     scopedRoutes,
@@ -381,7 +375,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
             ? `อัปเดตข้อมูลลูกค้า "${cleanName}" สำเร็จแล้ว!`
             : `บันทึกลูกค้า "${cleanName}" ลงระบบเรียบร้อยแล้ว!`
         );
-        // Reset form
+        // Reset form and close modal
         setEditingId(null);
         setName('');
         setPhone('');
@@ -389,6 +383,8 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
         setRouteName('');
         setMapsUrl('');
         setVisitDays([]);
+        setErrorMsg(null);
+        setIsFormModalOpen(false);
       } else {
         setErrorMsg('ไม่สามารถบันทึกข้อมูลลูกค้าได้ กรุณาตรวจสอบการเชื่อมต่อ');
       }
@@ -416,19 +412,8 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     setTimeout(() => setCopiedId(null), 1500);
   };
 
-  // Fill form with existing customer to edit
-  const handleEditClick = (c: Customer) => {
-    setEditingId(c.id || null);
-    setName(String(c.name || ''));
-    setPhone(String(c.phone || ''));
-    setAddress(String(c.address || ''));
-    setRouteName(String(c.routeName || ''));
-    setMapsUrl(String(c.mapsUrl || ''));
-    setVisitDays((c.visitDays || []) as ThaiDay[]);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleCancelEdit = () => {
+  // Open Add New Customer popup
+  const handleOpenAddModal = () => {
     setEditingId(null);
     setName('');
     setPhone('');
@@ -438,232 +423,98 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     setVisitDays([]);
     setErrorMsg(null);
     setSuccessMsg(null);
+    setIsFormModalOpen(true);
   };
 
+  // Fill form with existing customer to edit in popup
+  const handleEditClick = (c: Customer) => {
+    setEditingId(c.id || null);
+    setName(String(c.name || ''));
+    setPhone(String(c.phone || ''));
+    setAddress(String(c.address || ''));
+    const matchedRoute = routes.find((r) => doesCustomerMatchRouteById(c, r, routes));
+    setRouteName(String(matchedRoute?.id || c.routeId || c.routeName || ''));
+    setMapsUrl(String(c.mapsUrl || ''));
+    setVisitDays((c.visitDays || []) as ThaiDay[]);
+    setErrorMsg(null);
+    setIsFormModalOpen(true);
+  };
+
+  const handleCloseFormModal = () => {
+    if (isSubmitting) return;
+    setIsFormModalOpen(false);
+    setEditingId(null);
+    setName('');
+    setPhone('');
+    setAddress('');
+    setRouteName('');
+    setMapsUrl('');
+    setVisitDays([]);
+    setErrorMsg(null);
+  };
+
+  useEffect(() => {
+    if (!isFormModalOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isSubmitting) {
+        handleCloseFormModal();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isFormModalOpen, isSubmitting]);
+
   return (
-    <div className="space-y-6">
-      {/* Main Grid: Form on Left/Top + List on Right/Bottom */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Form to Add New Customer */}
-        <div className="lg:col-span-5 space-y-4">
-          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden sticky top-20">
-            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-4 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <UserPlus className="w-5 h-5" />
-                <h3 className="font-bold text-sm sm:text-base">
-                  {editingId ? 'แก้ไขข้อมูลลูกค้า' : 'ฟอร์มเพิ่มลูกค้าใหม่'}
-                </h3>
-              </div>
-              {editingId ? (
-                <button
-                  type="button"
-                  onClick={handleCancelEdit}
-                  className="text-xs bg-white/20 hover:bg-white/30 text-white px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-                >
-                  ยกเลิกการแก้ไข
-                </button>
-              ) : (
-                <span className="text-[11px] bg-white/20 px-2 py-0.5 rounded-full font-medium">
-                  Call Plan & โลเคชั่น
-                </span>
-              )}
-            </div>
-
-            <form onSubmit={handleSubmit} className="p-5 space-y-4">
-              {/* Messages */}
-              {errorMsg && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
-                  <span>{errorMsg}</span>
-                </div>
-              )}
-
-              {successMsg && (
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800 flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 shrink-0 text-blue-600" />
-                  <span className="font-medium">{successMsg}</span>
-                </div>
-              )}
-
-              {/* 1. Customer Name */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  ชื่อลูกค้า / ชื่อร้านค้า <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    required
-                    placeholder="เช่น คุณสมศักดิ์ หรือ ร้านกาแฟสุขใจ"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-2xs"
-                  />
-                  <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
-                </div>
-              </div>
-
-              {/* 2. Customer Phone */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  เบอร์โทรศัพท์ <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="tel"
-                    required
-                    placeholder="เช่น 081-234-5678"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-2xs"
-                  />
-                  <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
-                </div>
-              </div>
-
-              {/* Route */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-bold text-slate-700">
-                    สายการเข้าเยี่ยม (Route) <span className="text-rose-500">*</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={onManageRoutes}
-                    className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold cursor-pointer"
-                  >
-                    + ตั้งค่าสาย
-                  </button>
-                </div>
-                <div className="relative">
-                  <select
-                    value={routeName}
-                    onChange={(e) => handleRouteChange(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-2xs appearance-none"
-                  >
-                    <option value="" disabled>
-                      {scopedRoutes.length === 0
-                        ? '-- ยังไม่มีสายการเข้าเยี่ยมที่กำหนดให้คุณ --'
-                        : '-- โปรดระบุสายการเข้าเยี่ยม --'}
-                    </option>
-                    {editingId && routeName && !scopedRoutes.some((r) => r.name === routeName) && (
-                      <option value={routeName}>{routeName}</option>
-                    )}
-                    {scopedRoutes.map((r, idx) => (
-                      <option key={`${r.id || r.name}-${idx}`} value={r.name}>
-                        {r.id ? `${r.id} - ` : ''}{r.name}{r.salesrepName ? ` • ${r.salesrepName}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <Navigation className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
-                </div>
-                {!canViewAllRoutes && scopedRoutes.length === 0 && (
-                  <p className="text-[11px] text-amber-600 mt-1">
-                    ยังไม่มีสายการเข้าเยี่ยมที่ผูกกับบัญชีของคุณ กรุณาติดต่อผู้ดูแลระบบหรือผู้จัดการฝ่ายขาย
-                  </p>
-                )}
-              </div>
-
-              {/* 3. Address */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  ที่อยู่จัดส่ง <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
-                  <textarea
-                    rows={2}
-                    required
-                    placeholder="เลขที่ อาคาร ซอย ถนน ตำบล/แขวง อำเภอ/เขต จังหวัด..."
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-2xs resize-none"
-                  />
-                  <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
-                </div>
-              </div>
-
-              {/* 4. Location Link */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-bold text-slate-700">
-                    ลิ้งก์โลเคชั่น (Google Maps Link) <span className="text-rose-500">*</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleCaptureGPS}
-                    disabled={isLocating}
-                    className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-0.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
-                  >
-                    <Navigation className={`w-3 h-3 ${isLocating ? 'animate-spin' : ''}`} />
-                    <span>{isLocating ? 'กำลังจับพิกัด...' : 'จับพิกัด GPS'}</span>
-                  </button>
-                </div>
-                <div className="relative">
-                  <input
-                    type="url"
-                    required
-                    placeholder="เช่น https://maps.app.goo.gl/... หรือ https://maps.google.com/?q=..."
-                    value={mapsUrl}
-                    onChange={(e) => setMapsUrl(e.target.value)}
-                    className="w-full pl-9 pr-16 py-2 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-2xs"
-                  />
-                  <MapPin className="w-4 h-4 text-blue-600 absolute left-3 top-2.5 pointer-events-none" />
-
-                  {mapsUrl && (
-                    <a
-                      href={mapsUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="absolute right-2 top-1.5 px-2 py-1 text-[10px] font-medium text-blue-700 bg-blue-100/80 hover:bg-blue-200 rounded-md flex items-center gap-1"
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                      <span>เปิดดู</span>
-                    </a>
-                  )}
-                </div>
-              </div>
-
-              {/* Submit Button */}
-              <div className="pt-2 flex items-center gap-2">
-                {editingId && (
-                  <button
-                    type="button"
-                    onClick={handleCancelEdit}
-                    className="flex-1 py-2.5 px-3 rounded-xl border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
-                  >
-                    ยกเลิก
-                  </button>
-                )}
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className={`flex-1 inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl font-bold text-sm shadow-md transition-all cursor-pointer ${
-                    editingId
-                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'
-                      : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20'
-                  } disabled:opacity-50`}
-                >
-                  {isSubmitting ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>กำลังบันทึก...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4" />
-                      <span>{editingId ? 'บันทึกการแก้ไข' : 'บันทึกลงระบบ'}</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
+    <div className="space-y-4 sm:space-y-5">
+      {/* Page Header & Add New Customer Button */}
+      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm shadow-blue-600/20 shrink-0">
+            <Users className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-base sm:text-lg font-extrabold text-slate-900 leading-tight">
+              ข้อมูลลูกค้า
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {canViewAllRoutes
+                ? `รายชื่อลูกค้าทั้งหมดในระบบ (${scopedCustomers.length} ร้านค้า)`
+                : `รายชื่อลูกค้าในความรับผิดชอบของคุณ (${scopedCustomers.length} ร้านค้า)`}
+            </p>
           </div>
         </div>
 
-        {/* Right Column: Customer Database Directory */}
-        <div className="lg:col-span-7 space-y-4">
-          
-          {/* Call Plan Filter Toolbar Card */}
+        <button
+          type="button"
+          onClick={handleOpenAddModal}
+          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md shadow-blue-600/20 transition-all cursor-pointer shrink-0"
+        >
+          <UserPlus className="w-4 h-4" />
+          <span>เพิ่มลูกค้าใหม่</span>
+        </button>
+      </div>
+
+      {/* Success Banner after saving from popup */}
+      {successMsg && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs sm:text-sm text-emerald-800 flex items-center justify-between gap-2 shadow-2xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+            <span className="font-semibold">{successMsg}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSuccessMsg(null)}
+            aria-label="ปิดข้อความแจ้งเตือน"
+            className="text-emerald-600 hover:text-emerald-900 p-1 rounded-lg hover:bg-emerald-100 cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Full-Width Customer Database Directory */}
+      <div className="space-y-4">
+        {/* Call Plan Filter Toolbar Card */}
           <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-3">
             
             {/* Top row: Mode Tabs */}
@@ -716,19 +567,6 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                   <Navigation className="w-3.5 h-3.5" />
                   <span>ตามสายการเข้าเยี่ยม</span>
                 </button>
-
-                <button
-                  type="button"
-                  onClick={() => setFilterMode('by_day')}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                    filterMode === 'by_day'
-                      ? 'bg-indigo-600 text-white ring-2 ring-indigo-600/30 shadow-2xs font-bold'
-                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                  }`}
-                >
-                  <Calendar className="w-3.5 h-3.5" />
-                  <span>ตามวันในสัปดาห์</span>
-                </button>
               </div>
 
               {/* Action buttons (Refresh) */}
@@ -746,10 +584,8 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
               </div>
             </div>
 
-            {/* Sub-Filters: Salesperson (admin/manager only) & Specific Route / Day selectors */}
-            {(canViewAllRoutes
-              ? filterMode !== 'all'
-              : filterMode === 'by_route' || filterMode === 'by_day') && (
+            {/* Sub-Filters: Salesperson (admin/manager only) & Specific Route selector */}
+            {(canViewAllRoutes ? filterMode !== 'all' : filterMode === 'by_route') && (
               <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2.5">
                 
                 {/* Sales Rep Selector (Admin & Manager only) */}
@@ -801,35 +637,11 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                   </div>
                 )}
 
-                {/* By Day Pills Selector */}
-                {filterMode === 'by_day' && (
-                  <div className="flex items-center gap-1 flex-wrap">
-                    <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap mr-0.5">เลือกวัน:</span>
-                    {THAI_DAYS.map((day) => {
-                      const isCurrent = selectedDay === day;
-                      const colors = THAI_DAY_COLORS[day];
-                      return (
-                        <button
-                          key={day}
-                          type="button"
-                          onClick={() => setSelectedDay(day)}
-                          className={`px-2 py-0.5 text-xs rounded-md border font-semibold transition-all cursor-pointer ${
-                            isCurrent
-                              ? `${colors.bg} ${colors.text} ${colors.border} ring-2 ${colors.ring}`
-                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                          }`}
-                        >
-                          {day}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
               </div>
             )}
 
             {/* Daily Call Plan Banner Status */}
-            {(filterMode === 'today' || filterMode === 'by_day') && (
+            {filterMode === 'today' && (
               <div className={`p-3 rounded-xl border flex items-center justify-between gap-3 ${
                 dailyRoutesForView.length > 0
                   ? 'bg-blue-50/70 border-blue-200 text-blue-900'
@@ -839,7 +651,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                   <div className="font-bold flex items-center gap-1.5">
                     <Navigation className="w-3.5 h-3.5 text-blue-600" />
                     <span>
-                      แผนเข้าเยี่ยมประจำวัน{currentViewDay} {filterMode === 'today' ? '(วันนี้)' : ''}:
+                      แผนเข้าเยี่ยมประจำวัน{todayThai} (วันนี้):
                     </span>
                     {dailyRoutesForView.length > 0 ? (
                       <span className="font-semibold text-blue-700">
@@ -920,8 +732,8 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                       ? `พบ ${allSearchMatchedCount} รายในฐานข้อมูลลูกค้าทั้งหมด กดปุ่มด้านล่างเพื่อแสดงผลการค้นหาจากลูกค้าทั้งหมด`
                       : 'ลองปรับคำค้นหาใหม่อีกครั้ง หรือล้างคำค้นหา'
                     : filterMode === 'today'
-                    ? `ยังไม่มีลูกค้าที่ผูกกับสายที่เข้าเยี่ยมในวัน${todayThai} คุณสามารถกดดู "ลูกค้าทั้งหมด" หรือกด "ตั้งค่าสาย" เพื่อกำหนดวันเข้าเยี่ยม`
-                    : 'สามารถกรอกฟอร์มด้านซ้ายเพื่อเพิ่มลูกค้าใหม่ หรือเลือกดูตัวกรองอื่น'}
+                    ? `ยังไม่มีลูกค้าที่ผูกกับสายที่เข้าเยี่ยมในวัน${todayThai} คุณสามารถกดดู "ลูกค้าทั้งหมด" หรือเพิ่มลูกค้าใหม่ได้`
+                    : 'สามารถกดปุ่ม "เพิ่มลูกค้าใหม่" ด้านบนเพื่อเพิ่มลูกค้า หรือเลือกดูตัวกรองอื่น'}
                 </p>
               </div>
               <div className="flex items-center justify-center gap-2 pt-1 flex-wrap">
@@ -947,10 +759,11 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                 )}
                 <button
                   type="button"
-                  onClick={onManageRoutes}
-                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl cursor-pointer"
+                  onClick={handleOpenAddModal}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl cursor-pointer"
                 >
-                  จัดการสายการเข้าเยี่ยม
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>เพิ่มลูกค้าใหม่</span>
                 </button>
               </div>
             </div>
@@ -1068,7 +881,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                           {cust.updatedAt && (
                             <span className="flex items-center gap-1 text-slate-400">
                               <Clock className="w-3 h-3" />
-                              <span>อัปเดต: {cust.updatedAt}</span>
+                              <span>อัปเดต: {formatDatabaseDateTime(cust.updatedAt)}</span>
                             </span>
                           )}
                         </div>
@@ -1102,8 +915,219 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
               )}
             </div>
           )}
-        </div>
       </div>
+
+      {/* Add / Edit Customer Popup Modal */}
+      {isFormModalOpen && (
+        <div
+          className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-[2px] flex items-center justify-center p-3 sm:p-4"
+          onClick={handleCloseFormModal}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-lg w-full max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-4 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                  <UserPlus className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm sm:text-base leading-tight">
+                    {editingId ? 'แก้ไขข้อมูลลูกค้า' : 'เพิ่มลูกค้าใหม่'}
+                  </h3>
+                  <p className="text-[11px] text-blue-100 mt-0.5">
+                    กรอกข้อมูลลูกค้าและพิกัดร้านค้าเพื่อบันทึกลงระบบ
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseFormModal}
+                disabled={isSubmitting}
+                aria-label="ปิดหน้าต่าง"
+                className="text-white/80 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Form Body */}
+            <form onSubmit={handleSubmit} className="p-5 space-y-4 overflow-y-auto">
+              {/* Error Message */}
+              {errorMsg && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
+                  <span>{errorMsg}</span>
+                </div>
+              )}
+
+              {/* 1. Customer Name */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  ชื่อลูกค้า / ชื่อร้านค้า <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    required
+                    placeholder="เช่น คุณสมศักดิ์ หรือ ร้านกาแฟสุขใจ"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-2xs"
+                  />
+                  <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* 2. Customer Phone */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  เบอร์โทรศัพท์ <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="tel"
+                    required
+                    placeholder="เช่น 081-234-5678"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-2xs"
+                  />
+                  <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* 3. Route */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  สายการเข้าเยี่ยม (Route) <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={routeName}
+                    onChange={(e) => handleRouteChange(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-2xs appearance-none"
+                  >
+                    <option value="" disabled>
+                      {scopedRoutes.length === 0
+                        ? '-- ยังไม่มีสายการเข้าเยี่ยมที่กำหนดให้คุณ --'
+                        : '-- โปรดระบุสายการเข้าเยี่ยม --'}
+                    </option>
+                    {editingId && routeName && !scopedRoutes.some((r) => (r.id || r.name) === routeName) && (
+                      <option value={routeName}>{routeName}</option>
+                    )}
+                    {scopedRoutes.map((r, idx) => (
+                      <option key={`${r.id || r.name}-${idx}`} value={r.id || r.name}>
+                        {r.id ? `${r.id} - ` : ''}{r.name}{r.salesrepName ? ` • ${r.salesrepName}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <Navigation className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+                </div>
+                {!canViewAllRoutes && scopedRoutes.length === 0 && (
+                  <p className="text-[11px] text-amber-600 mt-1">
+                    ยังไม่มีสายการเข้าเยี่ยมที่ผูกกับบัญชีของคุณ กรุณาติดต่อผู้ดูแลระบบหรือผู้จัดการฝ่ายขาย
+                  </p>
+                )}
+              </div>
+
+              {/* 4. Address */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  ที่อยู่จัดส่ง <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <textarea
+                    rows={2}
+                    required
+                    placeholder="เลขที่ อาคาร ซอย ถนน ตำบล/แขวง อำเภอ/เขต จังหวัด..."
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-2xs resize-none"
+                  />
+                  <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* 5. Location Link */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-700">
+                    ลิ้งก์โลเคชั่น (Google Maps Link) <span className="text-rose-500">*</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleCaptureGPS}
+                    disabled={isLocating}
+                    className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-0.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <Navigation className={`w-3 h-3 ${isLocating ? 'animate-spin' : ''}`} />
+                    <span>{isLocating ? 'กำลังจับพิกัด...' : 'จับพิกัด GPS'}</span>
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type="url"
+                    required
+                    placeholder="เช่น https://maps.app.goo.gl/... หรือ https://maps.google.com/?q=..."
+                    value={mapsUrl}
+                    onChange={(e) => setMapsUrl(e.target.value)}
+                    className="w-full pl-9 pr-16 py-2 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-2xs"
+                  />
+                  <MapPin className="w-4 h-4 text-blue-600 absolute left-3 top-2.5 pointer-events-none" />
+
+                  {mapsUrl && (
+                    <a
+                      href={mapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="absolute right-2 top-1.5 px-2 py-1 text-[10px] font-medium text-blue-700 bg-blue-100/80 hover:bg-blue-200 rounded-md flex items-center gap-1"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <span>เปิดดู</span>
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="pt-3 border-t border-slate-200/80 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleCloseFormModal}
+                  disabled={isSubmitting}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer disabled:opacity-50"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className={`inline-flex items-center justify-center gap-2 py-2.5 px-5 rounded-xl font-bold text-xs sm:text-sm shadow-md transition-all cursor-pointer ${
+                    editingId
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'
+                      : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20'
+                  } disabled:opacity-50`}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>กำลังบันทึก...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>{editingId ? 'บันทึกการแก้ไข' : 'บันทึกลงระบบ'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

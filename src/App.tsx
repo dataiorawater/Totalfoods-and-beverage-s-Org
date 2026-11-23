@@ -26,6 +26,7 @@ import {
   INITIAL_MAINTENANCE_RECORDS,
   INITIAL_ROUTES,
 } from './data/mockData';
+import { formatDatabaseDateTime } from './utils/callPlanUtils';
 
 import {
   appendOrderToSheet,
@@ -1141,10 +1142,19 @@ export default function App() {
     visitDays?: string[];
     photoUrls?: string[];
   }): Promise<boolean> => {
-    const nowFormatted = new Date().toLocaleString('th-TH');
+    const nowFormatted = formatDatabaseDateTime(new Date().toISOString()).replace(/\s*น\.$/, '');
+    const rawRoute = String(custData.routeName || '').trim();
+    const matchedRoute = routes.find(
+      (r) =>
+        String(r.id || '').trim().toLowerCase() === rawRoute.toLowerCase() ||
+        String(r.name || '').trim().toLowerCase() === rawRoute.toLowerCase()
+    );
+    const resolvedRouteId = matchedRoute?.id || rawRoute;
     const newCustomer = {
       id: custData.id || `CUST-${Date.now()}`,
       ...custData,
+      routeName: resolvedRouteId,
+      routeId: resolvedRouteId || undefined,
       photoUrls: Array.isArray(custData.photoUrls) ? custData.photoUrls.slice(0, 3) : [],
       updatedAt: nowFormatted
     };

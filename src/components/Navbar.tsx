@@ -210,12 +210,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                         : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
                     }`}
                   >
-                    <UserPlus className="w-4 h-4" />
+                    <Users className="w-4 h-4" />
                   </div>
                   <div className="flex flex-col text-left min-w-0">
-                    <span className="leading-tight truncate">เพิ่มลูกค้าใหม่</span>
+                    <span className="leading-tight truncate">ข้อมูลลูกค้า</span>
                     <span className="text-[10px] text-slate-400 font-normal truncate">
-                      สร้าง & บันทึกพิกัดร้าน
+                      รายชื่อลูกค้า & พิกัดร้าน
                     </span>
                   </div>
                 </div>
@@ -791,8 +791,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               activeTab === 'customers' ? 'text-blue-700 font-bold' : 'text-slate-500'
             }`}
           >
-            <UserPlus className="w-4.5 h-4.5" />
-            <span>ลูกค้าใหม่</span>
+            <Users className="w-4.5 h-4.5" />
+            <span>ข้อมูลลูกค้า</span>
           </button>
 
           {/* Big Center Floating-like Add Button */}
