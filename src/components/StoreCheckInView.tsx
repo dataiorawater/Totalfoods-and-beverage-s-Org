@@ -271,7 +271,6 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
   const [historySelectedSales, setHistorySelectedSales] = useState<string>(() =>
     currentUser.role === 'sales' ? currentUser.name : 'all'
   );
-  const [onlyOffRouteHistory, setOnlyOffRouteHistory] = useState<boolean>(false);
 
   // Lock history salesperson filter to self for 'sales' role; reset to 'all' when switching away
   useEffect(() => {
@@ -284,7 +283,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
 
   useEffect(() => {
     setVisibleHistoryCount(20);
-  }, [historyDateFilter, historySelectedDate, historySelectedSales, onlyOffRouteHistory]);
+  }, [historyDateFilter, historySelectedDate, historySelectedSales]);
 
   // 6. Check-ins History (Provided from props)
 
@@ -967,7 +966,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     });
   }, [historySalesFilteredCheckIns]);
 
-  const baseFilteredHistoryCheckIns = useMemo(() => {
+  const filteredHistoryCheckIns = useMemo(() => {
     if (historyDateFilter === 'today') {
       return todayCheckIns;
     }
@@ -989,21 +988,6 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     historyDateFilter,
     historySelectedDate,
   ]);
-
-  const offRouteHistoryCount = useMemo(
-    () =>
-      baseFilteredHistoryCheckIns.filter(
-        (c) => Boolean(c.isOffRoute || c.routeStatus === 'เช็คอินไม่ตรงสาย')
-      ).length,
-    [baseFilteredHistoryCheckIns]
-  );
-
-  const filteredHistoryCheckIns = useMemo(() => {
-    if (!onlyOffRouteHistory) return baseFilteredHistoryCheckIns;
-    return baseFilteredHistoryCheckIns.filter((c) =>
-      Boolean(c.isOffRoute || c.routeStatus === 'เช็คอินไม่ตรงสาย')
-    );
-  }, [baseFilteredHistoryCheckIns, onlyOffRouteHistory]);
 
   const handleHistoryPrevDay = () => {
     const [y, m, d] = historySelectedDate.split('-').map(Number);
@@ -1828,33 +1812,6 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                   {historySalesFilteredCheckIns.length}
                 </span>
               </button>
-
-              <button
-                id="history-filter-offroute"
-                type="button"
-                onClick={() => setOnlyOffRouteHistory((prev) => !prev)}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                  onlyOffRouteHistory
-                    ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
-                    : offRouteHistoryCount > 0
-                    ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
-                    : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                }`}
-              >
-                <AlertTriangle className="w-3.5 h-3.5" />
-                <span>เช็คอินไม่ตรงสาย</span>
-                <span
-                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                    onlyOffRouteHistory
-                      ? 'bg-amber-700 text-white'
-                      : offRouteHistoryCount > 0
-                      ? 'bg-amber-200 text-amber-900'
-                      : 'bg-slate-200 text-slate-600'
-                  }`}
-                >
-                  {offRouteHistoryCount}
-                </span>
-              </button>
             </div>
           </div>
 
@@ -1922,16 +1879,10 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
             </div>
           ) : (
             <div className="space-y-2.5">
-              {filteredHistoryCheckIns.slice(0, visibleHistoryCount).map((item, idx) => {
-                const isOffRouteItem = Boolean(
-                  item.isOffRoute || item.routeStatus === 'เช็คอินไม่ตรงสาย'
-                );
-                return (
+              {filteredHistoryCheckIns.slice(0, visibleHistoryCount).map((item, idx) => (
                 <div
                   key={item.id + '-' + idx}
-                  className={`content-auto-card bg-white p-3.5 rounded-2xl border shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
-                    isOffRouteItem ? 'border-amber-300 bg-amber-50/20' : 'border-slate-200/80'
-                  }`}
+                  className="content-auto-card bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
                 >
                   {/* Photo thumbnail */}
                   <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -1966,17 +1917,6 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                         <span className="text-[11px] font-mono text-blue-700 bg-blue-50 px-2 py-0.2 rounded-md font-semibold border border-blue-200/60">
                           {item.timestampStr}
                         </span>
-                        {isOffRouteItem ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                            <AlertTriangle className="w-3 h-3 text-amber-600" />
-                            <span>เช็คอินไม่ตรงสาย</span>
-                          </span>
-                        ) : item.routeStatus === 'ตรงสาย' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
-                            <span>ตรงสาย</span>
-                          </span>
-                        ) : null}
                       </div>
 
                       <div className="flex items-center gap-3 text-xs text-slate-500 mt-1 flex-wrap">
@@ -1985,13 +1925,8 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                           <span>📍 ห่าง {formatDistance(item.distanceMeters)}</span>
                         )}
                         {item.routeName && (
-                          <span className={isOffRouteItem ? 'text-amber-800 font-semibold' : 'text-blue-700 font-medium'}>
+                          <span className="text-blue-700 font-medium">
                             🗺️ สายร้าน: {item.routeName}
-                          </span>
-                        )}
-                        {isOffRouteItem && item.scheduledRouteName && (
-                          <span className="text-slate-500">
-                            (แผนเดิม: {item.scheduledRouteName})
                           </span>
                         )}
                         {item.notes && (
@@ -2027,8 +1962,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                     </div>
                   )}
                 </div>
-                );
-              })}
+              ))}
 
               {filteredHistoryCheckIns.length > visibleHistoryCount && (
                 <button
