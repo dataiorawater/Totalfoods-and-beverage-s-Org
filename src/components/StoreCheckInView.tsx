@@ -25,8 +25,16 @@ import {
   Plus,
   Edit3,
   RotateCcw,
+  AlertTriangle,
 } from 'lucide-react';
-import { Customer, StaffUser, StoreCheckIn, Route, DailyRouteSchedule } from '../types';
+import {
+  Customer,
+  StaffUser,
+  StoreCheckIn,
+  Route,
+  DailyRouteSchedule,
+  RouteScheduleActionType,
+} from '../types';
 import { toTelHref } from '../utils/phoneUtils';
 import { calculateDistanceMeters, formatDistance, extractCustomerCoords, compressImageFile } from '../utils/geoUtils';
 import {
@@ -63,9 +71,19 @@ interface StoreCheckInViewProps {
   onRefreshSheets?: () => Promise<void>;
   gpsRefreshTrigger?: number;
   dailySchedules?: Record<string, DailyRouteSchedule>;
-  onSaveDailySchedule?: (dateStr: string, schedule: DailyRouteSchedule) => void;
-  onBatchSaveDailySchedules?: (schedules: Record<string, DailyRouteSchedule>) => void;
-  onDeleteDailySchedule?: (dateStr: string) => void;
+  onSaveDailySchedule?: (
+    dateStr: string,
+    schedule: DailyRouteSchedule,
+    meta?: { actionType?: RouteScheduleActionType; notes?: string }
+  ) => void;
+  onBatchSaveDailySchedules?: (
+    schedules: Record<string, DailyRouteSchedule>,
+    meta?: { actionType?: RouteScheduleActionType; notes?: string; targetDateLabel?: string }
+  ) => void;
+  onDeleteDailySchedule?: (
+    dateStr: string,
+    meta?: { actionType?: RouteScheduleActionType; notes?: string }
+  ) => void;
 }
 
 export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
@@ -95,9 +113,9 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
   const [locationError, setLocationError] = useState<string | null>(null);
   const [lastLocationUpdateTime, setLastLocationUpdateTime] = useState<string>('');
 
-  // 2. Call Plan Daily Schedules State (Persisted in localStorage)
+  // 2. Call Plan Daily Schedules State (Fallback to localStorage only when standalone)
   const [localDailySchedules, setLocalDailySchedules] = useState<Record<string, DailyRouteSchedule>>(() => {
-    if (propsDailySchedules && Object.keys(propsDailySchedules).length > 0) return propsDailySchedules;
+    if (propsDailySchedules !== undefined) return propsDailySchedules;
     const saved = localStorage.getItem('iora_call_plan_daily_schedule');
     if (saved) {
       try {
@@ -108,39 +126,52 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     return {};
   });
 
-  const activeDailySchedules = (propsDailySchedules && Object.keys(propsDailySchedules).length > 0)
+  const activeDailySchedules = propsDailySchedules !== undefined
     ? propsDailySchedules
     : localDailySchedules;
 
-  const handleSaveDailySchedule = (dateStr: string, schedule: DailyRouteSchedule) => {
+  const handleSaveDailySchedule = (
+    dateStr: string,
+    schedule: DailyRouteSchedule,
+    meta?: { actionType?: RouteScheduleActionType; notes?: string }
+  ) => {
+    if (propsOnSaveDailySchedule) {
+      propsOnSaveDailySchedule(dateStr, schedule, meta);
+      return;
+    }
     setLocalDailySchedules((prev) => {
       const updated = { ...prev, [dateStr]: schedule };
       localStorage.setItem('iora_call_plan_daily_schedule', JSON.stringify(updated));
       return updated;
     });
-    if (propsOnSaveDailySchedule) {
-      propsOnSaveDailySchedule(dateStr, schedule);
-    }
   };
 
-  const handleBatchSaveDailySchedules = (schedules: Record<string, DailyRouteSchedule>) => {
+  const handleBatchSaveDailySchedules = (
+    schedules: Record<string, DailyRouteSchedule>,
+    meta?: { actionType?: RouteScheduleActionType; notes?: string; targetDateLabel?: string }
+  ) => {
+    if (propsOnBatchSaveDailySchedules) {
+      propsOnBatchSaveDailySchedules(schedules, meta);
+      return;
+    }
     setLocalDailySchedules(schedules);
     localStorage.setItem('iora_call_plan_daily_schedule', JSON.stringify(schedules));
-    if (propsOnBatchSaveDailySchedules) {
-      propsOnBatchSaveDailySchedules(schedules);
-    }
   };
 
-  const handleDeleteDailySchedule = (dateStr: string) => {
+  const handleDeleteDailySchedule = (
+    dateStr: string,
+    meta?: { actionType?: RouteScheduleActionType; notes?: string }
+  ) => {
+    if (propsOnDeleteDailySchedule) {
+      propsOnDeleteDailySchedule(dateStr, meta);
+      return;
+    }
     setLocalDailySchedules((prev) => {
       const updated = { ...prev };
       delete updated[dateStr];
       localStorage.setItem('iora_call_plan_daily_schedule', JSON.stringify(updated));
       return updated;
     });
-    if (propsOnDeleteDailySchedule) {
-      propsOnDeleteDailySchedule(dateStr);
-    }
   };
 
   // 3. Date Selection & Route Change Modal State
@@ -199,11 +230,16 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     return customers.filter((c) => isCustomerBelongingToUser(c, currentUser, scopedRoutes, routes));
   }, [canViewAllRoutes, customers, currentUser, scopedRoutes, routes]);
 
-  // Check-ins scoped to current user role
+  // Check-ins scoped to current user role:
+  // - Sales role strictly sees ONLY their own check-ins
+  // - All other roles (admin, manager, delivery, viewer) can view & filter all salespeople's check-ins
+  const isSalesRole = currentUser.role === 'sales';
+  const canFilterHistoryBySales = !isSalesRole;
+
   const scopedCheckIns = useMemo(() => {
-    if (canViewAllRoutes) return checkIns;
+    if (!isSalesRole) return checkIns;
     return checkIns.filter((ci) => doesCheckInBelongToUser(ci, currentUser));
-  }, [canViewAllRoutes, checkIns, currentUser]);
+  }, [isSalesRole, checkIns, currentUser]);
 
   // Search & Range Filter State
   const [searchQuery, setSearchQuery] = useState('');
@@ -227,15 +263,28 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
   const [formError, setFormError] = useState<string | null>(null);
   const [checkInSuccessToast, setCheckInSuccessToast] = useState<string | null>(null);
 
-  // 5. Full-size photo viewer & History Date Filter
+  // 5. Full-size photo viewer & History Date/Salesperson Filter
   const [viewingPhotoUrl, setViewingPhotoUrl] = useState<string | null>(null);
   const [visibleHistoryCount, setVisibleHistoryCount] = useState<number>(20);
-  const [historyDateFilter, setHistoryDateFilter] = useState<'today' | 'month' | 'date' | 'all'>('today');
+  const [historyDateFilter, setHistoryDateFilter] = useState<'today' | 'week' | 'month' | 'date' | 'all'>('today');
   const [historySelectedDate, setHistorySelectedDate] = useState<string>(() => getTodayDateIso());
+  const [historySelectedSales, setHistorySelectedSales] = useState<string>(() =>
+    currentUser.role === 'sales' ? currentUser.name : 'all'
+  );
+  const [onlyOffRouteHistory, setOnlyOffRouteHistory] = useState<boolean>(false);
+
+  // Lock history salesperson filter to self for 'sales' role; reset to 'all' when switching away
+  useEffect(() => {
+    if (isSalesRole) {
+      setHistorySelectedSales(currentUser.name);
+    } else {
+      setHistorySelectedSales('all');
+    }
+  }, [isSalesRole, currentUser.id, currentUser.name]);
 
   useEffect(() => {
     setVisibleHistoryCount(20);
-  }, [historyDateFilter, historySelectedDate]);
+  }, [historyDateFilter, historySelectedDate, historySelectedSales, onlyOffRouteHistory]);
 
   // 6. Check-ins History (Provided from props)
 
@@ -378,13 +427,41 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
           .filter((r) => !editableRouteIdSet.has(r.id) && doesRouteRunOnDay(r, thaiDay))
           .map((r) => r.id);
 
+    // Baseline planned route IDs BEFORE salesperson self-switch (to detect off-route check-ins)
+    const baselineAllRouteIds =
+      existingSchedule?.plannedRouteIdsBeforeSwitch && existingSchedule.plannedRouteIdsBeforeSwitch.length > 0
+        ? existingSchedule.plannedRouteIdsBeforeSwitch
+        : existingSchedule
+        ? existingSchedule.routeIds
+        : routes.filter((r) => doesRouteRunOnDay(r, thaiDay)).map((r) => r.id);
+
+    const otherSelfSwitchedIds = (existingSchedule?.selfSwitchedRouteIds || []).filter(
+      (id) => !editableRouteIdSet.has(id)
+    );
+    const ownSelfSwitchedIds = editingRouteIds.filter((id) => !baselineAllRouteIds.includes(id));
+    const finalSelfSwitchedIds = Array.from(new Set([...otherSelfSwitchedIds, ...ownSelfSwitchedIds]));
+
     const finalRouteIds = Array.from(new Set([...otherRouteIds, ...editingRouteIds]));
-    handleSaveDailySchedule(selectedDate, {
-      date: selectedDate,
-      routeIds: finalRouteIds,
-      notes: existingSchedule?.notes,
-      updatedAt: new Date().toISOString(),
-    });
+    handleSaveDailySchedule(
+      selectedDate,
+      {
+        date: selectedDate,
+        routeIds: finalRouteIds,
+        notes: existingSchedule?.notes,
+        updatedBy: currentUser.name,
+        updatedAt: new Date().toISOString(),
+        selfSwitchedRouteIds: finalSelfSwitchedIds.length > 0 ? finalSelfSwitchedIds : undefined,
+        plannedRouteIdsBeforeSwitch:
+          finalSelfSwitchedIds.length > 0 ? baselineAllRouteIds : undefined,
+      },
+      {
+        actionType: 'sales_self_switch',
+        notes:
+          ownSelfSwitchedIds.length > 0
+            ? 'พนักงานกดเปลี่ยนสายเองจากหน้าเช็คอินร้านค้า (เช็คอินจะถูกบันทึกสถานะ เช็คอินไม่ตรงสาย)'
+            : 'พนักงานปรับสายการเข้าเยี่ยมจากหน้าเช็คอินร้านค้า',
+      }
+    );
     setIsRouteChangeModalOpen(false);
   };
 
@@ -392,21 +469,108 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     const existingSchedule = activeDailySchedules[selectedDate];
     if (existingSchedule) {
       const otherRouteIds = existingSchedule.routeIds.filter((id) => !editableRouteIdSet.has(id));
+      const remainingSelfSwitched = (existingSchedule.selfSwitchedRouteIds || []).filter(
+        (id) => !editableRouteIdSet.has(id)
+      );
       if (otherRouteIds.length === 0) {
-        handleDeleteDailySchedule(selectedDate);
+        handleDeleteDailySchedule(selectedDate, {
+          actionType: 'reset_default',
+          notes: 'รีเซ็ตกลับสายปกติจากหน้าเช็คอินร้านค้า',
+        });
       } else {
         const thaiDay = getThaiDayFromDate(selectedDate);
         const ownDefaultIds = editableRoutesForModal
           .filter((r) => doesRouteRunOnDay(r, thaiDay))
           .map((r) => r.id);
-        handleSaveDailySchedule(selectedDate, {
-          ...existingSchedule,
-          routeIds: Array.from(new Set([...otherRouteIds, ...ownDefaultIds])),
-          updatedAt: new Date().toISOString(),
-        });
+        handleSaveDailySchedule(
+          selectedDate,
+          {
+            ...existingSchedule,
+            routeIds: Array.from(new Set([...otherRouteIds, ...ownDefaultIds])),
+            selfSwitchedRouteIds:
+              remainingSelfSwitched.length > 0 ? remainingSelfSwitched : undefined,
+            plannedRouteIdsBeforeSwitch:
+              remainingSelfSwitched.length > 0
+                ? existingSchedule.plannedRouteIdsBeforeSwitch
+                : undefined,
+            updatedBy: currentUser.name,
+            updatedAt: new Date().toISOString(),
+          },
+          {
+            actionType: 'reset_default',
+            notes: 'รีเซ็ตกลับสายปกติจากหน้าเช็คอินร้านค้า',
+          }
+        );
       }
     }
     setIsRouteChangeModalOpen(false);
+  };
+
+  // Evaluate whether checking in to a customer on selectedDate is off-route ("เช็คอินไม่ตรงสาย")
+  const getOffRouteCheckInInfo = (customer?: Customer | null): {
+    isOffRoute: boolean;
+    routeStatus: 'ตรงสาย' | 'เช็คอินไม่ตรงสาย';
+    routeName: string;
+    scheduledRouteName: string;
+  } => {
+    if (!customer) {
+      return { isOffRoute: false, routeStatus: 'ตรงสาย', routeName: '', scheduledRouteName: '' };
+    }
+
+    const schedule = activeDailySchedules[selectedDate];
+    const thaiDay = getThaiDayFromDate(selectedDate);
+
+    // Match customer's assigned route
+    const matchedRoute =
+      routes.find((r) => isCustomerInRoute(customer, r)) || null;
+    const customerRouteName = matchedRoute?.name || customer.routeName || '';
+
+    // Determine baseline scheduled routes for this user/context on selectedDate
+    const relevantRoutesPool = !canViewAllRoutes
+      ? scopedRoutes
+      : effectiveSelectedSales !== 'all'
+      ? routes.filter((r) => doesRouteBelongToSales(r, effectiveSelectedSales))
+      : matchedRoute?.salesrepName
+      ? routes.filter((r) => doesRouteBelongToSales(r, matchedRoute.salesrepName || ''))
+      : routes;
+
+    const baselineRouteIds =
+      schedule?.plannedRouteIdsBeforeSwitch && schedule.plannedRouteIdsBeforeSwitch.length > 0
+        ? schedule.plannedRouteIdsBeforeSwitch
+        : schedule
+        ? schedule.routeIds
+        : routes.filter((r) => doesRouteRunOnDay(r, thaiDay)).map((r) => r.id);
+
+    const baselineRelevantRoutes = relevantRoutesPool.filter((r) =>
+      baselineRouteIds.includes(r.id)
+    );
+    const scheduledRouteName =
+      baselineRelevantRoutes.length > 0
+        ? baselineRelevantRoutes.map((r) => r.name || r.id).join(', ')
+        : 'ไม่มีแผนสายประจำวัน';
+
+    const selfSwitchedIds = schedule?.selfSwitchedRouteIds || [];
+    const isExplicitlySelfSwitched = Boolean(
+      matchedRoute && selfSwitchedIds.includes(matchedRoute.id)
+    );
+
+    const isCustomerInBaseline =
+      matchedRoute
+        ? baselineRouteIds.includes(matchedRoute.id)
+        : baselineRelevantRoutes.some((r) => isCustomerInRoute(customer, r));
+
+    const isOffRoute =
+      isExplicitlySelfSwitched ||
+      (!isCustomerInBaseline &&
+        (baselineRelevantRoutes.length > 0 || selfSwitchedIds.length > 0) &&
+        Boolean(matchedRoute || customer.routeName));
+
+    return {
+      isOffRoute,
+      routeStatus: isOffRoute ? 'เช็คอินไม่ตรงสาย' : 'ตรงสาย',
+      routeName: customerRouteName,
+      scheduledRouteName,
+    };
   };
 
   // Sales rep filter options (for Admin & Manager)
@@ -428,6 +592,8 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
   const selectedDateCheckInStatus = useMemo(() => {
     const checkedCustomerIds = new Set<string>();
     const checkedStoreNames = new Set<string>();
+    const offRouteCustomerIds = new Set<string>();
+    const offRouteStoreNames = new Set<string>();
     const targetDayNum = selectedDate.split('-')[2];
 
     scopedCheckIns.forEach((ci) => {
@@ -441,17 +607,31 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
         isMatch = true;
       }
       if (isMatch) {
-        if (ci.customerId) checkedCustomerIds.add(ci.customerId);
-        if (ci.storeName) checkedStoreNames.add(ci.storeName.trim().toLowerCase());
+        const isOff = Boolean(ci.isOffRoute || ci.routeStatus === 'เช็คอินไม่ตรงสาย');
+        if (ci.customerId) {
+          checkedCustomerIds.add(ci.customerId);
+          if (isOff) offRouteCustomerIds.add(ci.customerId);
+        }
+        if (ci.storeName) {
+          const normalized = ci.storeName.trim().toLowerCase();
+          checkedStoreNames.add(normalized);
+          if (isOff) offRouteStoreNames.add(normalized);
+        }
       }
     });
 
-    return { checkedCustomerIds, checkedStoreNames };
+    return { checkedCustomerIds, checkedStoreNames, offRouteCustomerIds, offRouteStoreNames };
   }, [scopedCheckIns, selectedDate]);
 
   const isCustomerCheckedInOnSelectedDate = (cust: Customer) => {
     if (cust.id && selectedDateCheckInStatus.checkedCustomerIds.has(cust.id)) return true;
     if (cust.name && selectedDateCheckInStatus.checkedStoreNames.has(cust.name.trim().toLowerCase())) return true;
+    return false;
+  };
+
+  const isCustomerCheckedInOffRouteOnSelectedDate = (cust: Customer) => {
+    if (cust.id && selectedDateCheckInStatus.offRouteCustomerIds.has(cust.id)) return true;
+    if (cust.name && selectedDateCheckInStatus.offRouteStoreNames.has(cust.name.trim().toLowerCase())) return true;
     return false;
   };
 
@@ -659,6 +839,10 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
         }
       }
 
+      const offRouteInfo = !isCustomStore
+        ? getOffRouteCheckInInfo(selectedCustomer)
+        : { isOffRoute: false, routeStatus: 'ตรงสาย' as const, routeName: '', scheduledRouteName: '' };
+
       const newCheckIn: StoreCheckIn = {
         id: `CHK-${Date.now().toString().slice(-6)}`,
         createdAt: now.toISOString(),
@@ -677,6 +861,10 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
         notes: visitNote.trim() ? `${visitPurpose} - ${visitNote.trim()}` : visitPurpose,
         distanceMeters,
         syncedToSheets: false,
+        isOffRoute: offRouteInfo.isOffRoute,
+        routeStatus: offRouteInfo.routeStatus,
+        routeName: offRouteInfo.routeName || undefined,
+        scheduledRouteName: offRouteInfo.scheduledRouteName || undefined,
       };
 
       // Save locally & to Sheets
@@ -686,8 +874,12 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
       }
 
       setIsCheckInModalOpen(false);
-      setCheckInSuccessToast(`บันทึกเช็คอินร้าน "${storeName}" สำเร็จเรียบร้อย!`);
-      setTimeout(() => setCheckInSuccessToast(null), 4000);
+      setCheckInSuccessToast(
+        offRouteInfo.isOffRoute
+          ? `บันทึกเช็คอินร้าน "${storeName}" สำเร็จ (สถานะ: เช็คอินไม่ตรงสาย)`
+          : `บันทึกเช็คอินร้าน "${storeName}" สำเร็จเรียบร้อย!`
+      );
+      setTimeout(() => setCheckInSuccessToast(null), 4500);
     } catch (err: any) {
       setFormError(err?.message || 'เกิดข้อผิดพลาดในการบันทึกเช็คอิน');
     } finally {
@@ -709,31 +901,109 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     return null;
   };
 
+  // Unique salesperson options for History tab dropdown (non-sales roles)
+  const historySalesOptions = useMemo(() => {
+    const nameSet = new Set<string>();
+    staffList.forEach((s) => {
+      if (s.role === 'sales' || s.role === 'manager') {
+        const trimmed = String(s.name || '').trim();
+        if (trimmed) nameSet.add(trimmed);
+      }
+    });
+    routes.forEach((r) => {
+      const trimmed = String(r.salesrepName || '').trim();
+      if (trimmed) nameSet.add(trimmed);
+    });
+    scopedCheckIns.forEach((ci) => {
+      const trimmed = String(ci.salespersonName || '').trim();
+      if (trimmed) nameSet.add(trimmed);
+    });
+    return Array.from(nameSet).sort((a, b) => a.localeCompare(b, 'th'));
+  }, [staffList, routes, scopedCheckIns]);
+
+  // History check-ins filtered by selected salesperson (sales role is already locked in scopedCheckIns)
+  const historySalesFilteredCheckIns = useMemo(() => {
+    if (!canFilterHistoryBySales || historySelectedSales === 'all') {
+      return scopedCheckIns;
+    }
+    const target = historySelectedSales.trim().toLowerCase();
+    const matchedStaff = staffList.find(
+      (s) => String(s.name || '').trim().toLowerCase() === target
+    );
+    return scopedCheckIns.filter((ci) => {
+      const ciName = String(ci.salespersonName || '').trim().toLowerCase();
+      if (ciName === target) return true;
+      if (matchedStaff?.id && ci.salespersonId && ci.salespersonId === matchedStaff.id) return true;
+      return false;
+    });
+  }, [scopedCheckIns, canFilterHistoryBySales, historySelectedSales, staffList]);
+
   const todayCheckIns = useMemo(() => {
     const todayIso = getTodayDateIso();
-    return scopedCheckIns.filter((c) => getCheckInDateIso(c) === todayIso);
-  }, [scopedCheckIns]);
+    return historySalesFilteredCheckIns.filter((c) => getCheckInDateIso(c) === todayIso);
+  }, [historySalesFilteredCheckIns]);
+
+  const thisWeekCheckIns = useMemo(() => {
+    const todayIso = getTodayDateIso();
+    const [y, m, d] = todayIso.split('-').map(Number);
+    const nowDate = new Date(y, m - 1, d);
+    const dayOfWeek = nowDate.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const monday = new Date(y, m - 1, d + diffToMonday);
+    const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+    const startIso = formatDateIso(monday);
+    const endIso = formatDateIso(sunday);
+    return historySalesFilteredCheckIns.filter((c) => {
+      const dateIso = getCheckInDateIso(c);
+      return dateIso ? dateIso >= startIso && dateIso <= endIso : false;
+    });
+  }, [historySalesFilteredCheckIns]);
 
   const thisMonthCheckIns = useMemo(() => {
     const currentMonthPrefix = getTodayDateIso().slice(0, 7);
-    return scopedCheckIns.filter((c) => {
+    return historySalesFilteredCheckIns.filter((c) => {
       const dateIso = getCheckInDateIso(c);
       return dateIso ? dateIso.startsWith(currentMonthPrefix) : false;
     });
-  }, [scopedCheckIns]);
+  }, [historySalesFilteredCheckIns]);
 
-  const filteredHistoryCheckIns = useMemo(() => {
+  const baseFilteredHistoryCheckIns = useMemo(() => {
     if (historyDateFilter === 'today') {
       return todayCheckIns;
+    }
+    if (historyDateFilter === 'week') {
+      return thisWeekCheckIns;
     }
     if (historyDateFilter === 'month') {
       return thisMonthCheckIns;
     }
     if (historyDateFilter === 'date') {
-      return scopedCheckIns.filter((c) => getCheckInDateIso(c) === historySelectedDate);
+      return historySalesFilteredCheckIns.filter((c) => getCheckInDateIso(c) === historySelectedDate);
     }
-    return scopedCheckIns;
-  }, [scopedCheckIns, todayCheckIns, thisMonthCheckIns, historyDateFilter, historySelectedDate]);
+    return historySalesFilteredCheckIns;
+  }, [
+    historySalesFilteredCheckIns,
+    todayCheckIns,
+    thisWeekCheckIns,
+    thisMonthCheckIns,
+    historyDateFilter,
+    historySelectedDate,
+  ]);
+
+  const offRouteHistoryCount = useMemo(
+    () =>
+      baseFilteredHistoryCheckIns.filter(
+        (c) => Boolean(c.isOffRoute || c.routeStatus === 'เช็คอินไม่ตรงสาย')
+      ).length,
+    [baseFilteredHistoryCheckIns]
+  );
+
+  const filteredHistoryCheckIns = useMemo(() => {
+    if (!onlyOffRouteHistory) return baseFilteredHistoryCheckIns;
+    return baseFilteredHistoryCheckIns.filter((c) =>
+      Boolean(c.isOffRoute || c.routeStatus === 'เช็คอินไม่ตรงสาย')
+    );
+  }, [baseFilteredHistoryCheckIns, onlyOffRouteHistory]);
 
   const handleHistoryPrevDay = () => {
     const [y, m, d] = historySelectedDate.split('-').map(Number);
@@ -1143,6 +1413,8 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                 const isVeryClose = distanceMeters !== undefined && distanceMeters <= 100;
                 const isClose = distanceMeters !== undefined && distanceMeters <= 1000;
                 const hasCheckedInDate = isCustomerCheckedInOnSelectedDate(customer);
+                const hasCheckedInOffRoute = isCustomerCheckedInOffRouteOnSelectedDate(customer);
+                const offRouteInfo = getOffRouteCheckInInfo(customer);
                 const isScheduledForDate = isCustomerInDatePlan({
                   customer,
                   dateStr: selectedDate,
@@ -1155,7 +1427,9 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                   <div
                     key={`${customer.id || customer.name || 'cust'}-${customer.phone || ''}-${idx}`}
                     className={`bg-white p-3.5 sm:p-4 rounded-2xl border transition-all shadow-2xs flex flex-col justify-between gap-3 ${
-                      hasCheckedInDate
+                      hasCheckedInDate && hasCheckedInOffRoute
+                        ? 'border-amber-300 bg-amber-50/25'
+                        : hasCheckedInDate
                         ? 'border-emerald-200 bg-emerald-50/15'
                         : isVeryClose
                         ? 'border-emerald-300 ring-2 ring-emerald-500/20 bg-emerald-50/20'
@@ -1174,19 +1448,34 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                             </span>
 
                             {/* Scheduled for this date badge */}
-                            {isScheduledForDate && (
+                            {isScheduledForDate && !offRouteInfo.isOffRoute && (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
                                 <Sparkles className="w-2.5 h-2.5 text-amber-600" />
                                 <span>สายประจำวัน</span>
                               </span>
                             )}
 
+                            {/* Self-switched / Off-route preview badge (before check-in) */}
+                            {!hasCheckedInDate && offRouteInfo.isOffRoute && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                <AlertTriangle className="w-2.5 h-2.5 text-amber-600" />
+                                <span>เปลี่ยนสายเอง (ไม่ตรงสาย)</span>
+                              </span>
+                            )}
+
                             {/* Checked-in status badge */}
                             {hasCheckedInDate ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
-                                <span>เช็คอินแล้ว</span>
-                              </span>
+                              hasCheckedInOffRoute ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                  <AlertTriangle className="w-2.5 h-2.5 text-amber-600" />
+                                  <span>เช็คอินไม่ตรงสาย</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                                  <span>เช็คอินแล้ว</span>
+                                </span>
+                              )
                             ) : (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
                                 <Clock className="w-2.5 h-2.5 text-slate-400" />
@@ -1338,16 +1627,122 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
             </div>
             <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs">
               <span className="text-xs text-slate-500">
-                {canViewAllRoutes ? 'มุมมองข้อมูล (ผู้ดูแล/หัวหน้าแผนก)' : 'พนักงานขาย (สายของฉัน)'}
+                {canFilterHistoryBySales ? 'มุมมองเซลล์ที่กำลังดู' : 'พนักงานขาย (เห็นเฉพาะของฉัน)'}
               </span>
               <div className="text-xs font-bold text-slate-800 mt-1 truncate">
-                {canViewAllRoutes ? `${currentUser.name} — ดูได้ทุกคน` : currentUser.name}
+                {canFilterHistoryBySales
+                  ? historySelectedSales === 'all'
+                    ? `ทุกคน (${historySalesOptions.length} เซลล์)`
+                    : `เซลล์: ${historySelectedSales}`
+                  : currentUser.name}
               </div>
             </div>
           </div>
 
-          {/* History Date Filter Bar */}
-          <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          {/* History Filter Card */}
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs space-y-3">
+            {/* Row 1: Salesperson Filter (first) + Specific Date Picker */}
+            <div className="flex flex-wrap items-center gap-2.5 pb-3 border-b border-slate-100">
+              {canFilterHistoryBySales ? (
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
+                  <User className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <span className="text-[11px] font-semibold text-slate-600 whitespace-nowrap">เซลล์:</span>
+                  <select
+                    id="history-sales-filter"
+                    value={historySelectedSales}
+                    onChange={(e) => setHistorySelectedSales(e.target.value)}
+                    className="text-xs font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer pr-1 max-w-[180px]"
+                  >
+                    <option value="all">ทุกคน ({scopedCheckIns.length})</option>
+                    {historySalesOptions.map((salesName) => (
+                      <option key={salesName} value={salesName}>
+                        {salesName}
+                      </option>
+                    ))}
+                  </select>
+                  {historySelectedSales !== 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => setHistorySelectedSales('all')}
+                      className="p-0.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition-colors cursor-pointer"
+                      title="ล้างตัวกรองชื่อเซลล์"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="inline-flex items-center gap-1.5 bg-blue-50 border border-blue-200 rounded-xl px-2.5 py-1.5 text-xs">
+                  <User className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <span className="font-bold text-blue-900 whitespace-nowrap">{currentUser.name}</span>
+                  <span className="text-[10px] font-semibold text-blue-700 bg-white/80 px-1.5 py-0.5 rounded border border-blue-200 whitespace-nowrap">
+                    เฉพาะของฉัน
+                  </span>
+                </div>
+              )}
+
+              {/* Specific Date Filter */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  id="history-filter-date"
+                  type="button"
+                  onClick={() => setHistoryDateFilter('date')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    historyDateFilter === 'date'
+                      ? 'bg-blue-600 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>ตามวันที่ระบุ</span>
+                </button>
+
+                <div
+                  className={`flex items-center gap-1 p-1 rounded-xl border transition-all ${
+                    historyDateFilter === 'date'
+                      ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-500/15'
+                      : 'bg-slate-100 border-slate-200/80'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={handleHistoryPrevDay}
+                    className="p-1 rounded-lg hover:bg-white hover:text-blue-600 text-slate-600 transition-colors cursor-pointer"
+                    title="วันก่อนหน้า"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <label className="relative cursor-pointer px-2.5 py-0.5 rounded-lg bg-white border border-slate-200 shadow-2xs flex items-center gap-1.5 hover:border-blue-300">
+                    <CalendarDays className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span className="text-xs font-bold text-slate-900 whitespace-nowrap">
+                      {formatThaiDate(historySelectedDate, { withDayOfWeek: false, shortMonth: true })}
+                    </span>
+                    <input
+                      id="history-date-picker"
+                      type="date"
+                      value={historySelectedDate}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          setHistorySelectedDate(e.target.value);
+                          setHistoryDateFilter('date');
+                        }
+                      }}
+                      className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleHistoryNextDay}
+                    className="p-1 rounded-lg hover:bg-white hover:text-blue-600 text-slate-600 transition-colors cursor-pointer"
+                    title="วันถัดไป"
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Row 2: Time Range & Off-Route Filters in order: วันนี้ -> สัปดาห์นี้ -> เดือนนี้ -> ทั้งหมด -> เช็คอินไม่ตรงสาย */}
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mr-1">
                 <Filter className="w-3.5 h-3.5 text-blue-600" />
@@ -1375,6 +1770,26 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
               </button>
 
               <button
+                id="history-filter-week"
+                type="button"
+                onClick={() => setHistoryDateFilter('week')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  historyDateFilter === 'week'
+                    ? 'bg-blue-600 text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <span>สัปดาห์นี้</span>
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                    historyDateFilter === 'week' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {thisWeekCheckIns.length}
+                </span>
+              </button>
+
+              <button
                 id="history-filter-month"
                 type="button"
                 onClick={() => setHistoryDateFilter('month')}
@@ -1395,20 +1810,6 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
               </button>
 
               <button
-                id="history-filter-date"
-                type="button"
-                onClick={() => setHistoryDateFilter('date')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  historyDateFilter === 'date'
-                    ? 'bg-blue-600 text-white shadow-2xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                <Calendar className="w-3.5 h-3.5" />
-                <span>ตามวันที่ระบุ</span>
-              </button>
-
-              <button
                 id="history-filter-all"
                 type="button"
                 onClick={() => setHistoryDateFilter('all')}
@@ -1424,56 +1825,36 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                     historyDateFilter === 'all' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700'
                   }`}
                 >
-                  {scopedCheckIns.length}
+                  {historySalesFilteredCheckIns.length}
                 </span>
               </button>
-            </div>
 
-            {/* Specific Date Picker */}
-            <div className="flex items-center gap-2 self-start lg:self-auto">
-              <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">เลือกวันที่:</span>
-              <div
-                className={`flex items-center gap-1 p-1 rounded-xl border transition-all ${
-                  historyDateFilter === 'date'
-                    ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-500/15'
-                    : 'bg-slate-100 border-slate-200/80'
+              <button
+                id="history-filter-offroute"
+                type="button"
+                onClick={() => setOnlyOffRouteHistory((prev) => !prev)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                  onlyOffRouteHistory
+                    ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
+                    : offRouteHistoryCount > 0
+                    ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                    : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
                 }`}
               >
-                <button
-                  type="button"
-                  onClick={handleHistoryPrevDay}
-                  className="p-1 rounded-lg hover:bg-white hover:text-blue-600 text-slate-600 transition-colors cursor-pointer"
-                  title="วันก่อนหน้า"
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>เช็คอินไม่ตรงสาย</span>
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                    onlyOffRouteHistory
+                      ? 'bg-amber-700 text-white'
+                      : offRouteHistoryCount > 0
+                      ? 'bg-amber-200 text-amber-900'
+                      : 'bg-slate-200 text-slate-600'
+                  }`}
                 >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </button>
-                <label className="relative cursor-pointer px-2.5 py-0.5 rounded-lg bg-white border border-slate-200 shadow-2xs flex items-center gap-1.5 hover:border-blue-300">
-                  <CalendarDays className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                  <span className="text-xs font-bold text-slate-900 whitespace-nowrap">
-                    {formatThaiDate(historySelectedDate, { withDayOfWeek: false, shortMonth: true })}
-                  </span>
-                  <input
-                    id="history-date-picker"
-                    type="date"
-                    value={historySelectedDate}
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        setHistorySelectedDate(e.target.value);
-                        setHistoryDateFilter('date');
-                      }
-                    }}
-                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={handleHistoryNextDay}
-                  className="p-1 rounded-lg hover:bg-white hover:text-blue-600 text-slate-600 transition-colors cursor-pointer"
-                  title="วันถัดไป"
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
+                  {offRouteHistoryCount}
+                </span>
+              </button>
             </div>
           </div>
 
@@ -1486,6 +1867,8 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                   ? 'ยังไม่มีประวัติการเช็คอิน'
                   : historyDateFilter === 'today'
                   ? 'ยังไม่มีประวัติการเช็คอินในวันนี้'
+                  : historyDateFilter === 'week'
+                  ? 'ยังไม่มีประวัติการเช็คอินในสัปดาห์นี้'
                   : historyDateFilter === 'month'
                   ? 'ยังไม่มีประวัติการเช็คอินในเดือนนี้'
                   : historyDateFilter === 'date'
@@ -1498,7 +1881,17 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                   : 'สามารถเปลี่ยนช่วงเวลาด้านบน หรือเลือกวันที่อื่นเพื่อดูข้อมูลย้อนหลังได้'}
               </p>
               <div className="flex items-center justify-center gap-2 pt-2 flex-wrap">
-                {scopedCheckIns.length > 0 && historyDateFilter !== 'month' && thisMonthCheckIns.length > 0 && (
+                {canFilterHistoryBySales && historySelectedSales !== 'all' && (
+                  <button
+                    type="button"
+                    onClick={() => setHistorySelectedSales('all')}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold hover:bg-indigo-100 cursor-pointer"
+                  >
+                    <User className="w-3.5 h-3.5" />
+                    <span>แสดงเซลล์ทุกคน ({scopedCheckIns.length})</span>
+                  </button>
+                )}
+                {historySalesFilteredCheckIns.length > 0 && historyDateFilter !== 'month' && thisMonthCheckIns.length > 0 && (
                   <button
                     type="button"
                     onClick={() => setHistoryDateFilter('month')}
@@ -1508,13 +1901,13 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                     <span>ดูประวัติเดือนนี้ ({thisMonthCheckIns.length})</span>
                   </button>
                 )}
-                {scopedCheckIns.length > 0 && historyDateFilter !== 'all' && (
+                {historySalesFilteredCheckIns.length > 0 && historyDateFilter !== 'all' && (
                   <button
                     type="button"
                     onClick={() => setHistoryDateFilter('all')}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200 cursor-pointer"
                   >
-                    <span>ดูประวัติทั้งหมด ({scopedCheckIns.length})</span>
+                    <span>ดูประวัติทั้งหมด ({historySalesFilteredCheckIns.length})</span>
                   </button>
                 )}
                 <button
@@ -1529,10 +1922,16 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
             </div>
           ) : (
             <div className="space-y-2.5">
-              {filteredHistoryCheckIns.slice(0, visibleHistoryCount).map((item, idx) => (
+              {filteredHistoryCheckIns.slice(0, visibleHistoryCount).map((item, idx) => {
+                const isOffRouteItem = Boolean(
+                  item.isOffRoute || item.routeStatus === 'เช็คอินไม่ตรงสาย'
+                );
+                return (
                 <div
                   key={item.id + '-' + idx}
-                  className="content-auto-card bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+                  className={`content-auto-card bg-white p-3.5 rounded-2xl border shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
+                    isOffRouteItem ? 'border-amber-300 bg-amber-50/20' : 'border-slate-200/80'
+                  }`}
                 >
                   {/* Photo thumbnail */}
                   <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -1567,12 +1966,33 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                         <span className="text-[11px] font-mono text-blue-700 bg-blue-50 px-2 py-0.2 rounded-md font-semibold border border-blue-200/60">
                           {item.timestampStr}
                         </span>
+                        {isOffRouteItem ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                            <AlertTriangle className="w-3 h-3 text-amber-600" />
+                            <span>เช็คอินไม่ตรงสาย</span>
+                          </span>
+                        ) : item.routeStatus === 'ตรงสาย' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                            <span>ตรงสาย</span>
+                          </span>
+                        ) : null}
                       </div>
 
                       <div className="flex items-center gap-3 text-xs text-slate-500 mt-1 flex-wrap">
                         <span>👤 {item.salespersonName}</span>
                         {item.distanceMeters !== undefined && (
                           <span>📍 ห่าง {formatDistance(item.distanceMeters)}</span>
+                        )}
+                        {item.routeName && (
+                          <span className={isOffRouteItem ? 'text-amber-800 font-semibold' : 'text-blue-700 font-medium'}>
+                            🗺️ สายร้าน: {item.routeName}
+                          </span>
+                        )}
+                        {isOffRouteItem && item.scheduledRouteName && (
+                          <span className="text-slate-500">
+                            (แผนเดิม: {item.scheduledRouteName})
+                          </span>
                         )}
                         {item.notes && (
                           <span className="text-slate-700 font-medium">📝 {item.notes}</span>
@@ -1607,7 +2027,8 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
 
               {filteredHistoryCheckIns.length > visibleHistoryCount && (
                 <button
@@ -1731,6 +2152,30 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Off-Route Check-In Status Notice (Allows check-in normally, tags as เช็คอินไม่ตรงสาย) */}
+              {!isCustomStore && selectedCustomer && getOffRouteCheckInInfo(selectedCustomer).isOffRoute && (
+                <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 flex items-start gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="text-xs space-y-0.5">
+                    <div className="font-bold text-amber-950">
+                      สถานะการเช็คอิน: เช็คอินไม่ตรงสาย
+                    </div>
+                    <p className="text-[11px] text-amber-800 leading-relaxed">
+                      ร้านนี้อยู่สาย{' '}
+                      <span className="font-bold">
+                        {getOffRouteCheckInInfo(selectedCustomer).routeName || '-'}
+                      </span>{' '}
+                      ซึ่งไม่ตรงกับแผนเดิมของวันนี้ (
+                      <span className="font-semibold">
+                        {getOffRouteCheckInInfo(selectedCustomer).scheduledRouteName}
+                      </span>
+                      ) — สามารถบันทึกเช็คอินได้ตามปกติ โดยระบบจะติดป้ายสถานะ{' '}
+                      <span className="font-bold underline">เช็คอินไม่ตรงสาย</span> ไว้ในประวัติและ Google Sheets
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Recorded Time & GPS Details */}
               <div className="grid grid-cols-2 gap-2 text-xs">
@@ -1967,6 +2412,15 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
 
             {/* Body */}
             <div className="p-4 sm:p-5 overflow-y-auto space-y-3 text-xs">
+              <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-2 text-[11px] leading-relaxed">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  หากกดเปลี่ยนสายที่ไม่ตรงกับแผนเดิมของวันนี้ พนักงานยังคงสามารถเช็คอินร้านค้าได้ตามปกติ
+                  โดยระบบจะบันทึกประวัติการเปลี่ยนสายและขึ้นสถานะ{' '}
+                  <strong className="font-bold">เช็คอินไม่ตรงสาย</strong> ให้อัตโนมัติ
+                </span>
+              </div>
+
               <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
                 <span className="font-bold text-slate-800">
                   สายเข้าเยี่ยมของฉัน ({editingRouteIds.length}/{editableRoutesForModal.length} สาย)

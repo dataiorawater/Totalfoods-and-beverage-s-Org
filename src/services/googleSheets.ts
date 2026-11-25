@@ -1,5 +1,12 @@
-import { Order, OrderItem, FreebieItem, Route, StaffUser, Product, Customer, StoreCheckIn, Expense, DepositRecord, HiredVehicleTripRecord, VehicleMaintenanceRecord } from '../types';
+import { Order, OrderItem, FreebieItem, Route, StaffUser, Product, Customer, StoreCheckIn, Expense, DepositRecord, HiredVehicleTripRecord, VehicleMaintenanceRecord, DailyRouteSchedule, RouteScheduleHistoryEntry, RouteScheduleActionType } from '../types';
 import { normalizeThaiPhone, formatPhoneForGoogleSheets } from '../utils/phoneUtils';
+import {
+  OnlineOrderRawRow,
+  OnlinePostalRouteMapping,
+  buildOnlineRowDedupKey,
+  getOnlineStatusLabelThai,
+  parseOnlineStatusFromThai,
+} from '../utils/onlineOrderCsv';
 
 export const USERS_TAB_NAME = 'Users';
 export const ORDERS_TAB_NAME = 'Orders';
@@ -12,6 +19,64 @@ export const DEPOSITS_TAB_NAME = 'Deposits';
 export const HIRED_VEHICLES_TAB_NAME = 'HiredVehicles';
 export const MAINTENANCE_TAB_NAME = 'VehicleMaintenance';
 export const SYSTEM_CONFIG_TAB_NAME = 'SystemConfig';
+export const ONLINE_DELIVERY_PLAN_TAB_NAME = 'OnlineDeliveryPlan';
+export const ONLINE_POSTAL_ROUTES_TAB_NAME = 'OnlinePostalRoutes';
+export const DAILY_ROUTE_SCHEDULES_TAB_NAME = 'DailyRouteSchedules';
+export const ROUTE_SCHEDULE_HISTORY_TAB_NAME = 'RouteScheduleHistory';
+
+export const DAILY_ROUTE_SCHEDULES_HEADERS = [
+  'วันที่วิ่ง',
+  'พนักงานขาย',
+  'รหัสสายวิ่ง',
+  'ชื่อสายวิ่ง',
+  'ร้านนัดพิเศษนอกสาย',
+  'หมายเหตุประจำวัน',
+  'รหัสสายที่พนักงานเปลี่ยนเอง',
+  'รหัสสายเดิมก่อนเปลี่ยน',
+  'ผู้ตั้งค่าล่าสุด',
+  'อัปเดตล่าสุด',
+];
+
+export const ROUTE_SCHEDULE_HISTORY_HEADERS = [
+  'รหัสประวัติ',
+  'วันเวลาที่ทำรายการ',
+  'วันที่ของแผน',
+  'ประเภทการแก้ไข',
+  'ผู้ทำรายการ',
+  'ตำแหน่ง',
+  'สายวิ่งเดิม',
+  'สายวิ่งใหม่',
+  'หมายเหตุ',
+];
+
+export const ONLINE_DELIVERY_PLAN_HEADERS = [
+  'วันที่จัดส่ง',
+  'หมายเลขคำสั่งซื้อ',
+  'แพลตฟอร์ม',
+  'ชื่อผู้รับ',
+  'เบอร์โทรศัพท์',
+  'ที่อยู่รับสินค้า',
+  'เมือง/เขต',
+  'รหัสไปรษณีย์',
+  'ชื่อสินค้า',
+  'SKU',
+  'จำนวน',
+  'หมายเหตุผู้ซื้อ',
+  'หมายเหตุผู้ขาย',
+  'เวลาสั่งซื้อ',
+  'สายรถจัดส่ง',
+  'พนักงานขับรถ',
+  'สถานะจัดส่ง',
+  'อัปเดตล่าสุด',
+];
+
+export const ONLINE_POSTAL_ROUTES_HEADERS = [
+  'รหัสไปรษณีย์',
+  'สายรถจัดส่ง',
+  'พนักงานขับรถประจำสาย',
+  'หมายเหตุ',
+  'อัปเดตล่าสุด',
+];
 
 // หัวคอลัมภ์มาตรฐาน 18 คอลัมน์สำหรับฐานข้อมูลออเดอร์ ตรงกับโครงสร้างข้อมูล 100%
 export const ORDER_HEADERS_CANONICAL = [
@@ -274,6 +339,9 @@ export const ensureAllSheetsTabs = async (spreadsheetId: string, customOrderShee
         'photoUrl',
         'notes',
         'distanceMeters',
+        'routeStatus',
+        'routeName',
+        'scheduledRouteName',
       ],
     },
     {
@@ -386,6 +454,22 @@ export const ensureAllSheetsTabs = async (spreadsheetId: string, customOrderShee
     {
       name: SYSTEM_CONFIG_TAB_NAME,
       headers: ['key', 'value', 'updatedAt'],
+    },
+    {
+      name: ONLINE_DELIVERY_PLAN_TAB_NAME,
+      headers: ONLINE_DELIVERY_PLAN_HEADERS,
+    },
+    {
+      name: ONLINE_POSTAL_ROUTES_TAB_NAME,
+      headers: ONLINE_POSTAL_ROUTES_HEADERS,
+    },
+    {
+      name: DAILY_ROUTE_SCHEDULES_TAB_NAME,
+      headers: DAILY_ROUTE_SCHEDULES_HEADERS,
+    },
+    {
+      name: ROUTE_SCHEDULE_HISTORY_TAB_NAME,
+      headers: ROUTE_SCHEDULE_HISTORY_HEADERS,
     },
   ];
 
@@ -768,9 +852,24 @@ export const fetchProductsFromSheet = async (id: string): Promise<Product[]> => 
 
 // CHECKIN
 export const syncCheckInToSheets = async (id: string, c: StoreCheckIn) => {
+  const routeStatusLabel = c.routeStatus || (c.isOffRoute ? 'เช็คอินไม่ตรงสาย' : 'ตรงสาย');
   const rowData = [
-    c.id, c.createdAt, c.timestampStr, c.storeName, formatPhoneForGoogleSheets(c.customerPhone), c.address || '', 
-    c.salespersonName, c.latitude, c.longitude, c.mapsUrl, c.photoUrl, c.notes || '', c.distanceMeters || ''
+    c.id,
+    c.createdAt,
+    c.timestampStr,
+    c.storeName,
+    formatPhoneForGoogleSheets(c.customerPhone),
+    c.address || '',
+    c.salespersonName,
+    c.latitude,
+    c.longitude,
+    c.mapsUrl,
+    c.photoUrl,
+    c.notes || '',
+    c.distanceMeters || '',
+    routeStatusLabel,
+    c.routeName || '',
+    c.scheduledRouteName || '',
   ];
   await gasRequest(id, 'appendRow', CHECKIN_TAB_NAME, undefined, rowData);
 };
@@ -1386,22 +1485,32 @@ export const parseProducts = (values: any[]): Product[] => {
 
 export const parseCheckIns = (values: any[]): import('../types').StoreCheckIn[] => {
   if (!values || values.length <= 1) return [];
-  return values.slice(1).map((row: any) => ({
-    id: row[0] ? String(row[0]) : '',
-    createdAt: row[1] ? String(row[1]) : '',
-    timestampStr: row[2] ? String(row[2]) : '',
-    storeName: row[3] ? String(row[3]) : '',
-    customerPhone: normalizeThaiPhone(row[4]),
-    address: row[5] ? String(row[5]) : '',
-    salespersonId: row[6] ? String(row[6]) : '',
-    salespersonName: row[6] ? String(row[6]) : '',
-    latitude: parseFloat(row[7]) || 0,
-    longitude: parseFloat(row[8]) || 0,
-    mapsUrl: row[9] ? String(row[9]) : '',
-    photoUrl: row[10] ? String(row[10]) : '',
-    notes: row[11] ? String(row[11]) : '',
-    distanceMeters: row[12] ? parseInt(row[12]) : undefined,
-  }));
+  return values.slice(1).map((row: any) => {
+    const notes = row[11] ? String(row[11]) : '';
+    const routeStatus = row[13] ? String(row[13]).trim() : '';
+    const isOffRoute =
+      routeStatus.includes('ไม่ตรงสาย') || notes.includes('[เช็คอินไม่ตรงสาย]');
+    return {
+      id: row[0] ? String(row[0]) : '',
+      createdAt: row[1] ? String(row[1]) : '',
+      timestampStr: row[2] ? String(row[2]) : '',
+      storeName: row[3] ? String(row[3]) : '',
+      customerPhone: normalizeThaiPhone(row[4]),
+      address: row[5] ? String(row[5]) : '',
+      salespersonId: row[6] ? String(row[6]) : '',
+      salespersonName: row[6] ? String(row[6]) : '',
+      latitude: parseFloat(row[7]) || 0,
+      longitude: parseFloat(row[8]) || 0,
+      mapsUrl: row[9] ? String(row[9]) : '',
+      photoUrl: row[10] ? String(row[10]) : '',
+      notes,
+      distanceMeters: row[12] ? parseInt(row[12]) : undefined,
+      isOffRoute,
+      routeStatus: routeStatus || (isOffRoute ? 'เช็คอินไม่ตรงสาย' : undefined),
+      routeName: row[14] ? String(row[14]).trim() : undefined,
+      scheduledRouteName: row[15] ? String(row[15]).trim() : undefined,
+    };
+  });
 };
 
 export const parseExpenses = (values: any[]): Expense[] => {
@@ -1457,8 +1566,10 @@ export const fetchAllDataBulk = async (spreadsheetId: string, customOrderSheet?:
   const depositsVal = findSheetValues(DEPOSITS_TAB_NAME, ['deposits', 'deposit', 'เงินประกัน', 'มัดจำถัง', 'เงินมัดจำ']);
   const hiredVehiclesVal = findSheetValues(HIRED_VEHICLES_TAB_NAME, ['hiredvehicles', 'hired_vehicles', 'ค่าใช้จ่ายรถจ้าง', 'รถจ้าง', 'hired', 'ค่าจ้างรถ']);
   const maintenanceVal = findSheetValues(MAINTENANCE_TAB_NAME, ['vehiclemaintenance', 'maintenance', 'บำรุงรักษา', 'บันทึกบำรุงรักษา', 'ซ่อมบำรุง', 'ประวัติซ่อม']);
+  const dailySchedulesVal = findSheetValues(DAILY_ROUTE_SCHEDULES_TAB_NAME, ['dailyrouteschedules', 'daily_route_schedules', 'แผนการวิ่งรายวัน']);
+  const routeHistoryVal = findSheetValues(ROUTE_SCHEDULE_HISTORY_TAB_NAME, ['routeschedulehistory', 'route_schedule_history', 'ประวัติตั้งค่าสาย']);
 
-  if (ordersVal || usersVal || productsVal || customersVal || routesVal || checkinsVal || expensesVal || depositsVal || hiredVehiclesVal || maintenanceVal) {
+  if (ordersVal || usersVal || productsVal || customersVal || routesVal || checkinsVal || expensesVal || depositsVal || hiredVehiclesVal || maintenanceVal || dailySchedulesVal || routeHistoryVal) {
     return {
       users: usersVal ? parseUsers(usersVal) : [],
       orders: ordersVal ? parseOrdersFromValues(ordersVal) : [],
@@ -1470,6 +1581,8 @@ export const fetchAllDataBulk = async (spreadsheetId: string, customOrderSheet?:
       deposits: depositsVal ? parseDeposits(depositsVal) : null,
       hiredVehicles: hiredVehiclesVal ? parseHiredVehicleTrips(hiredVehiclesVal) : null,
       maintenanceRecords: maintenanceVal ? parseMaintenanceRecords(maintenanceVal) : null,
+      dailySchedules: dailySchedulesVal ? parseDailyRouteSchedules(dailySchedulesVal) : null,
+      routeScheduleHistory: routeHistoryVal ? parseRouteScheduleHistory(routeHistoryVal) : null,
     };
   }
   return null;
@@ -1903,5 +2016,670 @@ export const deleteMaintenanceFromSheet = async (spreadsheetId: string, mntId: s
     await gasRequest(spreadsheetId, 'updateRow', MAINTENANCE_TAB_NAME, found.sheetsRowIndex, emptyRow);
   }
 };
+
+// =========================================================================
+// ONLINE DELIVERY PLAN & POSTAL CODE ROUTE MAPPING (Google Sheets)
+// =========================================================================
+
+const formatSheetsTextCell = (val?: string): string => {
+  const s = String(val ?? '').trim();
+  if (!s) return '';
+  return s.startsWith("'") ? s : `'${s}`;
+};
+
+const normalizeSheetsPlanDate = (val: unknown): string => {
+  const s = String(val ?? '').replace(/^'+/, '').trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const parsed = new Date(s);
+  if (!isNaN(parsed.getTime())) {
+    // Convert to Bangkok UTC+7 YYYY-MM-DD so Google Sheets Date cells don't shift by -1 day
+    const bkk = new Date(parsed.getTime() + 7 * 60 * 60 * 1000);
+    const y = bkk.getUTCFullYear();
+    const m = String(bkk.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(bkk.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return s;
+};
+
+const normalizeSheetsPostalCode = (val: unknown): { postalCode: string; rawPostalCode: string; isMasked: boolean } => {
+  const cleaned = String(val ?? '').replace(/^'+/, '').trim();
+  const match = cleaned.match(/\b([1-9]\d{4})\b/);
+  if (match) {
+    return { postalCode: match[1], rawPostalCode: match[1], isMasked: false };
+  }
+  return { postalCode: 'MASKED', rawPostalCode: cleaned || '****', isMasked: true };
+};
+
+export const ensureOnlineLogisticsTabs = async (spreadsheetId: string): Promise<void> => {
+  const tabs = [
+    { name: ONLINE_DELIVERY_PLAN_TAB_NAME, headers: ONLINE_DELIVERY_PLAN_HEADERS },
+    { name: ONLINE_POSTAL_ROUTES_TAB_NAME, headers: ONLINE_POSTAL_ROUTES_HEADERS },
+  ];
+  for (const tab of tabs) {
+    try {
+      await gasRequest(spreadsheetId, 'addSheet', tab.name);
+      const res = await gasRequest(spreadsheetId, 'getData', tab.name);
+      if (!res || !res.values || res.values.length === 0) {
+        await gasRequest(spreadsheetId, 'appendRow', tab.name, undefined, tab.headers);
+      }
+    } catch (err) {
+      console.warn(`[ensureOnlineLogisticsTabs] Warning for ${tab.name}:`, err);
+    }
+  }
+};
+
+export const fetchOnlineDeliveryPlanFromSheet = async (
+  spreadsheetId: string
+): Promise<OnlineOrderRawRow[]> => {
+  try {
+    const res = await gasRequest(spreadsheetId, 'getData', ONLINE_DELIVERY_PLAN_TAB_NAME);
+    const values: any[][] = res?.values || [];
+    if (values.length <= 1) return [];
+
+    const rows: OnlineOrderRawRow[] = [];
+    for (let i = 1; i < values.length; i++) {
+      const r = values[i] || [];
+      const orderNumber = String(r[1] ?? '').replace(/^'+/, '').trim();
+      if (!orderNumber) continue;
+
+      const planDate = normalizeSheetsPlanDate(r[0]);
+      const rawPhone = String(r[4] ?? '').replace(/^'+/, '').trim();
+      const phone = /^\*+$/.test(rawPhone) ? rawPhone : normalizeThaiPhone(rawPhone);
+      const { postalCode, rawPostalCode, isMasked } = normalizeSheetsPostalCode(r[7]);
+
+      rows.push({
+        rowIndex: i,
+        sheetsRowIndex: i + 1, // 1-based Google Sheets row number
+        planDate,
+        orderNumber,
+        platform: String(r[2] ?? '').trim() || 'ออนไลน์',
+        recipientName: String(r[3] ?? '').trim(),
+        phone,
+        rawPhone,
+        address: String(r[5] ?? '').trim(),
+        city: String(r[6] ?? '').trim(),
+        postalCode,
+        rawPostalCode,
+        isMasked,
+        productName: String(r[8] ?? '').trim(),
+        sku: String(r[9] ?? '').replace(/^'+/, '').trim(),
+        quantity: Math.max(1, parseInt(String(r[10] ?? '1').replace(/[^0-9]/g, ''), 10) || 1),
+        buyerNote: String(r[11] ?? '').trim(),
+        sellerNote: String(r[12] ?? '').trim(),
+        orderTime: String(r[13] ?? '').replace(/^'+/, '').trim(),
+        assignedRoute: String(r[14] ?? '').trim(),
+        assignedDriver: String(r[15] ?? '').trim(),
+        deliveryStatus: parseOnlineStatusFromThai(String(r[16] ?? '')),
+        updatedAt: String(r[17] ?? '').trim(),
+        source: 'sheets',
+      });
+    }
+    return rows;
+  } catch (err: any) {
+    // If tab does not exist yet, return empty array gracefully
+    const msg = String(err?.message || '').toLowerCase();
+    if (msg.includes('not found') || msg.includes('sheet')) {
+      return [];
+    }
+    throw err;
+  }
+};
+
+const buildOnlineDeliveryPlanRowValues = (
+  planDate: string,
+  row: OnlineOrderRawRow,
+  assignedRoute: string,
+  assignedDriver: string,
+  updatedAt: string
+): any[] => {
+  const safePhone =
+    !row.phone || /^\*+$/.test(row.phone)
+      ? row.phone || ''
+      : formatPhoneForGoogleSheets(row.phone);
+
+  return [
+    formatSheetsTextCell(planDate),
+    formatSheetsTextCell(row.orderNumber),
+    row.platform || 'ออนไลน์',
+    row.recipientName || '',
+    safePhone,
+    row.address || '',
+    row.city || '',
+    formatSheetsTextCell(row.isMasked ? '****' : row.postalCode),
+    row.productName || '',
+    formatSheetsTextCell(row.sku),
+    Number(row.quantity) || 1,
+    row.buyerNote || '',
+    row.sellerNote || '',
+    formatSheetsTextCell(row.orderTime),
+    assignedRoute || '',
+    assignedDriver || '',
+    getOnlineStatusLabelThai(row.deliveryStatus || 'pending'),
+    updatedAt,
+  ];
+};
+
+const appendRowsChunked = async (
+  spreadsheetId: string,
+  sheetName: string,
+  rowsData: any[][],
+  chunkSize = 80
+) => {
+  for (let i = 0; i < rowsData.length; i += chunkSize) {
+    const chunk = rowsData.slice(i, i + chunkSize);
+    try {
+      await gasRequest(spreadsheetId, 'appendRows', sheetName, undefined, undefined, {
+        rowsData: chunk,
+      });
+    } catch (err) {
+      console.warn(`[${sheetName}] appendRows fallback to appendRow`, err);
+      for (const row of chunk) {
+        await gasRequest(spreadsheetId, 'appendRow', sheetName, undefined, row);
+      }
+    }
+  }
+};
+
+const updateRowsChunked = async (
+  spreadsheetId: string,
+  sheetName: string,
+  rowIndices: number[],
+  rowsData: any[][],
+  chunkSize = 50
+) => {
+  for (let i = 0; i < rowIndices.length; i += chunkSize) {
+    const idxChunk = rowIndices.slice(i, i + chunkSize);
+    const dataChunk = rowsData.slice(i, i + chunkSize);
+    try {
+      await gasRequest(spreadsheetId, 'updateRows', sheetName, undefined, undefined, {
+        rowIndices: idxChunk,
+        rowsData: dataChunk,
+      });
+    } catch (err) {
+      console.warn(`[${sheetName}] updateRows fallback to updateRow`, err);
+      for (let j = 0; j < idxChunk.length; j++) {
+        await gasRequest(spreadsheetId, 'updateRow', sheetName, idxChunk[j], dataChunk[j]);
+      }
+    }
+  }
+};
+
+export interface SaveOnlinePlanResult {
+  addedCount: number;
+  skippedDuplicateCount: number;
+  skippedMaskedCount: number;
+}
+
+export const saveOnlineDeliveryPlanBatchToSheet = async (
+  spreadsheetId: string,
+  planDate: string,
+  rows: OnlineOrderRawRow[],
+  routeAssignments: Record<string, string>,
+  driverAssignments: Record<string, string>,
+  options: { skipMasked?: boolean } = {}
+): Promise<SaveOnlinePlanResult> => {
+  await ensureOnlineLogisticsTabs(spreadsheetId);
+
+  // Read existing rows to prevent duplicates on same delivery date
+  const existingRows = await fetchOnlineDeliveryPlanFromSheet(spreadsheetId);
+  const existingKeySet = new Set<string>();
+  for (const ex of existingRows) {
+    existingKeySet.add(
+      buildOnlineRowDedupKey(ex.planDate || '', ex.orderNumber, ex.sku, ex.productName)
+    );
+  }
+
+  const nowStr = new Date().toLocaleString('th-TH');
+  const toAppend: any[][] = [];
+  let skippedDuplicateCount = 0;
+  let skippedMaskedCount = 0;
+
+  for (const row of rows) {
+    if (options.skipMasked && row.isMasked) {
+      skippedMaskedCount++;
+      continue;
+    }
+
+    const dedupKey = buildOnlineRowDedupKey(planDate, row.orderNumber, row.sku, row.productName);
+    if (existingKeySet.has(dedupKey)) {
+      skippedDuplicateCount++;
+      continue;
+    }
+    existingKeySet.add(dedupKey);
+
+    const assignedRoute =
+      routeAssignments[row.postalCode] ||
+      row.assignedRoute ||
+      (row.isMasked ? 'รอตรวจสอบรหัสไปรษณีย์' : `สายรหัส ${row.postalCode}`);
+    const assignedDriver = driverAssignments[row.postalCode] ?? row.assignedDriver ?? '';
+
+    toAppend.push(
+      buildOnlineDeliveryPlanRowValues(planDate, row, assignedRoute, assignedDriver, nowStr)
+    );
+  }
+
+  if (toAppend.length > 0) {
+    await appendRowsChunked(spreadsheetId, ONLINE_DELIVERY_PLAN_TAB_NAME, toAppend);
+  }
+
+  return {
+    addedCount: toAppend.length,
+    skippedDuplicateCount,
+    skippedMaskedCount,
+  };
+};
+
+export const updateOnlinePlanRowsInSheet = async (
+  spreadsheetId: string,
+  updatedRows: OnlineOrderRawRow[]
+): Promise<number> => {
+  const targetRows = updatedRows.filter((r) => typeof r.sheetsRowIndex === 'number' && r.sheetsRowIndex >= 2);
+  if (targetRows.length === 0) return 0;
+
+  const nowStr = new Date().toLocaleString('th-TH');
+  const rowIndices: number[] = [];
+  const rowsData: any[][] = [];
+
+  for (const row of targetRows) {
+    rowIndices.push(row.sheetsRowIndex as number);
+    rowsData.push(
+      buildOnlineDeliveryPlanRowValues(
+        row.planDate || '',
+        row,
+        row.assignedRoute || '',
+        row.assignedDriver || '',
+        nowStr
+      )
+    );
+  }
+
+  await updateRowsChunked(spreadsheetId, ONLINE_DELIVERY_PLAN_TAB_NAME, rowIndices, rowsData);
+  return targetRows.length;
+};
+
+export const fetchOnlinePostalRoutesFromSheet = async (
+  spreadsheetId: string
+): Promise<OnlinePostalRouteMapping[]> => {
+  try {
+    const res = await gasRequest(spreadsheetId, 'getData', ONLINE_POSTAL_ROUTES_TAB_NAME);
+    const values: any[][] = res?.values || [];
+    if (values.length <= 1) return [];
+
+    const result: OnlinePostalRouteMapping[] = [];
+    for (let i = 1; i < values.length; i++) {
+      const r = values[i] || [];
+      const postalCode = String(r[0] ?? '').replace(/^'+/, '').trim();
+      const routeName = String(r[1] ?? '').trim();
+      if (!postalCode || !routeName) continue;
+
+      result.push({
+        postalCode,
+        routeName,
+        driverName: String(r[2] ?? '').trim(),
+        notes: String(r[3] ?? '').trim(),
+        updatedAt: String(r[4] ?? '').trim(),
+        sheetsRowIndex: i + 1,
+      });
+    }
+    return result;
+  } catch (err: any) {
+    const msg = String(err?.message || '').toLowerCase();
+    if (msg.includes('not found') || msg.includes('sheet')) {
+      return [];
+    }
+    throw err;
+  }
+};
+
+export const saveOnlinePostalRoutesBatchToSheet = async (
+  spreadsheetId: string,
+  mappings: Array<{ postalCode: string; routeName: string; driverName?: string; notes?: string }>
+): Promise<number> => {
+  const validMappings = mappings.filter(
+    (m) => m.postalCode && m.postalCode !== 'MASKED' && m.routeName.trim() !== ''
+  );
+  if (validMappings.length === 0) return 0;
+
+  await ensureOnlineLogisticsTabs(spreadsheetId);
+  const existing = await fetchOnlinePostalRoutesFromSheet(spreadsheetId);
+  const existingMap = new Map<string, OnlinePostalRouteMapping>();
+  for (const item of existing) {
+    existingMap.set(item.postalCode, item);
+  }
+
+  const nowStr = new Date().toLocaleString('th-TH');
+  const updateIndices: number[] = [];
+  const updateData: any[][] = [];
+  const appendData: any[][] = [];
+
+  for (const m of validMappings) {
+    const prev = existingMap.get(m.postalCode);
+    const nextDriver = m.driverName !== undefined ? m.driverName : prev?.driverName || '';
+    const nextNotes = m.notes !== undefined ? m.notes : prev?.notes || '';
+    const rowValues = [
+      formatSheetsTextCell(m.postalCode),
+      m.routeName.trim(),
+      nextDriver.trim(),
+      nextNotes.trim(),
+      nowStr,
+    ];
+
+    if (prev && prev.sheetsRowIndex) {
+      // Only update if something actually changed
+      if (
+        prev.routeName !== m.routeName.trim() ||
+        prev.driverName !== nextDriver.trim() ||
+        prev.notes !== nextNotes.trim()
+      ) {
+        updateIndices.push(prev.sheetsRowIndex);
+        updateData.push(rowValues);
+      }
+    } else {
+      appendData.push(rowValues);
+      existingMap.set(m.postalCode, {
+        postalCode: m.postalCode,
+        routeName: m.routeName.trim(),
+        driverName: nextDriver.trim(),
+        notes: nextNotes.trim(),
+        updatedAt: nowStr,
+      });
+    }
+  }
+
+  if (updateIndices.length > 0) {
+    await updateRowsChunked(
+      spreadsheetId,
+      ONLINE_POSTAL_ROUTES_TAB_NAME,
+      updateIndices,
+      updateData
+    );
+  }
+  if (appendData.length > 0) {
+    await appendRowsChunked(spreadsheetId, ONLINE_POSTAL_ROUTES_TAB_NAME, appendData);
+  }
+
+  return updateIndices.length + appendData.length;
+};
+
+// =========================================================================
+// DAILY ROUTE SCHEDULES & ROUTE SCHEDULE HISTORY (Google Sheets)
+// =========================================================================
+
+const splitCsvCellIds = (val: unknown): string[] => {
+  const s = String(val ?? '').replace(/^'+/, '').trim();
+  if (!s) return [];
+  return s
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+};
+
+export const getRouteScheduleActionLabelThai = (actionType: RouteScheduleActionType | string): string => {
+  switch (actionType) {
+    case 'set_daily':
+      return 'ตั้งค่าแผนรายวัน';
+    case 'update_daily':
+      return 'แก้ไขแผนรายวัน';
+    case 'batch_monthly':
+      return 'สร้างแผนอัตโนมัติทั้งเดือน';
+    case 'clear_monthly':
+      return 'ล้างแผนปรับแต่งรายเดือน';
+    case 'reset_default':
+      return 'รีเซ็ตเป็นรอบปกติ';
+    case 'sales_self_switch':
+      return 'พนักงานเปลี่ยนสายเอง';
+    default:
+      return String(actionType || 'แก้ไขแผนวิ่งสาย');
+  }
+};
+
+const parseRouteScheduleActionType = (raw: string): RouteScheduleActionType => {
+  const s = String(raw || '').trim();
+  if (s === 'sales_self_switch' || s.includes('เปลี่ยนสายเอง')) return 'sales_self_switch';
+  if (s === 'batch_monthly' || s.includes('ทั้งเดือน')) return 'batch_monthly';
+  if (s === 'clear_monthly' || s.includes('ล้างแผน')) return 'clear_monthly';
+  if (s === 'reset_default' || s.includes('รีเซ็ต')) return 'reset_default';
+  if (s === 'set_daily' || s.includes('ตั้งค่า')) return 'set_daily';
+  return 'update_daily';
+};
+
+export const ensureRouteScheduleTabs = async (spreadsheetId: string): Promise<void> => {
+  const tabs = [
+    { name: DAILY_ROUTE_SCHEDULES_TAB_NAME, headers: DAILY_ROUTE_SCHEDULES_HEADERS },
+    { name: ROUTE_SCHEDULE_HISTORY_TAB_NAME, headers: ROUTE_SCHEDULE_HISTORY_HEADERS },
+  ];
+  for (const tab of tabs) {
+    try {
+      await gasRequest(spreadsheetId, 'addSheet', tab.name);
+      const res = await gasRequest(spreadsheetId, 'getData', tab.name);
+      if (!res || !res.values || res.values.length === 0) {
+        await gasRequest(spreadsheetId, 'appendRow', tab.name, undefined, tab.headers);
+      }
+    } catch (err) {
+      console.warn(`[ensureRouteScheduleTabs] Warning for ${tab.name}:`, err);
+    }
+  }
+};
+
+export const parseDailyRouteSchedules = (values: any[]): Record<string, DailyRouteSchedule> => {
+  const map: Record<string, DailyRouteSchedule> = {};
+  if (!values || values.length <= 1) return map;
+
+  for (let i = 1; i < values.length; i++) {
+    const r = values[i] || [];
+    const dateStr = normalizeSheetsPlanDate(r[0]);
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) continue;
+
+    const assignedSales = String(r[1] ?? '').trim();
+    const routeIds = splitCsvCellIds(r[2]);
+    const additionalCustomerIds = splitCsvCellIds(r[4]);
+    const notes = String(r[5] ?? '').trim();
+    const selfSwitchedRouteIds = splitCsvCellIds(r[6]);
+    const plannedRouteIdsBeforeSwitch = splitCsvCellIds(r[7]);
+    const updatedBy = String(r[8] ?? '').trim();
+    const updatedAt = String(r[9] ?? '').trim();
+
+    map[dateStr] = {
+      date: dateStr,
+      routeIds,
+      assignedSales: assignedSales && assignedSales !== 'ALL' ? assignedSales : undefined,
+      additionalCustomerIds: additionalCustomerIds.length > 0 ? additionalCustomerIds : undefined,
+      notes: notes || undefined,
+      selfSwitchedRouteIds: selfSwitchedRouteIds.length > 0 ? selfSwitchedRouteIds : undefined,
+      plannedRouteIdsBeforeSwitch:
+        plannedRouteIdsBeforeSwitch.length > 0 ? plannedRouteIdsBeforeSwitch : undefined,
+      updatedBy: updatedBy || undefined,
+      updatedAt: updatedAt || undefined,
+    };
+  }
+  return map;
+};
+
+export const parseRouteScheduleHistory = (values: any[]): RouteScheduleHistoryEntry[] => {
+  if (!values || values.length <= 1) return [];
+  const list: RouteScheduleHistoryEntry[] = [];
+  for (let i = 1; i < values.length; i++) {
+    const r = values[i] || [];
+    const id = String(r[0] ?? '').trim();
+    const timestamp = String(r[1] ?? '').trim();
+    if (!id && !timestamp) continue;
+    list.push({
+      id: id || `RSH-${i}`,
+      timestamp,
+      targetDate: normalizeSheetsPlanDate(r[2]),
+      actionType: parseRouteScheduleActionType(String(r[3] ?? '')),
+      changedBy: String(r[4] ?? '').trim() || 'ผู้ใช้งาน',
+      changedByRole: String(r[5] ?? '').trim() || '',
+      previousRouteIds: [],
+      previousRouteNames: String(r[6] ?? '').trim() || '-',
+      newRouteIds: [],
+      newRouteNames: String(r[7] ?? '').trim() || '-',
+      notes: String(r[8] ?? '').trim() || undefined,
+    });
+  }
+  return list.reverse();
+};
+
+export const fetchDailyRouteSchedulesFromSheet = async (
+  spreadsheetId: string
+): Promise<Record<string, DailyRouteSchedule>> => {
+  try {
+    const res = await gasRequest(spreadsheetId, 'getData', DAILY_ROUTE_SCHEDULES_TAB_NAME);
+    return parseDailyRouteSchedules(res?.values || []);
+  } catch (err: any) {
+    const msg = String(err?.message || '').toLowerCase();
+    if (msg.includes('not found') || msg.includes('sheet')) return {};
+    throw err;
+  }
+};
+
+export const fetchRouteScheduleHistoryFromSheet = async (
+  spreadsheetId: string
+): Promise<RouteScheduleHistoryEntry[]> => {
+  try {
+    const res = await gasRequest(spreadsheetId, 'getData', ROUTE_SCHEDULE_HISTORY_TAB_NAME);
+    return parseRouteScheduleHistory(res?.values || []);
+  } catch (err: any) {
+    const msg = String(err?.message || '').toLowerCase();
+    if (msg.includes('not found') || msg.includes('sheet')) return [];
+    throw err;
+  }
+};
+
+const buildDailyScheduleRowValues = (
+  schedule: DailyRouteSchedule,
+  routes: Route[]
+): any[] => {
+  const routeNameMap = new Map<string, string>();
+  routes.forEach((rt) => routeNameMap.set(rt.id, rt.name));
+  const routeNamesStr = schedule.routeIds
+    .map((id) => routeNameMap.get(id) || id)
+    .join(', ');
+
+  return [
+    formatSheetsTextCell(schedule.date),
+    schedule.assignedSales || 'ALL',
+    formatSheetsTextCell(schedule.routeIds.join(',')),
+    routeNamesStr || '-',
+    formatSheetsTextCell((schedule.additionalCustomerIds || []).join(',')),
+    schedule.notes || '',
+    formatSheetsTextCell((schedule.selfSwitchedRouteIds || []).join(',')),
+    formatSheetsTextCell((schedule.plannedRouteIdsBeforeSwitch || []).join(',')),
+    schedule.updatedBy || '',
+    schedule.updatedAt || new Date().toISOString(),
+  ];
+};
+
+export const upsertDailyRouteScheduleToSheet = async (
+  spreadsheetId: string,
+  schedule: DailyRouteSchedule,
+  routes: Route[]
+): Promise<void> => {
+  await ensureRouteScheduleTabs(spreadsheetId);
+  const res = await gasRequest(spreadsheetId, 'getData', DAILY_ROUTE_SCHEDULES_TAB_NAME);
+  const values: any[][] = res?.values || [];
+  let foundRowIndex: number | null = null;
+  for (let i = 1; i < values.length; i++) {
+    const rowDate = normalizeSheetsPlanDate(values[i]?.[0]);
+    if (rowDate === schedule.date) {
+      foundRowIndex = i + 1;
+      break;
+    }
+  }
+  const rowData = buildDailyScheduleRowValues(schedule, routes);
+  if (foundRowIndex) {
+    await gasRequest(spreadsheetId, 'updateRow', DAILY_ROUTE_SCHEDULES_TAB_NAME, foundRowIndex, rowData);
+  } else {
+    await gasRequest(spreadsheetId, 'appendRow', DAILY_ROUTE_SCHEDULES_TAB_NAME, undefined, rowData);
+  }
+};
+
+export const upsertBatchDailyRouteSchedulesToSheet = async (
+  spreadsheetId: string,
+  schedules: Record<string, DailyRouteSchedule>,
+  routes: Route[],
+  deletedDateStrings: string[] = []
+): Promise<void> => {
+  await ensureRouteScheduleTabs(spreadsheetId);
+  const res = await gasRequest(spreadsheetId, 'getData', DAILY_ROUTE_SCHEDULES_TAB_NAME);
+  const values: any[][] = res?.values || [];
+
+  const existingRowIndexByDate = new Map<string, number>();
+  for (let i = 1; i < values.length; i++) {
+    const rowDate = normalizeSheetsPlanDate(values[i]?.[0]);
+    if (rowDate) existingRowIndexByDate.set(rowDate, i + 1);
+  }
+
+  const updateIndices: number[] = [];
+  const updateData: any[][] = [];
+  const appendData: any[][] = [];
+
+  for (const sched of Object.values(schedules)) {
+    if (!sched?.date) continue;
+    const rowData = buildDailyScheduleRowValues(sched, routes);
+    const existingIdx = existingRowIndexByDate.get(sched.date);
+    if (existingIdx) {
+      updateIndices.push(existingIdx);
+      updateData.push(rowData);
+    } else {
+      appendData.push(rowData);
+    }
+  }
+
+  // Clear deleted dates by blanking their rows (safe for row indices)
+  for (const delDate of deletedDateStrings) {
+    const existingIdx = existingRowIndexByDate.get(delDate);
+    if (existingIdx && !schedules[delDate]) {
+      updateIndices.push(existingIdx);
+      updateData.push(new Array(DAILY_ROUTE_SCHEDULES_HEADERS.length).fill(''));
+    }
+  }
+
+  if (updateIndices.length > 0) {
+    await updateRowsChunked(spreadsheetId, DAILY_ROUTE_SCHEDULES_TAB_NAME, updateIndices, updateData);
+  }
+  if (appendData.length > 0) {
+    await appendRowsChunked(spreadsheetId, DAILY_ROUTE_SCHEDULES_TAB_NAME, appendData);
+  }
+};
+
+export const deleteDailyRouteScheduleFromSheet = async (
+  spreadsheetId: string,
+  dateStr: string
+): Promise<void> => {
+  await ensureRouteScheduleTabs(spreadsheetId);
+  const res = await gasRequest(spreadsheetId, 'getData', DAILY_ROUTE_SCHEDULES_TAB_NAME);
+  const values: any[][] = res?.values || [];
+  for (let i = 1; i < values.length; i++) {
+    const rowDate = normalizeSheetsPlanDate(values[i]?.[0]);
+    if (rowDate === dateStr) {
+      await gasRequest(spreadsheetId, 'deleteRow', DAILY_ROUTE_SCHEDULES_TAB_NAME, i + 1);
+      break;
+    }
+  }
+};
+
+export const appendRouteScheduleHistoryToSheet = async (
+  spreadsheetId: string,
+  entry: RouteScheduleHistoryEntry
+): Promise<void> => {
+  await ensureRouteScheduleTabs(spreadsheetId);
+  const rowData = [
+    entry.id,
+    entry.timestamp,
+    formatSheetsTextCell(entry.targetDate),
+    getRouteScheduleActionLabelThai(entry.actionType),
+    entry.changedBy,
+    entry.changedByRole,
+    entry.previousRouteNames || '-',
+    entry.newRouteNames || '-',
+    entry.notes || '',
+  ];
+  await gasRequest(spreadsheetId, 'appendRow', ROUTE_SCHEDULE_HISTORY_TAB_NAME, undefined, rowData);
+};
+
+
 
 

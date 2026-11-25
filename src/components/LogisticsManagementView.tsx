@@ -32,8 +32,10 @@ import {
   Check,
   Edit2,
   CalendarDays,
+  Globe,
 } from 'lucide-react';
 import { TotalEmblem } from './TotalLogo';
+import { OnlineLogisticsPlanTab } from './OnlineLogisticsPlanTab';
 
 interface LogisticsManagementViewProps {
   orders: Order[];
@@ -45,6 +47,8 @@ interface LogisticsManagementViewProps {
   onSelectOrder: (order: Order) => void;
   onRefreshOrders?: () => Promise<void> | void;
   sheetsConnected: boolean;
+  spreadsheetId?: string;
+  onShowToast?: (type: 'success' | 'error' | 'info', title: string, message: string) => void;
 }
 
 // Helper to robustly parse date strings
@@ -113,7 +117,12 @@ export const LogisticsManagementView: React.FC<LogisticsManagementViewProps> = (
   onSelectOrder,
   onRefreshOrders,
   sheetsConnected,
+  spreadsheetId,
+  onShowToast,
 }) => {
+  // Active Sub-Tab: 1. แผนงานจัดส่ง (ปัจจุบัน) | 2. แผนงานจัดส่งออนไลน์ (CSV)
+  const [activeLogisticsTab, setActiveLogisticsTab] = useState<'standard' | 'online'>('standard');
+
   // Filters
   const [dateFilter, setDateFilter] = useState<'today' | 'tomorrow' | 'this_week' | 'all' | 'custom'>('today');
   const [customDate, setCustomDate] = useState<string>(() => {
@@ -439,7 +448,57 @@ export const LogisticsManagementView: React.FC<LogisticsManagementViewProps> = (
   };
 
   return (
-    <div className="space-y-5 animate-in fade-in duration-200">
+    <div className="space-y-4 animate-in fade-in duration-200">
+      {/* Top 2-Tab Navigation Bar */}
+      <div className="bg-white rounded-2xl p-2 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div className="grid grid-cols-2 sm:inline-flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl w-full sm:w-auto">
+          <button
+            id="logistics-tab-standard"
+            type="button"
+            onClick={() => setActiveLogisticsTab('standard')}
+            className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              activeLogisticsTab === 'standard'
+                ? 'bg-white text-blue-700 shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Truck className="w-3.5 h-3.5" />
+            <span>แผนงานจัดส่งปกติ</span>
+          </button>
+          <button
+            id="logistics-tab-online"
+            type="button"
+            onClick={() => setActiveLogisticsTab('online')}
+            className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              activeLogisticsTab === 'online'
+                ? 'bg-white text-blue-700 shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>แผนงานจัดส่งออนไลน์ (Excel/CSV)</span>
+          </button>
+        </div>
+
+        <div className="hidden sm:flex items-center gap-2 px-2 text-xs text-slate-500">
+          <span>
+            {activeLogisticsTab === 'standard'
+              ? 'จัดการคิวจัดส่งจากออเดอร์ในระบบ'
+              : 'นำเข้าไฟล์ Excel / CSV และแยกสายส่งตามรหัสไปรษณีย์'}
+          </span>
+        </div>
+      </div>
+
+      {activeLogisticsTab === 'online' ? (
+        <OnlineLogisticsPlanTab
+          routes={routes}
+          staffList={staffList}
+          spreadsheetId={spreadsheetId}
+          sheetsConnected={sheetsConnected}
+          onShowToast={onShowToast}
+        />
+      ) : (
+        <div className="space-y-5">
       {/* 1. Header Banner & Title */}
       <div className="bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-900 rounded-3xl p-5 sm:p-7 text-white shadow-md relative overflow-hidden">
         <div className="absolute right-0 top-0 bottom-0 opacity-10 flex items-center pr-6 pointer-events-none">
@@ -1445,6 +1504,8 @@ export const LogisticsManagementView: React.FC<LogisticsManagementViewProps> = (
               </div>
             </div>
           </div>
+        </div>
+      )}
         </div>
       )}
     </div>

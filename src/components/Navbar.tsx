@@ -25,6 +25,8 @@ import {
   ShieldCheck,
   CircleDollarSign,
   Wrench,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { StaffUser, StaffRole, SheetsConfig, LineSettings } from '../types';
 
@@ -84,6 +86,25 @@ export const Navbar: React.FC<NavbarProps> = ({
   maintenanceCount = 0,
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('iora_sidebar_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleSidebarCollapsed = () => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('iora_sidebar_collapsed', String(next));
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  };
   const getRoleIcon = (role: StaffRole) => {
     switch (role) {
       case 'admin':
@@ -127,100 +148,164 @@ export const Navbar: React.FC<NavbarProps> = ({
       {/* =========================================================================
           1. DESKTOP LEFT SIDEBAR (Visible on lg: and wider)
          ========================================================================= */}
-      <aside className="hidden lg:flex w-64 xl:w-72 h-screen sticky top-0 bg-white border-r border-slate-200/90 flex-col shrink-0 z-30 select-none shadow-xs">
-        {/* Brand & Connection Status */}
-        <div className="p-5 border-b border-slate-100">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-white flex items-center justify-center shadow-sm border border-slate-200/70 shrink-0 p-0.5">
-              <TotalEmblem className="w-9 h-9 shrink-0 drop-shadow-xs" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <h1 className="font-extrabold text-base tracking-tight text-slate-900 leading-none truncate">
-                  TOTAL
-                </h1>
-                <span className="inline-flex items-center px-1.5 py-0.2 rounded-md text-[9px] font-extrabold bg-blue-100 text-blue-900 uppercase">
-                  Solution
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-500 mt-1 truncate font-medium">
-                Foods &amp; Beverage
-              </p>
-            </div>
-          </div>
+      <aside
+        className={`hidden lg:flex ${
+          isSidebarCollapsed ? 'w-20' : 'w-64 xl:w-72'
+        } h-screen sticky top-0 bg-white border-r border-slate-200/90 flex-col shrink-0 z-30 select-none shadow-xs transition-[width] duration-200 ease-in-out`}
+      >
+        {/* Collapse / Expand Toggle Button on Sidebar Edge */}
+        <button
+          id="sidebar-btn-toggle-collapse"
+          type="button"
+          onClick={toggleSidebarCollapsed}
+          title={isSidebarCollapsed ? 'แสดงแถบเมนูเต็ม' : 'ซ่อนแถบเมนู (แสดงเฉพาะไอคอน)'}
+          aria-label={isSidebarCollapsed ? 'แสดงแถบเมนูเต็ม' : 'ซ่อนแถบเมนู (แสดงเฉพาะไอคอน)'}
+          aria-expanded={!isSidebarCollapsed}
+          className="absolute -right-3.5 top-6 z-40 w-7 h-7 rounded-full bg-white border border-slate-200 shadow-sm text-slate-500 hover:text-blue-700 hover:border-blue-300 hover:bg-blue-50 active:scale-95 flex items-center justify-center transition-all cursor-pointer"
+        >
+          {isSidebarCollapsed ? (
+            <ChevronRight className="w-4 h-4" />
+          ) : (
+            <ChevronLeft className="w-4 h-4" />
+          )}
+        </button>
 
-          {/* Connection Status Pill */}
-          <div className="mt-3.5 p-2 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between text-[11px]">
-            <span className="text-slate-500 font-medium">สถานะระบบ:</span>
-            {sheetsConfig?.spreadsheetId ? (
-              <span className="text-blue-700 font-semibold flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
-                <span>เชื่อมต่อ Sheets แล้ว</span>
-              </span>
-            ) : (
-              <span className="text-amber-700 font-semibold flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                <span>โหมดออฟไลน์</span>
-              </span>
+        {/* Brand & Connection Status */}
+        <div className={`${isSidebarCollapsed ? 'p-3.5 flex flex-col items-center' : 'p-5'} border-b border-slate-100`}>
+          <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'}`}>
+            <div
+              className={`${
+                isSidebarCollapsed ? 'w-10 h-10 rounded-xl' : 'w-11 h-11 rounded-2xl'
+              } bg-white flex items-center justify-center shadow-sm border border-slate-200/70 shrink-0 p-0.5`}
+              title="TOTAL Solution - Foods & Beverage"
+            >
+              <TotalEmblem className={`${isSidebarCollapsed ? 'w-8 h-8' : 'w-9 h-9'} shrink-0 drop-shadow-xs`} />
+            </div>
+            {!isSidebarCollapsed && (
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <h1 className="font-extrabold text-base tracking-tight text-slate-900 leading-none truncate">
+                    TOTAL
+                  </h1>
+                  <span className="inline-flex items-center px-1.5 py-0.2 rounded-md text-[9px] font-extrabold bg-blue-100 text-blue-900 uppercase">
+                    Solution
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1 truncate font-medium">
+                  Foods &amp; Beverage
+                </p>
+              </div>
             )}
           </div>
-        </div>
 
-        {/* Action Buttons Section */}
-        <div className="p-4 border-b border-slate-100">
-          {!isViewer && (
-            <button
-              id="sidebar-btn-new-order"
-              onClick={onOpenNewOrder}
-              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-98 text-white font-bold text-xs shadow-md shadow-blue-600/20 transition-all cursor-pointer"
+          {/* Connection Status */}
+          {isSidebarCollapsed ? (
+            <div
+              className="mt-2.5 flex items-center justify-center"
+              title={sheetsConfig?.spreadsheetId ? 'สถานะระบบ: เชื่อมต่อ Sheets แล้ว' : 'สถานะระบบ: โหมดออฟไลน์'}
             >
-              <PlusCircle className="w-4 h-4" />
-              <span>ลงออเดอร์ใหม่</span>
-            </button>
+              {sheetsConfig?.spreadsheetId ? (
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse ring-4 ring-blue-50"></span>
+              ) : (
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 ring-4 ring-amber-50"></span>
+              )}
+            </div>
+          ) : (
+            <div className="mt-3.5 p-2 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between text-[11px]">
+              <span className="text-slate-500 font-medium">สถานะระบบ:</span>
+              {sheetsConfig?.spreadsheetId ? (
+                <span className="text-blue-700 font-semibold flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+                  <span>เชื่อมต่อ Sheets แล้ว</span>
+                </span>
+              ) : (
+                <span className="text-amber-700 font-semibold flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                  <span>โหมดออฟไลน์</span>
+                </span>
+              )}
+            </div>
           )}
         </div>
 
+        {/* Action Buttons Section */}
+        {!isViewer && (
+          <div className={`${isSidebarCollapsed ? 'p-3 flex justify-center' : 'p-4'} border-b border-slate-100`}>
+            <button
+              id="sidebar-btn-new-order"
+              onClick={onOpenNewOrder}
+              title="ลงออเดอร์ใหม่"
+              className={`${
+                isSidebarCollapsed
+                  ? 'w-11 h-11 p-0 rounded-xl'
+                  : 'w-full py-2.5 px-4 rounded-xl gap-2'
+              } flex items-center justify-center bg-blue-600 hover:bg-blue-700 active:scale-98 text-white font-bold text-xs shadow-md shadow-blue-600/20 transition-all cursor-pointer`}
+            >
+              <PlusCircle className={`${isSidebarCollapsed ? 'w-5 h-5' : 'w-4 h-4'} shrink-0`} />
+              {!isSidebarCollapsed && <span>ลงออเดอร์ใหม่</span>}
+            </button>
+          </div>
+        )}
+
         {/* Scrollable Navigation Menu Groups */}
-        <div className="flex-1 overflow-y-auto p-3.5 space-y-5">
+        <div
+          className={`flex-1 overflow-y-auto overflow-x-hidden ${
+            isSidebarCollapsed ? 'px-2.5 py-3 space-y-3' : 'p-3.5 space-y-5'
+          } flex flex-col`}
+        >
           {/* Group 1: Sales Menu */}
           <div>
-            <div className="px-3 mb-2 flex items-center justify-between">
-              <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
-                เมนูพนักงานขาย
-              </span>
-              <span className="text-[10px] font-semibold text-slate-400">
-                Sales
-              </span>
-            </div>
+            {!isSidebarCollapsed && (
+              <div className="px-3 mb-2 flex items-center justify-between">
+                <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
+                  เมนูพนักงานขาย
+                </span>
+                <span className="text-[10px] font-semibold text-slate-400">
+                  Sales
+                </span>
+              </div>
+            )}
             <nav className="space-y-1">
               {/* 1. Customers */}
               <button
                 id="sidebar-tab-customers"
                 onClick={() => setActiveTab('customers')}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
+                title={customerCount > 0 ? `ข้อมูลลูกค้า (${customerCount})` : 'ข้อมูลลูกค้า'}
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
+                } rounded-xl text-xs font-semibold transition-all cursor-pointer group relative ${
                   activeTab === 'customers'
                     ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
                 }`}
               >
-                <div className="flex items-center gap-2.5 min-w-0">
+                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
                   <div
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                    className={`${
+                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
+                    } flex items-center justify-center shrink-0 transition-colors relative ${
                       activeTab === 'customers'
                         ? 'bg-blue-600 text-white shadow-2xs'
                         : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
                     }`}
                   >
                     <Users className="w-4 h-4" />
+                    {isSidebarCollapsed && customerCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-blue-600 text-white text-[9px] font-bold flex items-center justify-center leading-none ring-2 ring-white">
+                        {customerCount > 99 ? '99+' : customerCount}
+                      </span>
+                    )}
                   </div>
-                  <div className="flex flex-col text-left min-w-0">
-                    <span className="leading-tight truncate">ข้อมูลลูกค้า</span>
-                    <span className="text-[10px] text-slate-400 font-normal truncate">
-                      รายชื่อลูกค้า & พิกัดร้าน
-                    </span>
-                  </div>
+                  {!isSidebarCollapsed && (
+                    <div className="flex flex-col text-left min-w-0">
+                      <span className="leading-tight truncate">ข้อมูลลูกค้า</span>
+                      <span className="text-[10px] text-slate-400 font-normal truncate">
+                        รายชื่อลูกค้า & พิกัดร้าน
+                      </span>
+                    </div>
+                  )}
                 </div>
-                {customerCount > 0 && (
+                {!isSidebarCollapsed && customerCount > 0 && (
                   <span
                     className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
                       activeTab === 'customers'
@@ -237,15 +322,20 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 id="sidebar-tab-checkin"
                 onClick={() => setActiveTab('checkin')}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
+                title="เช็คอินร้านค้า (GPS)"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
+                } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
                   activeTab === 'checkin'
                     ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
                 }`}
               >
-                <div className="flex items-center gap-2.5 min-w-0">
+                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
                   <div
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                    className={`${
+                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
+                    } flex items-center justify-center shrink-0 transition-colors ${
                       activeTab === 'checkin'
                         ? 'bg-blue-600 text-white shadow-2xs'
                         : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
@@ -253,75 +343,98 @@ export const Navbar: React.FC<NavbarProps> = ({
                   >
                     <MapPin className="w-4 h-4" />
                   </div>
-                  <div className="flex flex-col text-left min-w-0">
-                    <span className="leading-tight truncate">เช็คอินร้านค้า</span>
-                    <span className="text-[10px] text-slate-400 font-normal truncate">
-                      บันทึกการเข้าพบหน้าร้าน
-                    </span>
-                  </div>
+                  {!isSidebarCollapsed && (
+                    <div className="flex flex-col text-left min-w-0">
+                      <span className="leading-tight truncate">เช็คอินร้านค้า</span>
+                      <span className="text-[10px] text-slate-400 font-normal truncate">
+                        บันทึกการเข้าพบหน้าร้าน
+                      </span>
+                    </div>
+                  )}
                 </div>
-                <span
-                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
-                    activeTab === 'checkin'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-blue-50 text-blue-700'
-                  }`}
-                >
-                  GPS
-                </span>
+                {!isSidebarCollapsed && (
+                  <span
+                    className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                      activeTab === 'checkin'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-blue-50 text-blue-700'
+                    }`}
+                  >
+                    GPS
+                  </span>
+                )}
               </button>
 
               {/* 3. Orders */}
               <button
                 id="sidebar-tab-orders"
                 onClick={() => setActiveTab('orders')}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
+                title={`รายการออเดอร์ (${orderCount})`}
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
+                } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
                   activeTab === 'orders'
                     ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
                 }`}
               >
-                <div className="flex items-center gap-2.5 min-w-0">
+                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
                   <div
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                    className={`${
+                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
+                    } flex items-center justify-center shrink-0 transition-colors relative ${
                       activeTab === 'orders'
                         ? 'bg-blue-600 text-white shadow-2xs'
                         : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
                     }`}
                   >
                     <ListOrdered className="w-4 h-4" />
+                    {isSidebarCollapsed && orderCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-blue-600 text-white text-[9px] font-bold flex items-center justify-center leading-none ring-2 ring-white">
+                        {orderCount > 99 ? '99+' : orderCount}
+                      </span>
+                    )}
                   </div>
-                  <div className="flex flex-col text-left min-w-0">
-                    <span className="leading-tight truncate">รายการออเดอร์</span>
-                    <span className="text-[10px] text-slate-400 font-normal truncate">
-                      คำสั่งซื้อ & ออกบิล
-                    </span>
-                  </div>
+                  {!isSidebarCollapsed && (
+                    <div className="flex flex-col text-left min-w-0">
+                      <span className="leading-tight truncate">รายการออเดอร์</span>
+                      <span className="text-[10px] text-slate-400 font-normal truncate">
+                        คำสั่งซื้อ & ออกบิล
+                      </span>
+                    </div>
+                  )}
                 </div>
-                <span
-                  className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
-                    activeTab === 'orders'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200'
-                  }`}
-                >
-                  {orderCount}
-                </span>
+                {!isSidebarCollapsed && (
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
+                      activeTab === 'orders'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200'
+                    }`}
+                  >
+                    {orderCount}
+                  </span>
+                )}
               </button>
 
               {/* 4. Expenses */}
               <button
                 id="sidebar-tab-expenses"
                 onClick={() => setActiveTab('expenses')}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
+                title="บันทึกค่าใช้จ่าย"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
+                } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
                   activeTab === 'expenses'
                     ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
                 }`}
               >
-                <div className="flex items-center gap-2.5 min-w-0">
+                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
                   <div
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                    className={`${
+                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
+                    } flex items-center justify-center shrink-0 transition-colors ${
                       activeTab === 'expenses'
                         ? 'bg-blue-600 text-white shadow-2xs'
                         : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
@@ -329,12 +442,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                   >
                     <Wallet className="w-4 h-4" />
                   </div>
-                  <div className="flex flex-col text-left min-w-0">
-                    <span className="leading-tight truncate">บันทึกค่าใช้จ่าย</span>
-                    <span className="text-[10px] text-slate-400 font-normal truncate">
-                      ค่าน้ำมัน & เบิกจ่าย
-                    </span>
-                  </div>
+                  {!isSidebarCollapsed && (
+                    <div className="flex flex-col text-left min-w-0">
+                      <span className="leading-tight truncate">บันทึกค่าใช้จ่าย</span>
+                      <span className="text-[10px] text-slate-400 font-normal truncate">
+                        ค่าน้ำมัน & เบิกจ่าย
+                      </span>
+                    </div>
+                  )}
                 </div>
               </button>
 
@@ -342,15 +457,20 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 id="sidebar-tab-dashboard"
                 onClick={() => setActiveTab('dashboard')}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
+                title={`ยอดขายวันนี้ (฿${(todaySalesAmount ?? 0).toLocaleString()})`}
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
+                } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
                   activeTab === 'dashboard'
                     ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
                 }`}
               >
-                <div className="flex items-center gap-2.5 min-w-0">
+                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
                   <div
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                    className={`${
+                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
+                    } flex items-center justify-center shrink-0 transition-colors ${
                       activeTab === 'dashboard'
                         ? 'bg-blue-600 text-white shadow-2xs'
                         : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
@@ -358,22 +478,26 @@ export const Navbar: React.FC<NavbarProps> = ({
                   >
                     <BarChart3 className="w-4 h-4" />
                   </div>
-                  <div className="flex flex-col text-left min-w-0">
-                    <span className="leading-tight truncate">ยอดขายวันนี้</span>
-                    <span className="text-[10px] text-slate-400 font-normal truncate">
-                      สรุปภาพรวมแดชบอร์ด
-                    </span>
-                  </div>
+                  {!isSidebarCollapsed && (
+                    <div className="flex flex-col text-left min-w-0">
+                      <span className="leading-tight truncate">ยอดขายวันนี้</span>
+                      <span className="text-[10px] text-slate-400 font-normal truncate">
+                        สรุปภาพรวมแดชบอร์ด
+                      </span>
+                    </div>
+                  )}
                 </div>
-                <span
-                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0 ${
-                    activeTab === 'dashboard'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-100 text-slate-700'
-                  }`}
-                >
-                  ฿{(todaySalesAmount ?? 0).toLocaleString()}
-                </span>
+                {!isSidebarCollapsed && (
+                  <span
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0 ${
+                      activeTab === 'dashboard'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    ฿{(todaySalesAmount ?? 0).toLocaleString()}
+                  </span>
+                )}
               </button>
             </nav>
           </div>
@@ -381,42 +505,58 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Group 2: Logistics Menu (แยกออกจากเมนูพนักงานขายอย่างชัดเจน - ซ่อนสำหรับพนักงานขาย) */}
           {!isSales && (
           <div>
-            <div className="px-3 mb-2 flex items-center justify-between">
-              <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
-                เมนูโลจิสติกส์
-              </span>
-              <span className="text-[10px] font-semibold text-slate-400">
-                Logistics
-              </span>
-            </div>
+            {isSidebarCollapsed ? (
+              <div className="border-t border-slate-200/80 mx-2 mb-3" />
+            ) : (
+              <div className="px-3 mb-2 flex items-center justify-between">
+                <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
+                  เมนูโลจิสติกส์
+                </span>
+                <span className="text-[10px] font-semibold text-slate-400">
+                  Logistics
+                </span>
+              </div>
+            )}
             <nav className="space-y-1">
               <button
                 id="sidebar-tab-logistics"
                 onClick={() => setActiveTab('logistics')}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
+                title={deliveryCount > 0 ? `จัดการแผนงานจัดส่ง (${deliveryCount})` : 'จัดการแผนงานจัดส่ง'}
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
+                } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
                   activeTab === 'logistics'
                     ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
                 }`}
               >
-                <div className="flex items-center gap-2.5 min-w-0">
+                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
                   <div
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                    className={`${
+                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
+                    } flex items-center justify-center shrink-0 transition-colors relative ${
                       activeTab === 'logistics'
                         ? 'bg-blue-600 text-white shadow-2xs'
                         : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
                     }`}
                   >
                     <Truck className="w-4 h-4" />
+                    {isSidebarCollapsed && deliveryCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center leading-none ring-2 ring-white">
+                        {deliveryCount > 99 ? '99+' : deliveryCount}
+                      </span>
+                    )}
                   </div>
-                  <div className="flex flex-col text-left min-w-0">
-                    <span className="leading-tight truncate">จัดการแผนงานจัดส่ง</span>
-                    <span className="text-[10px] text-slate-400 font-normal truncate">
-                      จัดลำดับจุดส่ง & แผนเที่ยวรถ
-                    </span>
-                  </div>
+                  {!isSidebarCollapsed && (
+                    <div className="flex flex-col text-left min-w-0">
+                      <span className="leading-tight truncate">จัดการแผนงานจัดส่ง</span>
+                      <span className="text-[10px] text-slate-400 font-normal truncate">
+                        จัดลำดับจุดส่ง & แผนเที่ยวรถ
+                      </span>
+                    </div>
+                  )}
                 </div>
-                {deliveryCount > 0 ? (
+                {!isSidebarCollapsed && (deliveryCount > 0 ? (
                   <span
                     className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
                       activeTab === 'logistics'
@@ -436,37 +576,49 @@ export const Navbar: React.FC<NavbarProps> = ({
                   >
                     แผนส่ง
                   </span>
-                )}
+                ))}
               </button>
 
               {/* 2. Security Deposits Management (จัดการเงินประกัน) */}
               <button
                 id="sidebar-tab-deposits"
                 onClick={() => setActiveTab('deposits')}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
+                title={depositCount > 0 ? `จัดการเงินประกัน (${depositCount})` : 'จัดการเงินประกัน'}
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
+                } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
                   activeTab === 'deposits'
                     ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
                 }`}
               >
-                <div className="flex items-center gap-2.5 min-w-0">
+                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
                   <div
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                    className={`${
+                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
+                    } flex items-center justify-center shrink-0 transition-colors relative ${
                       activeTab === 'deposits'
                         ? 'bg-blue-600 text-white shadow-2xs'
                         : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
                     }`}
                   >
                     <ShieldCheck className="w-4 h-4" />
+                    {isSidebarCollapsed && depositCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-emerald-600 text-white text-[9px] font-bold flex items-center justify-center leading-none ring-2 ring-white">
+                        {depositCount > 99 ? '99+' : depositCount}
+                      </span>
+                    )}
                   </div>
-                  <div className="flex flex-col text-left min-w-0">
-                    <span className="leading-tight truncate">จัดการเงินประกัน</span>
-                    <span className="text-[10px] text-slate-400 font-normal truncate">
-                      เงินมัดจำถัง & ค้ำประกัน
-                    </span>
-                  </div>
+                  {!isSidebarCollapsed && (
+                    <div className="flex flex-col text-left min-w-0">
+                      <span className="leading-tight truncate">จัดการเงินประกัน</span>
+                      <span className="text-[10px] text-slate-400 font-normal truncate">
+                        เงินมัดจำถัง & ค้ำประกัน
+                      </span>
+                    </div>
+                  )}
                 </div>
-                {depositCount > 0 ? (
+                {!isSidebarCollapsed && (depositCount > 0 ? (
                   <span
                     className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
                       activeTab === 'deposits'
@@ -486,37 +638,49 @@ export const Navbar: React.FC<NavbarProps> = ({
                   >
                     มัดจำ
                   </span>
-                )}
+                ))}
               </button>
 
               {/* 3. Hired Vehicle Expenses & Payouts (ค่าใช้จ่ายรถจ้าง) */}
               <button
                 id="sidebar-tab-hired-vehicles"
                 onClick={() => setActiveTab('hired_vehicles')}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
+                title={hiredVehicleCount > 0 ? `ค่าใช้จ่ายรถจ้าง (${hiredVehicleCount})` : 'ค่าใช้จ่ายรถจ้าง'}
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
+                } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
                   activeTab === 'hired_vehicles'
                     ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
                 }`}
               >
-                <div className="flex items-center gap-2.5 min-w-0">
+                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
                   <div
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                    className={`${
+                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
+                    } flex items-center justify-center shrink-0 transition-colors relative ${
                       activeTab === 'hired_vehicles'
                         ? 'bg-blue-600 text-white shadow-2xs'
                         : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
                     }`}
                   >
                     <CircleDollarSign className="w-4 h-4" />
+                    {isSidebarCollapsed && hiredVehicleCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center leading-none ring-2 ring-white">
+                        {hiredVehicleCount > 99 ? '99+' : hiredVehicleCount}
+                      </span>
+                    )}
                   </div>
-                  <div className="flex flex-col text-left min-w-0">
-                    <span className="leading-tight truncate">ค่าใช้จ่ายรถจ้าง</span>
-                    <span className="text-[10px] text-slate-400 font-normal truncate">
-                      สรุปค่าเที่ยว & ทำจ่ายรถร่วม
-                    </span>
-                  </div>
+                  {!isSidebarCollapsed && (
+                    <div className="flex flex-col text-left min-w-0">
+                      <span className="leading-tight truncate">ค่าใช้จ่ายรถจ้าง</span>
+                      <span className="text-[10px] text-slate-400 font-normal truncate">
+                        สรุปค่าเที่ยว & ทำจ่ายรถร่วม
+                      </span>
+                    </div>
+                  )}
                 </div>
-                {hiredVehicleCount > 0 ? (
+                {!isSidebarCollapsed && (hiredVehicleCount > 0 ? (
                   <span
                     className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
                       activeTab === 'hired_vehicles'
@@ -536,37 +700,49 @@ export const Navbar: React.FC<NavbarProps> = ({
                   >
                     รถจ้าง
                   </span>
-                )}
+                ))}
               </button>
 
               {/* 4. Vehicle Maintenance Log (บันทึกบำรุงรักษารถ) */}
               <button
                 id="sidebar-tab-maintenance"
                 onClick={() => setActiveTab('maintenance')}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
+                title={maintenanceCount > 0 ? `บันทึกบำรุงรักษารถ (${maintenanceCount})` : 'บันทึกบำรุงรักษารถ'}
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
+                } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
                   activeTab === 'maintenance'
                     ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
                 }`}
               >
-                <div className="flex items-center gap-2.5 min-w-0">
+                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
                   <div
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                    className={`${
+                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
+                    } flex items-center justify-center shrink-0 transition-colors relative ${
                       activeTab === 'maintenance'
                         ? 'bg-blue-600 text-white shadow-2xs'
                         : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
                     }`}
                   >
                     <Wrench className="w-4 h-4" />
+                    {isSidebarCollapsed && maintenanceCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-indigo-600 text-white text-[9px] font-bold flex items-center justify-center leading-none ring-2 ring-white">
+                        {maintenanceCount > 99 ? '99+' : maintenanceCount}
+                      </span>
+                    )}
                   </div>
-                  <div className="flex flex-col text-left min-w-0">
-                    <span className="leading-tight truncate">บันทึกบำรุงรักษารถ</span>
-                    <span className="text-[10px] text-slate-400 font-normal truncate">
-                      ประวัติซ่อม & เตือนเช็คระยะ
-                    </span>
-                  </div>
+                  {!isSidebarCollapsed && (
+                    <div className="flex flex-col text-left min-w-0">
+                      <span className="leading-tight truncate">บันทึกบำรุงรักษารถ</span>
+                      <span className="text-[10px] text-slate-400 font-normal truncate">
+                        ประวัติซ่อม & เตือนเช็คระยะ
+                      </span>
+                    </div>
+                  )}
                 </div>
-                {maintenanceCount > 0 ? (
+                {!isSidebarCollapsed && (maintenanceCount > 0 ? (
                   <span
                     className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
                       activeTab === 'maintenance'
@@ -586,7 +762,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   >
                     ซ่อมบำรุง
                   </span>
-                )}
+                ))}
               </button>
             </nav>
           </div>
@@ -595,29 +771,38 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Group 3: Tools & Administration (ซ่อนสำหรับพนักงานขาย) */}
           {!isSales && (
           <div>
-            <div className="px-3 mb-2 flex items-center justify-between">
-              <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
-                เครื่องมือ & การจัดการ
-              </span>
-              <span className="text-[10px] font-semibold text-slate-400">
-                Tools
-              </span>
-            </div>
+            {isSidebarCollapsed ? (
+              <div className="border-t border-slate-200/80 mx-2 mb-3" />
+            ) : (
+              <div className="px-3 mb-2 flex items-center justify-between">
+                <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
+                  เครื่องมือ & การจัดการ
+                </span>
+                <span className="text-[10px] font-semibold text-slate-400">
+                  Tools
+                </span>
+              </div>
+            )}
             <nav className="space-y-1">
               {/* Admin User Management */}
               {(isAdmin || currentUser.role === 'manager') && (
                 <button
                   id="sidebar-btn-users"
                   onClick={() => setActiveTab('users')}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
+                  title="จัดการสิทธิ์ผู้ใช้งาน"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
+                  } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
                     activeTab === 'users'
                       ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
                   }`}
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
+                  <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
                     <div
-                      className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                      className={`${
+                        isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
+                      } flex items-center justify-center shrink-0 transition-colors ${
                         activeTab === 'users'
                           ? 'bg-blue-600 text-white shadow-2xs'
                           : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
@@ -625,22 +810,26 @@ export const Navbar: React.FC<NavbarProps> = ({
                     >
                       <Users className="w-4 h-4" />
                     </div>
-                    <div className="flex flex-col text-left min-w-0">
-                      <span className="leading-tight truncate">จัดการสิทธิ์ผู้ใช้งาน</span>
-                      <span className="text-[10px] text-slate-400 font-normal truncate">
-                        กำหนดบทบาทและทีม
-                      </span>
-                    </div>
+                    {!isSidebarCollapsed && (
+                      <div className="flex flex-col text-left min-w-0">
+                        <span className="leading-tight truncate">จัดการสิทธิ์ผู้ใช้งาน</span>
+                        <span className="text-[10px] text-slate-400 font-normal truncate">
+                          กำหนดบทบาทและทีม
+                        </span>
+                      </div>
+                    )}
                   </div>
-                  <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                      activeTab === 'users'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-100 text-slate-600'
-                    }`}
-                  >
-                    Admin
-                  </span>
+                  {!isSidebarCollapsed && (
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                        activeTab === 'users'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      Admin
+                    </span>
+                  )}
                 </button>
               )}
 
@@ -649,15 +838,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   id="sidebar-btn-routes"
                   onClick={() => setActiveTab('routes')}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
+                  title="จัดการสายการเข้าเยี่ยม"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
+                  } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
                     activeTab === 'routes'
                       ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
                   }`}
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
+                  <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
                     <div
-                      className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                      className={`${
+                        isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
+                      } flex items-center justify-center shrink-0 transition-colors ${
                         activeTab === 'routes'
                           ? 'bg-blue-600 text-white shadow-2xs'
                           : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
@@ -665,12 +859,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                     >
                       <Navigation className="w-4 h-4" />
                     </div>
-                    <div className="flex flex-col text-left min-w-0">
-                      <span className="leading-tight truncate">จัดการสายการเข้าเยี่ยม</span>
-                      <span className="text-[10px] text-slate-400 font-normal truncate">
-                        สายส่ง & โซนพื้นที่
-                      </span>
-                    </div>
+                    {!isSidebarCollapsed && (
+                      <div className="flex flex-col text-left min-w-0">
+                        <span className="leading-tight truncate">จัดการสายการเข้าเยี่ยม</span>
+                        <span className="text-[10px] text-slate-400 font-normal truncate">
+                          สายส่ง & โซนพื้นที่
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </button>
               )}
@@ -679,15 +875,20 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 id="sidebar-btn-export"
                 onClick={() => setActiveTab('export')}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
+                title="ส่งออกรายงาน (Excel)"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
+                } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
                   activeTab === 'export'
                     ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
                 }`}
               >
-                <div className="flex items-center gap-2.5 min-w-0">
+                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
                   <div
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                    className={`${
+                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
+                    } flex items-center justify-center shrink-0 transition-colors ${
                       activeTab === 'export'
                         ? 'bg-blue-600 text-white shadow-2xs'
                         : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
@@ -695,12 +896,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                   >
                     <Download className="w-4 h-4" />
                   </div>
-                  <div className="flex flex-col text-left min-w-0">
-                    <span className="leading-tight truncate">ส่งออกรายงาน (Excel)</span>
-                    <span className="text-[10px] text-slate-400 font-normal truncate">
-                      ดาวน์โหลดไฟล์ข้อมูล
-                    </span>
-                  </div>
+                  {!isSidebarCollapsed && (
+                    <div className="flex flex-col text-left min-w-0">
+                      <span className="leading-tight truncate">ส่งออกรายงาน (Excel)</span>
+                      <span className="text-[10px] text-slate-400 font-normal truncate">
+                        ดาวน์โหลดไฟล์ข้อมูล
+                      </span>
+                    </div>
+                  )}
                 </div>
               </button>
 
@@ -709,20 +912,32 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   id="sidebar-btn-settings"
                   onClick={onOpenSettings}
-                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent transition-all cursor-pointer group"
+                  title="ตั้งค่าระบบ & เชื่อมต่อ (Google Sheets & LINE)"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
+                  } rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent transition-all cursor-pointer group`}
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800 flex items-center justify-center shrink-0 transition-colors">
+                  <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
+                    <div
+                      className={`${
+                        isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
+                      } bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800 flex items-center justify-center shrink-0 transition-colors relative`}
+                    >
                       <Settings className="w-4 h-4" />
+                      {isSidebarCollapsed && lineSettings?.enabled && (
+                        <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-blue-500 ring-2 ring-white"></span>
+                      )}
                     </div>
-                    <div className="flex flex-col text-left min-w-0">
-                      <span className="leading-tight truncate">ตั้งค่าระบบ & เชื่อมต่อ</span>
-                      <span className="text-[10px] text-slate-400 font-normal truncate">
-                        Google Sheets & LINE
-                      </span>
-                    </div>
+                    {!isSidebarCollapsed && (
+                      <div className="flex flex-col text-left min-w-0">
+                        <span className="leading-tight truncate">ตั้งค่าระบบ & เชื่อมต่อ</span>
+                        <span className="text-[10px] text-slate-400 font-normal truncate">
+                          Google Sheets & LINE
+                        </span>
+                      </div>
+                    )}
                   </div>
-                  {lineSettings?.enabled && (
+                  {!isSidebarCollapsed && lineSettings?.enabled && (
                     <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" title="LINE แจ้งเตือนเปิดใช้งาน"></span>
                   )}
                 </button>
@@ -731,44 +946,65 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
           )}
 
-          <div className="mt-auto pt-6 border-t border-slate-200/60">
+          <div className={`mt-auto ${isSidebarCollapsed ? 'pt-3' : 'pt-6'} border-t border-slate-200/60`}>
             {/* User Info Bar at bottom of sidebar */}
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-col gap-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                  เข้าสู่ระบบ
-                </span>
+            {isSidebarCollapsed ? (
+              <div className="flex flex-col items-center gap-2">
+                <button
+                  id="sidebar-user-switcher"
+                  onClick={onOpenRoleSwitcher}
+                  className="w-9 h-9 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-2xs transition-colors cursor-pointer"
+                  title={`${currentUser.name} (${getRoleName(currentUser.role)}) - คลิกเพื่อสลับสิทธิ์`}
+                >
+                  {currentUser.name.charAt(0)}
+                </button>
                 <button
                   id="btn-logout-sidebar"
                   onClick={onLogout}
                   title="ออกจากระบบ"
-                  className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 transition-colors"
+                  className="w-9 h-9 rounded-xl text-rose-500 hover:bg-rose-50 flex items-center justify-center transition-colors cursor-pointer"
                 >
-                  <LogOut className="w-3.5 h-3.5" />
+                  <LogOut className="w-4 h-4" />
                 </button>
               </div>
-              <button
-                id="sidebar-user-switcher"
-                onClick={onOpenRoleSwitcher}
-                className="flex items-center gap-2.5 text-left group cursor-pointer hover:bg-slate-200/50 p-1.5 -mx-1.5 rounded-lg transition-colors"
-                title={`เข้าสู่ระบบโดย: ${currentUser.name} - คลิกเพื่อสลับสิทธิ์`}
-              >
-                <div className="w-7 h-7 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-2xs">
-                  {currentUser.name.charAt(0)}
-                </div>
-                <div className="min-w-0 flex flex-col justify-center">
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs sm:text-sm font-bold text-slate-900 leading-tight">
-                      {currentUser.name}
-                    </span>
-                    <ChevronDown className="w-3 h-3 text-blue-700 group-hover:text-blue-900 shrink-0" />
-                  </div>
-                  <span className="text-[10px] text-blue-700 font-medium leading-none">
-                    {getRoleName(currentUser.role)}
+            ) : (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                    เข้าสู่ระบบ
                   </span>
+                  <button
+                    id="btn-logout-sidebar"
+                    onClick={onLogout}
+                    title="ออกจากระบบ"
+                    className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 transition-colors cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-              </button>
-            </div>
+                <button
+                  id="sidebar-user-switcher"
+                  onClick={onOpenRoleSwitcher}
+                  className="flex items-center gap-2.5 text-left group cursor-pointer hover:bg-slate-200/50 p-1.5 -mx-1.5 rounded-lg transition-colors"
+                  title={`เข้าสู่ระบบโดย: ${currentUser.name} - คลิกเพื่อสลับสิทธิ์`}
+                >
+                  <div className="w-7 h-7 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-2xs">
+                    {currentUser.name.charAt(0)}
+                  </div>
+                  <div className="min-w-0 flex flex-col justify-center">
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs sm:text-sm font-bold text-slate-900 leading-tight truncate">
+                        {currentUser.name}
+                      </span>
+                      <ChevronDown className="w-3 h-3 text-blue-700 group-hover:text-blue-900 shrink-0" />
+                    </div>
+                    <span className="text-[10px] text-blue-700 font-medium leading-none">
+                      {getRoleName(currentUser.role)}
+                    </span>
+                  </div>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </aside>

@@ -18,8 +18,22 @@ import {
   FileText,
   User,
   ArrowRight,
+  History,
+  RefreshCw,
+  Search,
+  AlertTriangle,
+  Cloud,
 } from 'lucide-react';
-import { Route, Customer, StoreCheckIn, StaffUser, DailyRouteSchedule } from '../types';
+import {
+  Route,
+  Customer,
+  StoreCheckIn,
+  StaffUser,
+  DailyRouteSchedule,
+  RouteScheduleHistoryEntry,
+  RouteScheduleActionType,
+} from '../types';
+import { getRouteScheduleActionLabelThai } from '../services/googleSheets';
 import {
   THAI_DAYS,
   THAI_MONTHS,
@@ -46,9 +60,23 @@ interface CallPlanCalendarModalProps {
   customers: Customer[];
   checkIns: StoreCheckIn[];
   dailySchedules: Record<string, DailyRouteSchedule>;
-  onSaveDailySchedule: (dateStr: string, schedule: DailyRouteSchedule) => void;
-  onBatchSaveDailySchedules: (schedules: Record<string, DailyRouteSchedule>) => void;
-  onDeleteDailySchedule: (dateStr: string) => void;
+  routeScheduleHistory?: RouteScheduleHistoryEntry[];
+  onRefreshRouteSchedules?: () => Promise<void>;
+  sheetsConnected?: boolean;
+  initialViewMode?: 'calendar' | 'history';
+  onSaveDailySchedule: (
+    dateStr: string,
+    schedule: DailyRouteSchedule,
+    meta?: { actionType?: RouteScheduleActionType; notes?: string }
+  ) => void;
+  onBatchSaveDailySchedules: (
+    schedules: Record<string, DailyRouteSchedule>,
+    meta?: { actionType?: RouteScheduleActionType; notes?: string; targetDateLabel?: string }
+  ) => void;
+  onDeleteDailySchedule: (
+    dateStr: string,
+    meta?: { actionType?: RouteScheduleActionType; notes?: string }
+  ) => void;
   selectedDate: string; // 'YYYY-MM-DD'
   onSelectDate: (dateStr: string) => void;
   staffList?: StaffUser[];
@@ -62,6 +90,10 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
   customers,
   checkIns,
   dailySchedules,
+  routeScheduleHistory = [],
+  onRefreshRouteSchedules,
+  sheetsConnected = false,
+  initialViewMode = 'calendar',
   onSaveDailySchedule,
   onBatchSaveDailySchedules,
   onDeleteDailySchedule,
@@ -72,6 +104,19 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
 }) => {
   const todayIso = useMemo(() => getTodayDateIso(), []);
   const canViewAllRoutes = !currentUser || currentUser.role === 'admin' || currentUser.role === 'manager';
+
+  const [viewMode, setViewMode] = useState<'calendar' | 'history'>(initialViewMode);
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyActionFilter, setHistoryActionFilter] = useState<
+    'all' | 'sales_self_switch' | 'daily' | 'monthly' | 'reset'
+  >('all');
+  const [isRefreshingHistory, setIsRefreshingHistory] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setViewMode(initialViewMode);
+    }
+  }, [isOpen, initialViewMode]);
 
   // Calendar Year & Month state
   const initialYearMonth = useMemo(() => {
@@ -104,6 +149,90 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const handleRefreshFromSheet = async () => {
+    if (!onRefreshRouteSchedules || isRefreshingHistory) return;
+    setIsRefreshingHistory(true);
+    try {
+      await onRefreshRouteSchedules();
+    } finally {
+      setIsRefreshingHistory(false);
+    }
+  };
+
+  const filteredHistoryEntries = useMemo(() => {
+    const q = historySearch.trim().toLowerCase();
+    return routeScheduleHistory.filter((entry) => {
+      if (!canViewAllRoutes && currentUser) {
+        const byLower = String(entry.changedBy || '').toLowerCase();
+        const meLower = String(currentUser.name || '').toLowerCase();
+        if (byLower && meLower && !byLower.includes(meLower) && !meLower.includes(byLower)) {
+          return false;
+        }
+      }
+      if (historyActionFilter === 'sales_self_switch' && entry.actionType !== 'sales_self_switch') {
+        return false;
+      }
+      if (
+        historyActionFilter === 'daily' &&
+        entry.actionType !== 'set_daily' &&
+        entry.actionType !== 'update_daily'
+      ) {
+        return false;
+      }
+      if (
+        historyActionFilter === 'monthly' &&
+        entry.actionType !== 'batch_monthly' &&
+        entry.actionType !== 'clear_monthly'
+      ) {
+        return false;
+      }
+      if (historyActionFilter === 'reset' && entry.actionType !== 'reset_default') {
+        return false;
+      }
+      if (!q) return true;
+      const haystack = [
+        entry.targetDate,
+        entry.changedBy,
+        entry.changedByRole,
+        entry.previousRouteNames,
+        entry.newRouteNames,
+        entry.notes,
+        getRouteScheduleActionLabelThai(entry.actionType),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [routeScheduleHistory, historySearch, historyActionFilter, canViewAllRoutes, currentUser]);
+
+  const formatHistoryTimestamp = (ts: string): string => {
+    if (!ts) return '-';
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return ts;
+    return d.toLocaleString('th-TH', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const formatHistoryTargetDate = (target: string): string => {
+    if (!target) return '-';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(target)) {
+      return formatThaiDate(target, { withDayOfWeek: true, shortMonth: true });
+    }
+    if (/^\d{4}-\d{2}$/.test(target)) {
+      const [y, m] = target.split('-').map(Number);
+      if (m >= 1 && m <= 12) {
+        return `เดือน ${THAI_MONTHS[m - 1]} ${y + 543}`;
+      }
+    }
+    return target;
   };
 
   // Routes, customers, and check-ins scoped to current user role
@@ -171,7 +300,17 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
 
   // Count planned customers and completed check-ins for each date
   const dateMetrics = useMemo(() => {
-    const map = new Map<string, { plannedCount: number; completedCount: number; routes: Route[]; isCustomOverride: boolean; note?: string }>();
+    const map = new Map<
+      string,
+      {
+        plannedCount: number;
+        completedCount: number;
+        routes: Route[];
+        isCustomOverride: boolean;
+        hasSelfSwitch: boolean;
+        note?: string;
+      }
+    >();
 
     // Scan all dates in visible calendar weeks
     calendarWeeks.flat().forEach((cell) => {
@@ -185,6 +324,9 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
 
       const schedule = dailySchedules[dateStr];
       const isCustomOverride = !!schedule;
+      const hasSelfSwitch = Boolean(
+        schedule?.selfSwitchedRouteIds && schedule.selfSwitchedRouteIds.length > 0
+      );
 
       // Count matching customers
       let planned = 0;
@@ -227,6 +369,7 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
         completedCount: completed,
         routes: effectiveRoutes,
         isCustomOverride,
+        hasSelfSwitch,
         note: schedule?.notes,
       });
     });
@@ -269,9 +412,12 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
   // Save day schedule (preserving other reps' routes when editing as sales user)
   const handleSaveDayEditor = () => {
     if (!editingDateStr) return;
+    const existing = dailySchedules[editingDateStr];
     let finalRouteIds = [...editingRouteIds];
+    let selfSwitchedIds: string[] | undefined = undefined;
+    let baselineBeforeSwitch: string[] | undefined = undefined;
+
     if (!canViewAllRoutes) {
-      const existing = dailySchedules[editingDateStr];
       const thaiDay = getThaiDayFromDate(editingDateStr);
       const otherRouteIds = existing
         ? existing.routeIds.filter((id) => !scopedRouteIdSet.has(id))
@@ -279,15 +425,41 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
             .filter((r) => !scopedRouteIdSet.has(r.id) && doesRouteRunOnDay(r, thaiDay))
             .map((r) => r.id);
       finalRouteIds = Array.from(new Set([...otherRouteIds, ...editingRouteIds]));
+
+      const baselineAll =
+        existing?.plannedRouteIdsBeforeSwitch && existing.plannedRouteIdsBeforeSwitch.length > 0
+          ? existing.plannedRouteIdsBeforeSwitch
+          : existing
+          ? existing.routeIds
+          : routes.filter((r) => doesRouteRunOnDay(r, thaiDay)).map((r) => r.id);
+      const otherSwitched = (existing?.selfSwitchedRouteIds || []).filter(
+        (id) => !scopedRouteIdSet.has(id)
+      );
+      const ownSwitched = editingRouteIds.filter((id) => !baselineAll.includes(id));
+      const mergedSwitched = Array.from(new Set([...otherSwitched, ...ownSwitched]));
+      if (mergedSwitched.length > 0) {
+        selfSwitchedIds = mergedSwitched;
+        baselineBeforeSwitch = baselineAll;
+      }
     }
 
     const newSchedule: DailyRouteSchedule = {
       date: editingDateStr,
       routeIds: finalRouteIds,
       notes: editingNotes.trim() || undefined,
+      updatedBy: currentUser?.name,
       updatedAt: new Date().toISOString(),
+      selfSwitchedRouteIds: selfSwitchedIds,
+      plannedRouteIdsBeforeSwitch: baselineBeforeSwitch,
     };
-    onSaveDailySchedule(editingDateStr, newSchedule);
+    onSaveDailySchedule(editingDateStr, newSchedule, {
+      actionType: !canViewAllRoutes
+        ? 'sales_self_switch'
+        : existing
+        ? 'update_daily'
+        : 'set_daily',
+      notes: editingNotes.trim() || undefined,
+    });
     showToast(`บันทึกแผนวิ่งสายวันที่ ${formatThaiDate(editingDateStr, { shortMonth: true })} เรียบร้อย!`);
     setEditingDateStr(null);
   };
@@ -296,23 +468,44 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
   const handleRevertDayToDefault = () => {
     if (!editingDateStr) return;
     if (canViewAllRoutes) {
-      onDeleteDailySchedule(editingDateStr);
+      onDeleteDailySchedule(editingDateStr, {
+        actionType: 'reset_default',
+        notes: 'รีเซ็ตกลับรอบสัปดาห์ปกติจากปฏิทินจำลอง',
+      });
     } else {
       const existing = dailySchedules[editingDateStr];
       if (existing) {
         const otherRouteIds = existing.routeIds.filter((id) => !scopedRouteIdSet.has(id));
         if (otherRouteIds.length === 0) {
-          onDeleteDailySchedule(editingDateStr);
+          onDeleteDailySchedule(editingDateStr, {
+            actionType: 'reset_default',
+            notes: 'รีเซ็ตกลับรอบสัปดาห์ปกติจากปฏิทินจำลอง',
+          });
         } else {
           const thaiDay = getThaiDayFromDate(editingDateStr);
           const ownDefaultIds = scopedRoutes
             .filter((r) => doesRouteRunOnDay(r, thaiDay))
             .map((r) => r.id);
-          onSaveDailySchedule(editingDateStr, {
-            ...existing,
-            routeIds: Array.from(new Set([...otherRouteIds, ...ownDefaultIds])),
-            updatedAt: new Date().toISOString(),
-          });
+          const remainingSwitched = (existing.selfSwitchedRouteIds || []).filter(
+            (id) => !scopedRouteIdSet.has(id)
+          );
+          onSaveDailySchedule(
+            editingDateStr,
+            {
+              ...existing,
+              routeIds: Array.from(new Set([...otherRouteIds, ...ownDefaultIds])),
+              selfSwitchedRouteIds:
+                remainingSwitched.length > 0 ? remainingSwitched : undefined,
+              plannedRouteIdsBeforeSwitch:
+                remainingSwitched.length > 0 ? existing.plannedRouteIdsBeforeSwitch : undefined,
+              updatedBy: currentUser?.name,
+              updatedAt: new Date().toISOString(),
+            },
+            {
+              actionType: 'reset_default',
+              notes: 'รีเซ็ตกลับรอบสัปดาห์ปกติจากปฏิทินจำลอง',
+            }
+          );
         }
       }
     }
@@ -322,10 +515,16 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
 
   // Batch action: Auto-fill entire month from weekly template
   const handleAutoFillMonth = () => {
+    const monthLabel = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
+    const monthThaiLabel = `${THAI_MONTHS[currentMonth]} ${currentYear + 543}`;
     if (canViewAllRoutes) {
       const generated = generateMonthlyScheduleFromWeeklyTemplate(currentYear, currentMonth, routes);
       const merged = { ...dailySchedules, ...generated };
-      onBatchSaveDailySchedules(merged);
+      onBatchSaveDailySchedules(merged, {
+        actionType: 'batch_monthly',
+        targetDateLabel: monthLabel,
+        notes: `สร้างแผนอัตโนมัติตามรอบสัปดาห์ เดือน ${monthThaiLabel}`,
+      });
     } else {
       const generatedOwn = generateMonthlyScheduleFromWeeklyTemplate(currentYear, currentMonth, scopedRoutes);
       const merged: Record<string, DailyRouteSchedule> = { ...dailySchedules };
@@ -348,18 +547,24 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
             date: dateStr,
             routeIds: combinedIds,
             notes: existing?.notes || generatedOwn[dateStr]?.notes,
+            updatedBy: currentUser?.name,
             updatedAt: new Date().toISOString(),
           };
         }
       }
-      onBatchSaveDailySchedules(merged);
+      onBatchSaveDailySchedules(merged, {
+        actionType: 'batch_monthly',
+        targetDateLabel: monthLabel,
+        notes: `สร้างแผนอัตโนมัติตามรอบสัปดาห์ เดือน ${monthThaiLabel}`,
+      });
     }
-    showToast(`สร้างแผนวิ่งสายสำหรับเดือน ${THAI_MONTHS[currentMonth]} ${currentYear + 543} ตามรอบปกติสำเร็จ!`);
+    showToast(`สร้างแผนวิ่งสายสำหรับเดือน ${monthThaiLabel} ตามรอบปกติสำเร็จ!`);
   };
 
   // Batch action: Clear month overrides
   const handleClearMonthOverrides = () => {
-    if (!window.confirm(`ต้องการล้างแผนปรับแต่งของเดือน ${THAI_MONTHS[currentMonth]} ${currentYear + 543} และใช้รอบประจำสัปดาห์ปกติหรือไม่?`)) {
+    const monthThaiLabel = `${THAI_MONTHS[currentMonth]} ${currentYear + 543}`;
+    if (!window.confirm(`ต้องการล้างแผนปรับแต่งของเดือน ${monthThaiLabel} และใช้รอบประจำสัปดาห์ปกติหรือไม่?`)) {
       return;
     }
     const prefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
@@ -385,12 +590,17 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
           cleaned[date] = {
             ...typedSched,
             routeIds: Array.from(new Set([...otherCustomIds, ...ownDefaultIds])),
+            updatedBy: currentUser?.name,
             updatedAt: new Date().toISOString(),
           };
         }
       }
     }
-    onBatchSaveDailySchedules(cleaned);
+    onBatchSaveDailySchedules(cleaned, {
+      actionType: 'clear_monthly',
+      targetDateLabel: prefix,
+      notes: `ล้างแผนปรับแต่งเดือน ${monthThaiLabel}`,
+    });
     showToast(`ล้างแผนปรับแต่งของเดือน ${THAI_MONTHS[currentMonth]} เรียบร้อยแล้ว`);
   };
 
@@ -450,7 +660,59 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 self-end sm:self-auto">
+          <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
+            {/* Mode Switcher: Calendar vs History */}
+            <div className="inline-flex items-center bg-white/10 p-1 rounded-xl border border-white/15">
+              <button
+                type="button"
+                onClick={() => setViewMode('calendar')}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  viewMode === 'calendar'
+                    ? 'bg-white text-blue-800 shadow-xs'
+                    : 'text-white/90 hover:bg-white/10'
+                }`}
+              >
+                <CalendarDays className="w-3.5 h-3.5" />
+                <span>ปฏิทินแผนวิ่ง</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('history')}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  viewMode === 'history'
+                    ? 'bg-white text-blue-800 shadow-xs'
+                    : 'text-white/90 hover:bg-white/10'
+                }`}
+              >
+                <History className="w-3.5 h-3.5" />
+                <span>ประวัติการตั้งค่า</span>
+                {routeScheduleHistory.length > 0 && (
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                      viewMode === 'history'
+                        ? 'bg-blue-100 text-blue-800'
+                        : 'bg-amber-400 text-slate-900'
+                    }`}
+                  >
+                    {routeScheduleHistory.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {sheetsConnected && onRefreshRouteSchedules && (
+              <button
+                type="button"
+                onClick={handleRefreshFromSheet}
+                disabled={isRefreshingHistory}
+                className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-colors cursor-pointer border border-white/15 disabled:opacity-60"
+                title="ซิงค์แผนและประวัติล่าสุดจาก Google Sheets"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingHistory ? 'animate-spin' : ''}`} />
+                <span className="hidden md:inline">ซิงค์ Sheet</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={onClose}
@@ -462,6 +724,159 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
           </div>
         </div>
 
+        {viewMode === 'history' ? (
+          /* =========================================================================
+              ROUTE SCHEDULE HISTORY VIEW (Google Sheets Audit Log)
+             ========================================================================= */
+          <>
+            <div className="p-3 sm:p-4 bg-slate-50 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs shrink-0">
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                  placeholder="ค้นหาวันที่, ชื่อสาย, ชื่อผู้แก้ไข หรือหมายเหตุ..."
+                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-white border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {[
+                  { id: 'all' as const, label: 'ทั้งหมด' },
+                  { id: 'sales_self_switch' as const, label: 'พนักงานเปลี่ยนสายเอง' },
+                  { id: 'daily' as const, label: 'ตั้งค่า/แก้ไขรายวัน' },
+                  { id: 'monthly' as const, label: 'สร้าง/ล้างรายเดือน' },
+                  { id: 'reset' as const, label: 'รีเซ็ตรอบปกติ' },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setHistoryActionFilter(f.id)}
+                    className={`px-2.5 py-1.5 rounded-xl font-bold transition-all cursor-pointer border ${
+                      historyActionFilter === f.id
+                        ? f.id === 'sales_self_switch'
+                          ? 'bg-amber-600 text-white border-amber-600'
+                          : 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="px-4 py-2 bg-indigo-50/60 border-b border-indigo-100/80 flex items-center justify-between flex-wrap gap-2 text-xs text-indigo-900 shrink-0">
+              <span className="font-semibold flex items-center gap-1.5">
+                <History className="w-3.5 h-3.5 text-indigo-600" />
+                <span>
+                  แสดงประวัติ <strong className="font-bold">{filteredHistoryEntries.length}</strong> จากทั้งหมด{' '}
+                  <strong className="font-bold">{routeScheduleHistory.length}</strong> รายการ
+                </span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
+                <Cloud className={`w-3.5 h-3.5 ${sheetsConnected ? 'text-emerald-600' : 'text-slate-400'}`} />
+                <span>
+                  {sheetsConnected
+                    ? 'บันทึกอัตโนมัติลง Google Sheets (แท็บ DailyRouteSchedules & RouteScheduleHistory)'
+                    : 'โหมดออฟไลน์ (เก็บในเครื่อง)'}
+                </span>
+              </span>
+            </div>
+
+            <div className="p-3 sm:p-4 overflow-y-auto flex-1 bg-slate-100/70 space-y-2.5">
+              {filteredHistoryEntries.length === 0 ? (
+                <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center space-y-2">
+                  <History className="w-10 h-10 text-slate-300 mx-auto" />
+                  <p className="text-sm font-bold text-slate-700">ยังไม่มีประวัติการตั้งค่าเส้นทาง</p>
+                  <p className="text-xs text-slate-500">
+                    เมื่อมีการกำหนดสายรายวัน สร้างแผนรายเดือน หรือพนักงานกดเปลี่ยนสายเอง ระบบจะบันทึกประวัติไว้ที่นี่และซิงค์ลง Google Sheets อัตโนมัติ
+                  </p>
+                </div>
+              ) : (
+                filteredHistoryEntries.map((entry, idx) => {
+                  const isSelfSwitch = entry.actionType === 'sales_self_switch';
+                  const isResetOrClear =
+                    entry.actionType === 'reset_default' || entry.actionType === 'clear_monthly';
+                  const isMonthly = entry.actionType === 'batch_monthly';
+
+                  return (
+                    <div
+                      key={`${entry.id}-${idx}`}
+                      className={`bg-white p-3.5 rounded-2xl border shadow-2xs space-y-2 ${
+                        isSelfSwitch ? 'border-amber-300 bg-amber-50/20' : 'border-slate-200/80'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border ${
+                              isSelfSwitch
+                                ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                : isResetOrClear
+                                ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                : isMonthly
+                                ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                : 'bg-blue-50 text-blue-700 border-blue-200'
+                            }`}
+                          >
+                            {isSelfSwitch && <AlertTriangle className="w-3 h-3 text-amber-600" />}
+                            <span>{getRouteScheduleActionLabelThai(entry.actionType)}</span>
+                          </span>
+
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                            <CalendarIcon className="w-3 h-3 text-slate-500" />
+                            <span>{formatHistoryTargetDate(entry.targetDate)}</span>
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                          <span className="inline-flex items-center gap-1 font-semibold text-slate-700">
+                            <User className="w-3 h-3 text-slate-400" />
+                            <span>{entry.changedBy}</span>
+                            {entry.changedByRole && (
+                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-500 uppercase">
+                                {entry.changedByRole}
+                              </span>
+                            )}
+                          </span>
+                          <span className="font-mono text-slate-400">
+                            {formatHistoryTimestamp(entry.timestamp)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-2 bg-slate-50 rounded-xl p-2.5 border border-slate-200/70 text-xs">
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-semibold text-slate-400 mb-0.5">สายเดิม</div>
+                          <div className="text-slate-600 font-medium break-words">
+                            {entry.previousRouteNames || '-'}
+                          </div>
+                        </div>
+                        <ArrowRight className="w-4 h-4 text-slate-400 hidden sm:block shrink-0" />
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-semibold text-blue-600 mb-0.5">สายใหม่</div>
+                          <div className="text-slate-900 font-bold break-words">
+                            {entry.newRouteNames || '-'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {entry.notes && (
+                        <div className="text-[11px] text-slate-600 flex items-start gap-1.5">
+                          <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                          <span>{entry.notes}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </>
+        ) : (
+        <>
         {/* =========================================================================
             TOOLBAR & CONTROLS
            ========================================================================= */}
@@ -643,12 +1058,19 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
 
                           {/* Override badge or note */}
                           <div className="flex items-center gap-1">
-                            {isCustom && (
+                            {metrics?.hasSelfSwitch ? (
+                              <span
+                                className="inline-flex items-center text-amber-600"
+                                title="พนักงานกดเปลี่ยนสายเอง (เช็คอินจะขึ้นสถานะไม่ตรงสาย)"
+                              >
+                                <AlertTriangle className="w-3 h-3" />
+                              </span>
+                            ) : isCustom ? (
                               <span
                                 className="w-2 h-2 rounded-full bg-amber-500"
                                 title="กำหนดสายด้วยตัวเองสำหรับวันนี้"
                               />
-                            )}
+                            ) : null}
                             {metrics?.note && (
                               <FileText className="w-3 h-3 text-slate-400" title={metrics.note} />
                             )}
@@ -707,6 +1129,8 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
             </div>
           </div>
         </div>
+        </>
+        )}
 
         {/* =========================================================================
             FOOTER BAR

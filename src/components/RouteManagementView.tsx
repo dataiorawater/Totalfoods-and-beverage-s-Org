@@ -1,6 +1,14 @@
 import React, { useState } from 'react';
-import { Route, Customer, StoreCheckIn, StaffUser, DailyRouteSchedule } from '../types';
-import { Navigation, Plus, Save, RefreshCw, Calendar, Sparkles } from 'lucide-react';
+import {
+  Route,
+  Customer,
+  StoreCheckIn,
+  StaffUser,
+  DailyRouteSchedule,
+  RouteScheduleHistoryEntry,
+  RouteScheduleActionType,
+} from '../types';
+import { Navigation, Plus, Save, RefreshCw, Calendar, Sparkles, History, Trash2 } from 'lucide-react';
 import { THAI_DAYS, ThaiDay, THAI_DAY_COLORS, getTodayDateIso } from '../utils/callPlanUtils';
 import { CallPlanCalendarModal } from './CallPlanCalendarModal';
 
@@ -11,9 +19,23 @@ interface RouteManagementViewProps {
   staffList?: StaffUser[];
   currentUser?: StaffUser;
   dailySchedules?: Record<string, DailyRouteSchedule>;
-  onSaveDailySchedule?: (dateStr: string, schedule: DailyRouteSchedule) => void;
-  onBatchSaveDailySchedules?: (schedules: Record<string, DailyRouteSchedule>) => void;
-  onDeleteDailySchedule?: (dateStr: string) => void;
+  routeScheduleHistory?: RouteScheduleHistoryEntry[];
+  onRefreshRouteSchedules?: () => Promise<void>;
+  onClearRouteCache?: () => Promise<void>;
+  sheetsConnected?: boolean;
+  onSaveDailySchedule?: (
+    dateStr: string,
+    schedule: DailyRouteSchedule,
+    meta?: { actionType?: RouteScheduleActionType; notes?: string }
+  ) => void;
+  onBatchSaveDailySchedules?: (
+    schedules: Record<string, DailyRouteSchedule>,
+    meta?: { actionType?: RouteScheduleActionType; notes?: string; targetDateLabel?: string }
+  ) => void;
+  onDeleteDailySchedule?: (
+    dateStr: string,
+    meta?: { actionType?: RouteScheduleActionType; notes?: string }
+  ) => void;
   onSaveRoute: (route: Route) => Promise<boolean>;
   onDeleteRoute: (routeId: string) => Promise<boolean>;
   isProcessing: boolean;
@@ -26,6 +48,10 @@ export const RouteManagementView: React.FC<RouteManagementViewProps> = ({
   staffList = [],
   currentUser,
   dailySchedules = {},
+  routeScheduleHistory = [],
+  onRefreshRouteSchedules,
+  onClearRouteCache,
+  sheetsConnected = false,
   onSaveDailySchedule,
   onBatchSaveDailySchedules,
   onDeleteDailySchedule,
@@ -35,6 +61,7 @@ export const RouteManagementView: React.FC<RouteManagementViewProps> = ({
 }) => {
   const [editingRoute, setEditingRoute] = useState<Partial<Route> | null>(null);
   const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
+  const [calendarInitialMode, setCalendarInitialMode] = useState<'calendar' | 'history'>('calendar');
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(() => getTodayDateIso());
 
   const handleToggleDay = (day: ThaiDay) => {
@@ -75,11 +102,53 @@ export const RouteManagementView: React.FC<RouteManagementViewProps> = ({
             </div>
           </div>
 
-          {/* Simulated Calendar Button */}
-          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+          {/* Simulated Calendar, History & Clear Cache Buttons */}
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 flex-wrap">
+            {onClearRouteCache && (
+              <button
+                type="button"
+                disabled={isProcessing}
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      'ยืนยันการล้างข้อมูลสายวิ่งและแผนปฏิทินที่แคชไว้ในเครื่องทั้งหมด แล้วโหลดข้อมูลล่าสุดจาก Google Sheets?'
+                    )
+                  ) {
+                    onClearRouteCache();
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-rose-50 active:scale-95 text-rose-600 text-xs font-bold shadow-2xs transition-all cursor-pointer border border-rose-200 disabled:opacity-50"
+                title="ล้างแคชข้อมูลสายวิ่ง แผนรายวัน และประวัติที่ค้างในเครื่อง แล้วดึงข้อมูลล่าสุดจาก Google Sheets"
+              >
+                <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                <span>ล้างแคชสายวิ่ง</span>
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={() => setIsCalendarModalOpen(true)}
+              onClick={() => {
+                setCalendarInitialMode('history');
+                setIsCalendarModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-100 active:scale-95 text-slate-700 text-xs font-bold shadow-2xs transition-all cursor-pointer border border-slate-200"
+              title="ดูประวัติการตั้งค่าและการเปลี่ยนสายวิ่งทั้งหมด (ซิงค์ Google Sheets)"
+            >
+              <History className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+              <span>ประวัติสายวิ่ง</span>
+              {routeScheduleHistory.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-100 text-indigo-800 font-extrabold">
+                  {routeScheduleHistory.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setCalendarInitialMode('calendar');
+                setIsCalendarModalOpen(true);
+              }}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:to-indigo-800 active:scale-95 text-white text-xs font-bold shadow-xs transition-all cursor-pointer border border-blue-400/30"
               title="เปิดปฏิทินจำลองเพื่อจัดตารางสายวิ่งรายวันและกำหนดวันไหนวิ่งสายไหนได้ด้วยตัวเอง"
             >
@@ -271,6 +340,10 @@ export const RouteManagementView: React.FC<RouteManagementViewProps> = ({
         customers={customers}
         checkIns={checkIns}
         dailySchedules={dailySchedules}
+        routeScheduleHistory={routeScheduleHistory}
+        onRefreshRouteSchedules={onRefreshRouteSchedules}
+        sheetsConnected={sheetsConnected}
+        initialViewMode={calendarInitialMode}
         onSaveDailySchedule={onSaveDailySchedule || (() => {})}
         onBatchSaveDailySchedules={onBatchSaveDailySchedules || (() => {})}
         onDeleteDailySchedule={onDeleteDailySchedule || (() => {})}

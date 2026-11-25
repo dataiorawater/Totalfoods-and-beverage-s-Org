@@ -16,6 +16,31 @@ export interface DailyRouteSchedule {
   assignedSales?: string; // เซลล์ที่รับผิดชอบเป็นพิเศษ
   additionalCustomerIds?: string[]; // ร้านค้าที่นัดพิเศษนอกสาย
   updatedAt?: string;
+  updatedBy?: string; // ผู้ตั้งค่า/แก้ไขล่าสุด
+  selfSwitchedRouteIds?: string[]; // รหัสสายที่พนักงานขายกดเปลี่ยนเอง (ใช้ตรวจสถานะเช็คอินไม่ตรงสาย)
+  plannedRouteIdsBeforeSwitch?: string[]; // รหัสสายตามแผนเดิมก่อนพนักงานกดเปลี่ยนสายเอง
+}
+
+export type RouteScheduleActionType =
+  | 'set_daily'
+  | 'update_daily'
+  | 'batch_monthly'
+  | 'clear_monthly'
+  | 'reset_default'
+  | 'sales_self_switch';
+
+export interface RouteScheduleHistoryEntry {
+  id: string;
+  timestamp: string;
+  targetDate: string; // YYYY-MM-DD หรือ YYYY-MM
+  actionType: RouteScheduleActionType;
+  changedBy: string;
+  changedByRole: string;
+  previousRouteIds: string[];
+  previousRouteNames: string;
+  newRouteIds: string[];
+  newRouteNames: string;
+  notes?: string;
 }
 
 export type OrderStatus = 'pending' | 'confirmed' | 'delivering' | 'completed' | 'cancelled';
@@ -126,6 +151,10 @@ export interface StoreCheckIn {
   notes?: string;
   distanceMeters?: number;
   syncedToSheets?: boolean;
+  isOffRoute?: boolean; // true เมื่อพนักงานกดเปลี่ยนสายเองและเช็คอินไม่ตรงสายตามแผนเดิม
+  routeStatus?: string; // 'ตรงสาย' | 'เช็คอินไม่ตรงสาย'
+  routeName?: string; // สายของร้านที่เข้าเช็คอิน
+  scheduledRouteName?: string; // สายตามแผนเดิมของวันนั้น
 }
 
 export type StaffRole = 'admin' | 'manager' | 'sales' | 'delivery' | 'viewer';

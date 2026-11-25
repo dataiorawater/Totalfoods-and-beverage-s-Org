@@ -14,6 +14,8 @@ import {
   HiredVehicleTripRecord,
   VehicleMaintenanceRecord,
   DailyRouteSchedule,
+  RouteScheduleHistoryEntry,
+  RouteScheduleActionType,
 } from './types';
 import {
   INITIAL_ORDERS,
@@ -26,7 +28,7 @@ import {
   INITIAL_MAINTENANCE_RECORDS,
   INITIAL_ROUTES,
 } from './data/mockData';
-import { formatNowUtcPlus7Iso } from './utils/callPlanUtils';
+import { formatNowUtcPlus7Iso, getThaiDayFromDate, doesRouteRunOnDay } from './utils/callPlanUtils';
 import { normalizeThaiPhone } from './utils/phoneUtils';
 
 import {
@@ -66,6 +68,12 @@ import {
   LEGACY_DEFAULT_GAS_URL,
   fetchSharedSystemConfig,
   saveSharedSystemConfig,
+  fetchDailyRouteSchedulesFromSheet,
+  fetchRouteScheduleHistoryFromSheet,
+  upsertDailyRouteScheduleToSheet,
+  upsertBatchDailyRouteSchedulesToSheet,
+  deleteDailyRouteScheduleFromSheet,
+  appendRouteScheduleHistoryToSheet,
 } from './services/googleSheets';
 import { logoutGoogle } from './services/auth';
 import { sendLineNotification } from './services/lineNotify';
@@ -350,13 +358,24 @@ export default function App() {
   });
 
   const [routes, setRoutes] = useState<Route[]>(() => {
-    const saved = localStorage.getItem('iora_routes');
-    if (saved) {
-      try {
+    try {
+      const purgeKey = 'iora_route_cache_purged_v2';
+      if (!localStorage.getItem(purgeKey)) {
+        localStorage.removeItem('iora_routes');
+        localStorage.removeItem('iora_call_plan_daily_schedule');
+        localStorage.removeItem('iora_route_schedule_history');
+        localStorage.setItem(purgeKey, new Date().toISOString());
+        return [];
+      }
+      const saved = localStorage.getItem('iora_routes');
+      if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch (e) {}
-    }
+        if (Array.isArray(parsed)) {
+          const mockRouteIds = new Set(['R-S01', 'R-S02', 'R-S03', 'R-S04', 'R-S05']);
+          return parsed.filter((r: Route) => !mockRouteIds.has(r?.id));
+        }
+      }
+    } catch (e) {}
     return INITIAL_ROUTES;
   });
 
@@ -369,6 +388,16 @@ export default function App() {
       } catch (e) {}
     }
     return {};
+  });
+  const [routeScheduleHistory, setRouteScheduleHistory] = useState<RouteScheduleHistoryEntry[]>(() => {
+    const saved = localStorage.getItem('iora_route_schedule_history');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (e) {}
+    }
+    return [];
   });
   const [checkIns, setCheckIns] = useState<import('./types').StoreCheckIn[]>(() => {
     const saved = localStorage.getItem('iora_checkins');
@@ -805,6 +834,8 @@ export default function App() {
       let sheetDeposits: DepositRecord[] | null = null;
       let sheetHiredVehicles: HiredVehicleTripRecord[] | null = null;
       let sheetMaintenance: VehicleMaintenanceRecord[] | null = null;
+      let sheetDailySchedules: Record<string, DailyRouteSchedule> | null = null;
+      let sheetRouteHistory: RouteScheduleHistoryEntry[] | null = null;
 
       try {
         const bulkData = await fetchAllDataBulk(sheetsConfig.spreadsheetId, sheetsConfig.sheetName);
@@ -819,6 +850,12 @@ export default function App() {
           if (Array.isArray((bulkData as any).deposits)) sheetDeposits = (bulkData as any).deposits;
           if (Array.isArray((bulkData as any).hiredVehicles)) sheetHiredVehicles = (bulkData as any).hiredVehicles;
           if (Array.isArray((bulkData as any).maintenanceRecords)) sheetMaintenance = (bulkData as any).maintenanceRecords;
+          if ((bulkData as any).dailySchedules && typeof (bulkData as any).dailySchedules === 'object') {
+            sheetDailySchedules = (bulkData as any).dailySchedules;
+          }
+          if (Array.isArray((bulkData as any).routeScheduleHistory)) {
+            sheetRouteHistory = (bulkData as any).routeScheduleHistory;
+          }
         }
       } catch (bulkErr: any) {
         console.warn('Bulk fetch not supported or failed, falling back to parallel fetch:', bulkErr?.message || bulkErr);
@@ -837,8 +874,23 @@ export default function App() {
       const needsDeposits = !sheetDeposits;
       const needsHiredVehicles = !sheetHiredVehicles;
       const needsMaintenance = !sheetMaintenance;
+      const needsDailySchedules = !sheetDailySchedules;
+      const needsRouteHistory = !sheetRouteHistory;
 
-      const [ordersRes, usersRes, productsRes, customersRes, routesRes, checkInsRes, expensesRes, depositsRes, hiredRes, mntRes] = await Promise.allSettled([
+      const [
+        ordersRes,
+        usersRes,
+        productsRes,
+        customersRes,
+        routesRes,
+        checkInsRes,
+        expensesRes,
+        depositsRes,
+        hiredRes,
+        mntRes,
+        dailySchedulesRes,
+        routeHistoryRes,
+      ] = await Promise.allSettled([
         needsOrders ? fetchOrdersFromSheet(sheetsConfig) : Promise.resolve(sheetOrders),
         needsUsers ? fetchUsersFromSheets(sheetsConfig.spreadsheetId) : Promise.resolve(sheetUsers),
         needsProducts ? fetchProductsFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetProducts),
@@ -849,6 +901,8 @@ export default function App() {
         needsDeposits ? fetchDepositsFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetDeposits),
         needsHiredVehicles ? fetchHiredVehicleTripsFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetHiredVehicles),
         needsMaintenance ? fetchMaintenanceFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetMaintenance),
+        needsDailySchedules ? fetchDailyRouteSchedulesFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetDailySchedules),
+        needsRouteHistory ? fetchRouteScheduleHistoryFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetRouteHistory),
       ]);
 
       options?.onProgress?.('กำลังประมวลผลข้อมูลและเตรียมระบบ...', 85);
@@ -905,7 +959,15 @@ export default function App() {
         setMaintenanceRecords(mntRes.value);
         safeSave('iora_vehicle_maintenance', mntRes.value);
       }
-
+      if (dailySchedulesRes.status === 'fulfilled' && dailySchedulesRes.value && typeof dailySchedulesRes.value === 'object') {
+        const fetchedSchedules = dailySchedulesRes.value;
+        setDailySchedules(fetchedSchedules);
+        safeSave('iora_call_plan_daily_schedule', fetchedSchedules);
+      }
+      if (routeHistoryRes.status === 'fulfilled' && Array.isArray(routeHistoryRes.value)) {
+        setRouteScheduleHistory(routeHistoryRes.value);
+        safeSave('iora_route_schedule_history', routeHistoryRes.value);
+      }
 
       options?.onProgress?.('ข้อมูลทั้งหมดพร้อมใช้งานเรียบร้อยแล้ว!', 100);
       return { success: true, message: 'Sync completed' };
@@ -1283,6 +1345,22 @@ export default function App() {
       } catch (e) {
         console.warn('Sync expenses failed', e);
       }
+      try {
+        const [fetchedDaily, fetchedHist] = await Promise.all([
+          fetchDailyRouteSchedulesFromSheet(sheetsConfig.spreadsheetId),
+          fetchRouteScheduleHistoryFromSheet(sheetsConfig.spreadsheetId),
+        ]);
+        if (fetchedDaily && typeof fetchedDaily === 'object') {
+          setDailySchedules(fetchedDaily);
+          safeSave('iora_call_plan_daily_schedule', fetchedDaily);
+        }
+        if (Array.isArray(fetchedHist)) {
+          setRouteScheduleHistory(fetchedHist);
+          safeSave('iora_route_schedule_history', fetchedHist);
+        }
+      } catch (e) {
+        console.warn('Sync daily route schedules failed', e);
+      }
 
       showToast(
         'success',
@@ -1422,26 +1500,256 @@ export default function App() {
     }
   };
 
-  const handleSaveDailySchedule = (dateStr: string, schedule: DailyRouteSchedule) => {
+  const formatRouteNamesFromIds = useCallback(
+    (routeIds: string[]): string => {
+      if (!routeIds || routeIds.length === 0) return 'ไม่มีสายที่กำหนด';
+      const nameMap = new Map<string, string>();
+      routes.forEach((r) => nameMap.set(r.id, r.name || r.id));
+      return routeIds.map((id) => nameMap.get(id) || id).join(', ');
+    },
+    [routes]
+  );
+
+  const getDefaultRouteIdsForDate = useCallback(
+    (dateStr: string): string[] => {
+      const thaiDay = getThaiDayFromDate(dateStr);
+      return routes.filter((r) => doesRouteRunOnDay(r, thaiDay)).map((r) => r.id);
+    },
+    [routes]
+  );
+
+  const recordRouteScheduleHistory = useCallback(
+    (entryData: Omit<RouteScheduleHistoryEntry, 'id' | 'timestamp' | 'changedBy' | 'changedByRole'>) => {
+      const entry: RouteScheduleHistoryEntry = {
+        id: `RSH-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        timestamp: formatNowUtcPlus7Iso(),
+        changedBy: currentUser?.name || 'ผู้ใช้งาน',
+        changedByRole: currentUser?.role || '',
+        ...entryData,
+      };
+      setRouteScheduleHistory((prev) => {
+        const updated = [entry, ...prev].slice(0, 500);
+        safeSave('iora_route_schedule_history', updated);
+        return updated;
+      });
+      if (sheetsConfig?.spreadsheetId) {
+        appendRouteScheduleHistoryToSheet(sheetsConfig.spreadsheetId, entry).catch((err) => {
+          console.warn('[RouteScheduleHistory] Sync error:', err);
+        });
+      }
+    },
+    [currentUser, sheetsConfig?.spreadsheetId]
+  );
+
+  const handleRefreshRouteSchedules = useCallback(async () => {
+    if (!sheetsConfig?.spreadsheetId) return;
+    try {
+      const [fetchedSchedules, fetchedHistory] = await Promise.all([
+        fetchDailyRouteSchedulesFromSheet(sheetsConfig.spreadsheetId),
+        fetchRouteScheduleHistoryFromSheet(sheetsConfig.spreadsheetId),
+      ]);
+      if (fetchedSchedules && typeof fetchedSchedules === 'object') {
+        setDailySchedules(fetchedSchedules);
+        safeSave('iora_call_plan_daily_schedule', fetchedSchedules);
+      }
+      if (Array.isArray(fetchedHistory)) {
+        setRouteScheduleHistory(fetchedHistory);
+        safeSave('iora_route_schedule_history', fetchedHistory);
+      }
+      showToast('success', 'อัปเดตแผนวิ่งสายและประวัติแล้ว', `พบประวัติทั้งหมด ${fetchedHistory.length} รายการ`);
+    } catch (e: any) {
+      showToast('error', 'ไม่สามารถโหลดประวัติจาก Google Sheets ได้', e?.message || '');
+    }
+  }, [sheetsConfig?.spreadsheetId]);
+
+  const handleClearRouteCache = useCallback(async () => {
+    try {
+      localStorage.removeItem('iora_routes');
+      localStorage.removeItem('iora_call_plan_daily_schedule');
+      localStorage.removeItem('iora_route_schedule_history');
+    } catch (e) {}
+
+    setDailySchedules({});
+    setRouteScheduleHistory([]);
+
+    if (sheetsConfig?.spreadsheetId) {
+      setIsLoadingData(true);
+      try {
+        const [fetchedRoutes, fetchedSchedules, fetchedHistory] = await Promise.all([
+          fetchRoutesFromSheet(sheetsConfig.spreadsheetId),
+          fetchDailyRouteSchedulesFromSheet(sheetsConfig.spreadsheetId),
+          fetchRouteScheduleHistoryFromSheet(sheetsConfig.spreadsheetId),
+        ]);
+        const cleanRoutes = Array.isArray(fetchedRoutes) ? fetchedRoutes : [];
+        const cleanSchedules =
+          fetchedSchedules && typeof fetchedSchedules === 'object' ? fetchedSchedules : {};
+        const cleanHistory = Array.isArray(fetchedHistory) ? fetchedHistory : [];
+
+        setRoutes(cleanRoutes);
+        setDailySchedules(cleanSchedules);
+        setRouteScheduleHistory(cleanHistory);
+        safeSave('iora_routes', cleanRoutes);
+        safeSave('iora_call_plan_daily_schedule', cleanSchedules);
+        safeSave('iora_route_schedule_history', cleanHistory);
+
+        showToast(
+          'success',
+          'ล้างแคชสายวิ่งและโหลดข้อมูลใหม่แล้ว',
+          `สายส่ง ${cleanRoutes.length} สาย | แผนรายวัน ${Object.keys(cleanSchedules).length} วัน | ประวัติ ${cleanHistory.length} รายการ`
+        );
+      } catch (e: any) {
+        setRoutes([]);
+        showToast('error', 'ล้างแคชแล้ว แต่โหลดข้อมูลจาก Sheet ไม่สำเร็จ', e?.message || '');
+      } finally {
+        setIsLoadingData(false);
+      }
+    } else {
+      setRoutes([]);
+      showToast('success', 'ล้างแคชข้อมูลสายวิ่งแล้ว', 'ล้างแคชข้อมูลสายวิ่ง แผนรายวัน และประวัติที่เก็บในเครื่องเรียบร้อยแล้ว');
+    }
+  }, [sheetsConfig?.spreadsheetId]);
+
+  const handleSaveDailySchedule = (
+    dateStr: string,
+    schedule: DailyRouteSchedule,
+    meta?: { actionType?: RouteScheduleActionType; notes?: string }
+  ) => {
+    const existing = dailySchedules[dateStr];
+    const prevRouteIds = existing ? existing.routeIds : getDefaultRouteIdsForDate(dateStr);
+    const enrichedSchedule: DailyRouteSchedule = {
+      ...schedule,
+      updatedBy: schedule.updatedBy || currentUser?.name || 'ผู้ใช้งาน',
+      updatedAt: schedule.updatedAt || formatNowUtcPlus7Iso(),
+    };
+
     setDailySchedules((prev) => {
-      const updated = { ...prev, [dateStr]: schedule };
+      const updated = { ...prev, [dateStr]: enrichedSchedule };
       safeSave('iora_call_plan_daily_schedule', updated);
       return updated;
     });
+
+    const actionType: RouteScheduleActionType =
+      meta?.actionType || (existing ? 'update_daily' : 'set_daily');
+    recordRouteScheduleHistory({
+      targetDate: dateStr,
+      actionType,
+      previousRouteIds: prevRouteIds,
+      previousRouteNames: existing
+        ? formatRouteNamesFromIds(prevRouteIds)
+        : `รอบปกติ (${formatRouteNamesFromIds(prevRouteIds)})`,
+      newRouteIds: enrichedSchedule.routeIds,
+      newRouteNames: formatRouteNamesFromIds(enrichedSchedule.routeIds),
+      notes: meta?.notes || enrichedSchedule.notes,
+    });
+
+    if (sheetsConfig?.spreadsheetId) {
+      upsertDailyRouteScheduleToSheet(sheetsConfig.spreadsheetId, enrichedSchedule, routes).catch((err) => {
+        console.warn('[DailyRouteSchedules] Sync error:', err);
+      });
+    }
   };
 
-  const handleBatchSaveDailySchedules = (schedules: Record<string, DailyRouteSchedule>) => {
-    setDailySchedules(schedules);
-    safeSave('iora_call_plan_daily_schedule', schedules);
+  const handleBatchSaveDailySchedules = (
+    schedules: Record<string, DailyRouteSchedule>,
+    meta?: { actionType?: RouteScheduleActionType; notes?: string; targetDateLabel?: string }
+  ) => {
+    const nowIso = formatNowUtcPlus7Iso();
+    const prevSchedules = dailySchedules;
+    const enrichedAll: Record<string, DailyRouteSchedule> = {};
+    const changedOnly: Record<string, DailyRouteSchedule> = {};
+
+    for (const [d, s] of Object.entries(schedules)) {
+      if (!s) continue;
+      const enriched: DailyRouteSchedule = {
+        ...s,
+        updatedBy: s.updatedBy || currentUser?.name || 'ผู้ใช้งาน',
+        updatedAt: s.updatedAt || nowIso,
+      };
+      enrichedAll[d] = enriched;
+
+      const prev = prevSchedules[d];
+      const changed =
+        !prev ||
+        prev.routeIds.join(',') !== enriched.routeIds.join(',') ||
+        (prev.notes || '') !== (enriched.notes || '') ||
+        (prev.selfSwitchedRouteIds || []).join(',') !== (enriched.selfSwitchedRouteIds || []).join(',');
+      if (changed) {
+        changedOnly[d] = enriched;
+      }
+    }
+
+    const deletedDateStrings = Object.keys(prevSchedules).filter((d) => !enrichedAll[d]);
+
+    setDailySchedules(enrichedAll);
+    safeSave('iora_call_plan_daily_schedule', enrichedAll);
+
+    const changedCount = Object.keys(changedOnly).length;
+    const deletedCount = deletedDateStrings.length;
+    const actionType: RouteScheduleActionType =
+      meta?.actionType || (deletedCount > 0 && changedCount === 0 ? 'clear_monthly' : 'batch_monthly');
+    const sampleDate =
+      meta?.targetDateLabel ||
+      Object.keys(changedOnly)[0]?.slice(0, 7) ||
+      deletedDateStrings[0]?.slice(0, 7) ||
+      nowIso.slice(0, 7);
+
+    recordRouteScheduleHistory({
+      targetDate: sampleDate,
+      actionType,
+      previousRouteIds: [],
+      previousRouteNames:
+        deletedCount > 0
+          ? `แผนปรับแต่งเดิม ${deletedCount} วัน`
+          : `แผนเดิม ${Object.keys(prevSchedules).length} วัน`,
+      newRouteIds: [],
+      newRouteNames:
+        actionType === 'clear_monthly'
+          ? `ล้างแผนปรับแต่ง ${deletedCount} วัน (ใช้รอบสัปดาห์ปกติ)`
+          : `สร้าง/อัปเดตแผนวิ่งสาย ${changedCount} วัน`,
+      notes: meta?.notes,
+    });
+
+    if (sheetsConfig?.spreadsheetId && (changedCount > 0 || deletedCount > 0)) {
+      upsertBatchDailyRouteSchedulesToSheet(
+        sheetsConfig.spreadsheetId,
+        changedOnly,
+        routes,
+        deletedDateStrings
+      ).catch((err) => {
+        console.warn('[DailyRouteSchedules] Batch sync error:', err);
+      });
+    }
   };
 
-  const handleDeleteDailySchedule = (dateStr: string) => {
+  const handleDeleteDailySchedule = (
+    dateStr: string,
+    meta?: { actionType?: RouteScheduleActionType; notes?: string }
+  ) => {
+    const existing = dailySchedules[dateStr];
+    const defaultIds = getDefaultRouteIdsForDate(dateStr);
+
     setDailySchedules((prev) => {
       const updated = { ...prev };
       delete updated[dateStr];
       safeSave('iora_call_plan_daily_schedule', updated);
       return updated;
     });
+
+    recordRouteScheduleHistory({
+      targetDate: dateStr,
+      actionType: meta?.actionType || 'reset_default',
+      previousRouteIds: existing?.routeIds || [],
+      previousRouteNames: existing ? formatRouteNamesFromIds(existing.routeIds) : '-',
+      newRouteIds: defaultIds,
+      newRouteNames: `รอบปกติ (${formatRouteNamesFromIds(defaultIds)})`,
+      notes: meta?.notes || 'ลบการตั้งค่าพิเศษและกลับไปใช้รอบประจำสัปดาห์',
+    });
+
+    if (sheetsConfig?.spreadsheetId) {
+      deleteDailyRouteScheduleFromSheet(sheetsConfig.spreadsheetId, dateStr).catch((err) => {
+        console.warn('[DailyRouteSchedules] Delete sync error:', err);
+      });
+    }
   };
 
   const handleRefreshCustomers = async () => {
@@ -1883,6 +2191,10 @@ export default function App() {
               staffList={staffList}
               currentUser={currentUser}
               dailySchedules={dailySchedules}
+              routeScheduleHistory={routeScheduleHistory}
+              onRefreshRouteSchedules={handleRefreshRouteSchedules}
+              onClearRouteCache={handleClearRouteCache}
+              sheetsConnected={!!sheetsConfig?.spreadsheetId}
               onSaveDailySchedule={handleSaveDailySchedule}
               onBatchSaveDailySchedules={handleBatchSaveDailySchedules}
               onDeleteDailySchedule={handleDeleteDailySchedule}
@@ -1908,6 +2220,8 @@ export default function App() {
               onSelectOrder={(ord) => setSelectedOrderForDetail(ord)}
               onRefreshOrders={handleRefreshFromSheets}
               sheetsConnected={!!sheetsConfig?.spreadsheetId}
+              spreadsheetId={sheetsConfig?.spreadsheetId}
+              onShowToast={showToast}
             />
           ) : activeTab === 'deposits' ? (
             <DepositManagementView

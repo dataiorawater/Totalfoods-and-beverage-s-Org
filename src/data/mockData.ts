@@ -34,48 +34,7 @@ export const INITIAL_STAFF_USERS: StaffUser[] = [
 
 export const INITIAL_ORDERS: Order[] = [];
 
-export const INITIAL_ROUTES: Route[] = [
-  {
-    id: 'R-S01',
-    name: 'สาย A1 (สุขุมวิท - บางนา)',
-    salesrepName: 'สมชาย วงศ์สวัสดิ์',
-    visitDays: ['จันทร์', 'พฤหัสบดี'],
-    notes: 'ร้านค้าโซนสุขุมวิท อุดมสุข บางนา ตราด กม.1-12',
-    color: '#3B82F6',
-  },
-  {
-    id: 'R-S02',
-    name: 'สาย A2 (ลาดพร้าว - รามคำแหง)',
-    salesrepName: 'วิชัย มั่นคง',
-    visitDays: ['อังคาร', 'ศุกร์'],
-    notes: 'ร้านค้าโซนลาดพร้าว โชคชัย 4 วังทองหลาง รามคำแหง',
-    color: '#8B5CF6',
-  },
-  {
-    id: 'R-S03',
-    name: 'สาย B1 (รังสิต - ปทุมธานี)',
-    salesrepName: 'ประเสริฐ มีชัย',
-    visitDays: ['พุธ', 'เสาร์'],
-    notes: 'ร้านค้าโซนคลองหลวง รังสิต ตลาดไท เมืองปทุมธานี',
-    color: '#10B981',
-  },
-  {
-    id: 'R-S04',
-    name: 'สาย B2 (พระราม 2 - มหาชัย)',
-    salesrepName: 'สมชาย วงศ์สวัสดิ์',
-    visitDays: ['จันทร์', 'พุธ'],
-    notes: 'ร้านค้าโซนพระราม 2 ท่าข้าม เอกชัย มหาชัย สมุทรสาคร',
-    color: '#F59E0B',
-  },
-  {
-    id: 'R-S05',
-    name: 'สาย C1 (เพชรเกษม - พุทธมณฑล)',
-    salesrepName: 'วิชัย มั่นคง',
-    visitDays: ['อังคาร', 'พฤหัสบดี'],
-    notes: 'ร้านค้าโซนบางแค หนองแขม อ้อมน้อย ศาลายา พุทธมณฑล',
-    color: '#EC4899',
-  },
-];
+export const INITIAL_ROUTES: Route[] = [];
 
 export const INITIAL_CUSTOMERS: Customer[] = [
   {
