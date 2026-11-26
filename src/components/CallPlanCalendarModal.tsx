@@ -47,6 +47,7 @@ import {
   getRouteColor,
   isCustomerInRoute,
   doesRouteRunOnDay,
+  doesRouteBelongToSales,
   doesRouteBelongToUser,
   isCustomerBelongingToUser,
   doesCheckInBelongToUser,
@@ -243,6 +244,22 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
 
   const scopedRouteIdSet = useMemo(() => new Set(scopedRoutes.map((r) => r.id)), [scopedRoutes]);
 
+  // Routes visible inside the Day Route Assignment Modal:
+  // - Sales user sees ONLY their own routes
+  // - Admin/Manager with a specific salesperson selected sees ONLY that salesperson's routes
+  // - Admin/Manager with 'all' sees all routes
+  const isSingleSalesView = !canViewAllRoutes || effectiveSelectedSales !== 'all';
+
+  const editorRoutes = useMemo(() => {
+    if (!canViewAllRoutes) return scopedRoutes;
+    if (effectiveSelectedSales !== 'all') {
+      return scopedRoutes.filter((r) => doesRouteBelongToSales(r, effectiveSelectedSales));
+    }
+    return scopedRoutes;
+  }, [canViewAllRoutes, scopedRoutes, effectiveSelectedSales]);
+
+  const editorRouteIdSet = useMemo(() => new Set(editorRoutes.map((r) => r.id)), [editorRoutes]);
+
   const scopedCustomers = useMemo(() => {
     if (canViewAllRoutes || !currentUser) return customers;
     return customers.filter((c) => isCustomerBelongingToUser(c, currentUser, scopedRoutes, routes));
@@ -382,15 +399,15 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
     setEditingDateStr(dateStr);
     const existing = dailySchedules[dateStr];
     if (existing) {
-      const visibleIds = canViewAllRoutes
-        ? [...existing.routeIds]
-        : existing.routeIds.filter((id) => scopedRouteIdSet.has(id));
+      const visibleIds = isSingleSalesView
+        ? existing.routeIds.filter((id) => editorRouteIdSet.has(id))
+        : [...existing.routeIds];
       setEditingRouteIds(visibleIds);
       setEditingNotes(existing.notes || '');
     } else {
-      // Pre-fill with effective weekly routes for that day
+      // Pre-fill with effective weekly routes for that day (scoped to selected salesperson)
       const thaiDay = getThaiDayFromDate(dateStr);
-      const defaultRoutes = scopedRoutes
+      const defaultRoutes = editorRoutes
         .filter((r) => doesRouteRunOnDay(r, thaiDay))
         .map((r) => r.id);
       setEditingRouteIds(defaultRoutes);
@@ -409,7 +426,7 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
     });
   };
 
-  // Save day schedule (preserving other reps' routes when editing as sales user)
+  // Save day schedule (preserving other reps' routes when filtered to a single salesperson)
   const handleSaveDayEditor = () => {
     if (!editingDateStr) return;
     const existing = dailySchedules[editingDateStr];
@@ -417,29 +434,35 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
     let selfSwitchedIds: string[] | undefined = undefined;
     let baselineBeforeSwitch: string[] | undefined = undefined;
 
-    if (!canViewAllRoutes) {
+    if (isSingleSalesView) {
       const thaiDay = getThaiDayFromDate(editingDateStr);
       const otherRouteIds = existing
-        ? existing.routeIds.filter((id) => !scopedRouteIdSet.has(id))
+        ? existing.routeIds.filter((id) => !editorRouteIdSet.has(id))
         : routes
-            .filter((r) => !scopedRouteIdSet.has(r.id) && doesRouteRunOnDay(r, thaiDay))
+            .filter((r) => !editorRouteIdSet.has(r.id) && doesRouteRunOnDay(r, thaiDay))
             .map((r) => r.id);
       finalRouteIds = Array.from(new Set([...otherRouteIds, ...editingRouteIds]));
 
-      const baselineAll =
-        existing?.plannedRouteIdsBeforeSwitch && existing.plannedRouteIdsBeforeSwitch.length > 0
-          ? existing.plannedRouteIdsBeforeSwitch
-          : existing
-          ? existing.routeIds
-          : routes.filter((r) => doesRouteRunOnDay(r, thaiDay)).map((r) => r.id);
       const otherSwitched = (existing?.selfSwitchedRouteIds || []).filter(
-        (id) => !scopedRouteIdSet.has(id)
+        (id) => !editorRouteIdSet.has(id)
       );
-      const ownSwitched = editingRouteIds.filter((id) => !baselineAll.includes(id));
-      const mergedSwitched = Array.from(new Set([...otherSwitched, ...ownSwitched]));
-      if (mergedSwitched.length > 0) {
-        selfSwitchedIds = mergedSwitched;
-        baselineBeforeSwitch = baselineAll;
+
+      if (!canViewAllRoutes) {
+        const baselineAll =
+          existing?.plannedRouteIdsBeforeSwitch && existing.plannedRouteIdsBeforeSwitch.length > 0
+            ? existing.plannedRouteIdsBeforeSwitch
+            : existing
+            ? existing.routeIds
+            : routes.filter((r) => doesRouteRunOnDay(r, thaiDay)).map((r) => r.id);
+        const ownSwitched = editingRouteIds.filter((id) => !baselineAll.includes(id));
+        const mergedSwitched = Array.from(new Set([...otherSwitched, ...ownSwitched]));
+        if (mergedSwitched.length > 0) {
+          selfSwitchedIds = mergedSwitched;
+          baselineBeforeSwitch = baselineAll;
+        }
+      } else if (otherSwitched.length > 0) {
+        selfSwitchedIds = otherSwitched;
+        baselineBeforeSwitch = existing?.plannedRouteIdsBeforeSwitch;
       }
     }
 
@@ -458,7 +481,11 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
         : existing
         ? 'update_daily'
         : 'set_daily',
-      notes: editingNotes.trim() || undefined,
+      notes:
+        editingNotes.trim() ||
+        (canViewAllRoutes && effectiveSelectedSales !== 'all'
+          ? `ตั้งค่าสายสำหรับเซลล์: ${effectiveSelectedSales}`
+          : undefined),
     });
     showToast(`บันทึกแผนวิ่งสายวันที่ ${formatThaiDate(editingDateStr, { shortMonth: true })} เรียบร้อย!`);
     setEditingDateStr(null);
@@ -467,7 +494,7 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
   // Revert day to default weekly recurring
   const handleRevertDayToDefault = () => {
     if (!editingDateStr) return;
-    if (canViewAllRoutes) {
+    if (!isSingleSalesView) {
       onDeleteDailySchedule(editingDateStr, {
         actionType: 'reset_default',
         notes: 'รีเซ็ตกลับรอบสัปดาห์ปกติจากปฏิทินจำลอง',
@@ -475,19 +502,22 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
     } else {
       const existing = dailySchedules[editingDateStr];
       if (existing) {
-        const otherRouteIds = existing.routeIds.filter((id) => !scopedRouteIdSet.has(id));
+        const otherRouteIds = existing.routeIds.filter((id) => !editorRouteIdSet.has(id));
         if (otherRouteIds.length === 0) {
           onDeleteDailySchedule(editingDateStr, {
             actionType: 'reset_default',
-            notes: 'รีเซ็ตกลับรอบสัปดาห์ปกติจากปฏิทินจำลอง',
+            notes:
+              canViewAllRoutes && effectiveSelectedSales !== 'all'
+                ? `รีเซ็ตกลับรอบสัปดาห์ปกติ (เซลล์: ${effectiveSelectedSales})`
+                : 'รีเซ็ตกลับรอบสัปดาห์ปกติจากปฏิทินจำลอง',
           });
         } else {
           const thaiDay = getThaiDayFromDate(editingDateStr);
-          const ownDefaultIds = scopedRoutes
+          const ownDefaultIds = editorRoutes
             .filter((r) => doesRouteRunOnDay(r, thaiDay))
             .map((r) => r.id);
           const remainingSwitched = (existing.selfSwitchedRouteIds || []).filter(
-            (id) => !scopedRouteIdSet.has(id)
+            (id) => !editorRouteIdSet.has(id)
           );
           onSaveDailySchedule(
             editingDateStr,
@@ -503,7 +533,10 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
             },
             {
               actionType: 'reset_default',
-              notes: 'รีเซ็ตกลับรอบสัปดาห์ปกติจากปฏิทินจำลอง',
+              notes:
+                canViewAllRoutes && effectiveSelectedSales !== 'all'
+                  ? `รีเซ็ตกลับรอบสัปดาห์ปกติ (เซลล์: ${effectiveSelectedSales})`
+                  : 'รีเซ็ตกลับรอบสัปดาห์ปกติจากปฏิทินจำลอง',
             }
           );
         }
@@ -1182,9 +1215,17 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
                   <h3 className="font-bold text-base leading-tight">
                     กำหนดสายวิ่งประจำวัน (Daily Route Plan)
                   </h3>
-                  <p className="text-xs text-blue-100 font-medium">
-                    {formatThaiDate(editingDateStr, { withDayOfWeek: true, shortMonth: false })}
-                  </p>
+                  <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                    <p className="text-xs text-blue-100 font-medium">
+                      {formatThaiDate(editingDateStr, { withDayOfWeek: true, shortMonth: false })}
+                    </p>
+                    {isSingleSalesView && effectiveSelectedSales && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/15 border border-white/25 text-[11px] font-bold text-amber-200">
+                        <User className="w-3 h-3" />
+                        <span>เซลล์: {effectiveSelectedSales}</span>
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
               <button
@@ -1201,12 +1242,14 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
               {/* Quick actions for route selection */}
               <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
                 <span className="font-bold text-slate-800">
-                  เลือกสายส่งที่ต้องการวิ่งในวันนี้ ({editingRouteIds.length} สาย):
+                  {isSingleSalesView && effectiveSelectedSales
+                    ? `เลือกสายของ ${effectiveSelectedSales} (${editingRouteIds.length}/${editorRoutes.length} สาย):`
+                    : `เลือกสายส่งที่ต้องการวิ่งในวันนี้ (${editingRouteIds.length} สาย):`}
                 </span>
                 <div className="flex items-center gap-1.5">
                   <button
                     type="button"
-                    onClick={() => setEditingRouteIds(scopedRoutes.map((r) => r.id))}
+                    onClick={() => setEditingRouteIds(editorRoutes.map((r) => r.id))}
                     className="text-[11px] font-bold text-blue-600 hover:underline"
                   >
                     เลือกทั้งหมด
@@ -1224,7 +1267,7 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
                     type="button"
                     onClick={() => {
                       const thaiDay = getThaiDayFromDate(editingDateStr);
-                      const defIds = scopedRoutes
+                      const defIds = editorRoutes
                         .filter((r) => doesRouteRunOnDay(r, thaiDay))
                         .map((r) => r.id);
                       setEditingRouteIds(defIds);
@@ -1238,14 +1281,14 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
 
               {/* Routes Checklist */}
               <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                {scopedRoutes.length === 0 ? (
+                {editorRoutes.length === 0 ? (
                   <div className="p-4 rounded-xl bg-slate-50 text-slate-500 text-center">
-                    {canViewAllRoutes
-                      ? 'ยังไม่มีข้อมูลสายส่งในระบบ สามารถเพิ่มสายส่งได้ที่เมนู "จัดการสายส่ง (Routes)"'
-                      : `ยังไม่มีสายการเข้าเยี่ยมที่กำหนดให้ ${currentUser?.name || 'คุณ'}`}
+                    {isSingleSalesView && effectiveSelectedSales
+                      ? `ยังไม่มีสายการเข้าเยี่ยมที่กำหนดให้ ${effectiveSelectedSales}`
+                      : 'ยังไม่มีข้อมูลสายส่งในระบบ สามารถเพิ่มสายส่งได้ที่เมนู "จัดการสายส่ง (Routes)"'}
                   </div>
                 ) : (
-                  scopedRoutes.map((route, idx) => {
+                  editorRoutes.map((route, idx) => {
                     const isChecked = editingRouteIds.includes(route.id);
                     const palette = getRouteColor(route.id || idx);
                     const customerCountInRoute = scopedCustomers.filter((c) => isCustomerInRoute(c, route)).length;
@@ -1320,7 +1363,7 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
                   <span className="text-slate-500">เป้าหมายร้านค้ารวมสำหรับวันนี้: </span>
                   <strong className="text-slate-900 font-bold text-sm">
                     {scopedCustomers.filter((c) =>
-                      scopedRoutes
+                      editorRoutes
                         .filter((r) => editingRouteIds.includes(r.id))
                         .some((r) => isCustomerInRoute(c, r))
                     ).length}{' '}
