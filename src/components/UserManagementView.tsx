@@ -69,8 +69,8 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
       color: 'bg-blue-100 text-blue-800 border-blue-200',
     },
     delivery: {
-      title: 'ทีมจัดส่ง / พนักงานขาย (Delivery)',
-      desc: 'ดูเฉพาะรายการที่ต้องจัดส่ง, ดูเบอร์โทรลูกค้าและกดโทรออก, กดปุ่ม Google Maps นำทาง, อัปเดตสถานะจัดส่ง',
+      title: 'ทีมจัดส่ง (Delivery / Logistics)',
+      desc: 'เข้าถึงเฉพาะเมนูโลจิสติกส์: แดชบอร์ดสรุปงานจัดส่ง, แผนงานจัดส่ง, จัดการเงินประกัน, ค่าใช้จ่ายรถจ้าง, จัดการรถ และบันทึกบำรุงรักษารถ',
       icon: Truck,
       color: 'bg-amber-100 text-amber-800 border-amber-200',
     },
@@ -315,7 +315,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                     <option value="admin">ผู้ดูแลระบบสูงสุด (Admin)</option>
                     <option value="manager">ผู้จัดการฝ่ายขาย (Manager)</option>
                     <option value="sales">พนักงานขาย / เซลล์ (Sales)</option>
-                    <option value="delivery">ทีมจัดส่ง / พนักงานขาย (Delivery)</option>
+                    <option value="delivery">ทีมจัดส่ง / โลจิสติกส์ (Delivery)</option>
                     <option value="viewer">ผู้ตรวจสอบ / บัญชี (Viewer - อ่านอย่างเดียว)</option>
                   </select>
                 </div>

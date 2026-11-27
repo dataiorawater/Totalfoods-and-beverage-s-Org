@@ -186,6 +186,15 @@ const SALES_ALLOWED_TABS: ReadonlyArray<AppTab> = [
   'new_order',
 ];
 
+const DELIVERY_ALLOWED_TABS: ReadonlyArray<AppTab> = [
+  'logistics_dashboard',
+  'logistics',
+  'deposits',
+  'hired_vehicles',
+  'fleet_vehicles',
+  'maintenance',
+];
+
 // Lightweight fallback shown briefly while a lazy tab chunk loads
 const ViewLoadingFallback: React.FC = () => (
   <div className="flex flex-col items-center justify-center py-20 text-slate-500 gap-3">
@@ -594,11 +603,16 @@ export default function App() {
     return INITIAL_FLEET_VEHICLES;
   });
 
-  const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
+  const [activeTab, setActiveTab] = useState<AppTab>(() =>
+    currentUser.role === 'delivery' ? 'logistics_dashboard' : 'dashboard'
+  );
   const [checkInEntryCount, setCheckInEntryCount] = useState<number>(0);
 
   const handleSelectTab = useCallback((tab: AppTab) => {
     if (currentUser.role === 'sales' && !SALES_ALLOWED_TABS.includes(tab)) {
+      return;
+    }
+    if (currentUser.role === 'delivery' && !DELIVERY_ALLOWED_TABS.includes(tab)) {
       return;
     }
     if (tab === 'checkin') {
@@ -610,6 +624,8 @@ export default function App() {
   useEffect(() => {
     if (currentUser.role === 'sales' && !SALES_ALLOWED_TABS.includes(activeTab)) {
       setActiveTab('dashboard');
+    } else if (currentUser.role === 'delivery' && !DELIVERY_ALLOWED_TABS.includes(activeTab)) {
+      setActiveTab('logistics_dashboard');
     }
   }, [currentUser.role, activeTab]);
 
@@ -2337,9 +2353,10 @@ export default function App() {
 
   // Stable callbacks for memoized Navbar
   const handleOpenNewOrderTab = useCallback(() => {
+    if (currentUser.role === 'delivery' || currentUser.role === 'viewer') return;
     setEditingOrder(null);
     setActiveTab('new_order');
-  }, []);
+  }, [currentUser.role]);
 
   const handleOpenNewCustomerModal = useCallback(() => {
     setIsNewCustomerOpen(true);

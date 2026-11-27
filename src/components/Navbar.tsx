@@ -148,6 +148,7 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({
   const isViewer = currentUser.role === 'viewer';
   const isAdminOrManager = currentUser.role === 'admin' || currentUser.role === 'manager';
   const isSales = currentUser.role === 'sales';
+  const isDelivery = currentUser.role === 'delivery';
 
   const navGroups = useMemo<NavGroupConfig[]>(() => {
     const salesItems: NavItemConfig[] = [
@@ -259,22 +260,24 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({
       },
     ];
 
-    const groups: NavGroupConfig[] = [
-      {
+    const groups: NavGroupConfig[] = [];
+
+    if (!isDelivery) {
+      groups.push({
         key: 'sales',
         label: 'เมนูพนักงานขาย',
         englishLabel: 'Sales',
         showDividerWhenCollapsed: false,
         items: salesItems,
-      },
-    ];
+      });
+    }
 
     if (!isSales) {
       groups.push({
         key: 'logistics',
         label: 'เมนูโลจิสติกส์',
         englishLabel: 'Logistics',
-        showDividerWhenCollapsed: true,
+        showDividerWhenCollapsed: !isDelivery,
         items: [
           {
             key: 'logistics_dashboard',
@@ -582,8 +585,9 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({
         ],
       });
 
-      const toolItems: NavItemConfig[] = [];
-      if (isAdminOrManager) {
+      if (!isDelivery) {
+        const toolItems: NavItemConfig[] = [];
+        if (isAdminOrManager) {
         toolItems.push(
           {
             key: 'users',
@@ -660,13 +664,14 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({
         });
       }
 
-      groups.push({
-        key: 'tools',
-        label: 'เครื่องมือ & การจัดการ',
-        englishLabel: 'Tools',
-        showDividerWhenCollapsed: true,
-        items: toolItems,
-      });
+        groups.push({
+          key: 'tools',
+          label: 'เครื่องมือ & การจัดการ',
+          englishLabel: 'Tools',
+          showDividerWhenCollapsed: true,
+          items: toolItems,
+        });
+      }
     }
 
     return groups;
@@ -681,6 +686,7 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({
     fleetAlertCount,
     maintenanceCount,
     isSales,
+    isDelivery,
     isAdminOrManager,
     lineSettings?.enabled,
     onOpenSettings,
@@ -960,67 +966,139 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({
           2. MOBILE BOTTOM NAVIGATION BAR (Visible only on screens below lg:)
          ========================================================================= */}
       <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white gpu-layer border-t border-slate-200 px-2 py-1.5 shadow-lg">
-        <div className="flex items-center justify-around">
-          <button
-            id="mobile-tab-orders"
-            onClick={() => setActiveTab('orders')}
-            className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
-              activeTab === 'orders' ? 'text-blue-700 font-bold' : 'text-slate-500'
-            }`}
-          >
-            <ListOrdered className="w-4.5 h-4.5" />
-            <span>ออเดอร์</span>
-          </button>
-
-          <button
-            id="mobile-tab-customers"
-            onClick={() => setActiveTab('customers')}
-            className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
-              activeTab === 'customers' ? 'text-blue-700 font-bold' : 'text-slate-500'
-            }`}
-          >
-            <Users className="w-4.5 h-4.5" />
-            <span>ข้อมูลลูกค้า</span>
-          </button>
-
-          {/* Big Center Floating-like Add Button */}
-          {!isViewer ? (
+        {isDelivery ? (
+          <div className="flex items-center justify-around">
             <button
-              id="mobile-btn-add-order"
-              onClick={onOpenNewOrder}
-              className="flex flex-col items-center -mt-5"
+              id="mobile-tab-logistics-dashboard"
+              onClick={() => setActiveTab('logistics_dashboard')}
+              className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
+                activeTab === 'logistics_dashboard' ? 'text-blue-700 font-bold' : 'text-slate-500'
+              }`}
             >
-              <div className="w-11 h-11 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-600/40 border-2 border-white active:scale-95 transition-transform">
-                <PlusCircle className="w-5 h-5" />
-              </div>
-              <span className="text-[9px] font-semibold text-blue-800 mt-0.5">ลงออเดอร์</span>
+              <BarChart3 className="w-4.5 h-4.5" />
+              <span>สรุปจัดส่ง</span>
             </button>
-          ) : (
-            <div className="w-11 h-11"></div>
-          )}
 
-          <button
-            id="mobile-tab-checkin"
-            onClick={() => setActiveTab('checkin')}
-            className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
-              activeTab === 'checkin' ? 'text-blue-700 font-bold' : 'text-slate-500'
-            }`}
-          >
-            <MapPin className="w-4.5 h-4.5" />
-            <span>เช็คอินร้าน</span>
-          </button>
+            <button
+              id="mobile-tab-logistics"
+              onClick={() => setActiveTab('logistics')}
+              className={`relative flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
+                activeTab === 'logistics' ? 'text-blue-700 font-bold' : 'text-slate-500'
+              }`}
+            >
+              <Truck className="w-4.5 h-4.5" />
+              <span>แผนจัดส่ง</span>
+              {deliveryCount > 0 && (
+                <span className="absolute top-0 right-1 min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center leading-none">
+                  {deliveryCount > 99 ? '99+' : deliveryCount}
+                </span>
+              )}
+            </button>
 
-          <button
-            id="mobile-tab-more"
-            onClick={() => setIsMobileMenuOpen(true)}
-            className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
-              isMobileMenuOpen || !['orders', 'customers', 'checkin'].includes(activeTab) ? 'text-blue-700 font-bold' : 'text-slate-500'
-            }`}
-          >
-            <Menu className="w-4.5 h-4.5" />
-            <span>เพิ่มเติม</span>
-          </button>
-        </div>
+            <button
+              id="mobile-tab-fleet"
+              onClick={() => setActiveTab('fleet_vehicles')}
+              className={`relative flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
+                activeTab === 'fleet_vehicles' ? 'text-blue-700 font-bold' : 'text-slate-500'
+              }`}
+            >
+              <Car className="w-4.5 h-4.5" />
+              <span>จัดการรถ</span>
+              {fleetAlertCount > 0 && (
+                <span className="absolute top-0 right-1 min-w-[16px] h-4 px-1 rounded-full bg-rose-600 text-white text-[9px] font-bold flex items-center justify-center leading-none">
+                  {fleetAlertCount > 99 ? '99+' : fleetAlertCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              id="mobile-tab-maintenance"
+              onClick={() => setActiveTab('maintenance')}
+              className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
+                activeTab === 'maintenance' ? 'text-blue-700 font-bold' : 'text-slate-500'
+              }`}
+            >
+              <Wrench className="w-4.5 h-4.5" />
+              <span>ซ่อมบำรุง</span>
+            </button>
+
+            <button
+              id="mobile-tab-more"
+              onClick={() => setIsMobileMenuOpen(true)}
+              className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
+                isMobileMenuOpen ||
+                !['logistics_dashboard', 'logistics', 'fleet_vehicles', 'maintenance'].includes(activeTab)
+                  ? 'text-blue-700 font-bold'
+                  : 'text-slate-500'
+              }`}
+            >
+              <Menu className="w-4.5 h-4.5" />
+              <span>เพิ่มเติม</span>
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-around">
+            <button
+              id="mobile-tab-orders"
+              onClick={() => setActiveTab('orders')}
+              className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
+                activeTab === 'orders' ? 'text-blue-700 font-bold' : 'text-slate-500'
+              }`}
+            >
+              <ListOrdered className="w-4.5 h-4.5" />
+              <span>ออเดอร์</span>
+            </button>
+
+            <button
+              id="mobile-tab-customers"
+              onClick={() => setActiveTab('customers')}
+              className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
+                activeTab === 'customers' ? 'text-blue-700 font-bold' : 'text-slate-500'
+              }`}
+            >
+              <Users className="w-4.5 h-4.5" />
+              <span>ข้อมูลลูกค้า</span>
+            </button>
+
+            {/* Big Center Floating-like Add Button */}
+            {!isViewer ? (
+              <button
+                id="mobile-btn-add-order"
+                onClick={onOpenNewOrder}
+                className="flex flex-col items-center -mt-5"
+              >
+                <div className="w-11 h-11 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-600/40 border-2 border-white active:scale-95 transition-transform">
+                  <PlusCircle className="w-5 h-5" />
+                </div>
+                <span className="text-[9px] font-semibold text-blue-800 mt-0.5">ลงออเดอร์</span>
+              </button>
+            ) : (
+              <div className="w-11 h-11"></div>
+            )}
+
+            <button
+              id="mobile-tab-checkin"
+              onClick={() => setActiveTab('checkin')}
+              className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
+                activeTab === 'checkin' ? 'text-blue-700 font-bold' : 'text-slate-500'
+              }`}
+            >
+              <MapPin className="w-4.5 h-4.5" />
+              <span>เช็คอินร้าน</span>
+            </button>
+
+            <button
+              id="mobile-tab-more"
+              onClick={() => setIsMobileMenuOpen(true)}
+              className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] font-medium transition-colors cursor-pointer ${
+                isMobileMenuOpen || !['orders', 'customers', 'checkin'].includes(activeTab) ? 'text-blue-700 font-bold' : 'text-slate-500'
+              }`}
+            >
+              <Menu className="w-4.5 h-4.5" />
+              <span>เพิ่มเติม</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* MOBILE MORE MENU OVERLAY */}

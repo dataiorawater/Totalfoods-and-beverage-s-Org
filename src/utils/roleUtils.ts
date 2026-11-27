@@ -12,7 +12,7 @@ export const ROLE_FULL_LABELS: Record<StaffRole, string> = {
   admin: 'ผู้ดูแลระบบสูงสุด (Admin)',
   manager: 'ผู้จัดการฝ่ายขาย (Manager)',
   sales: 'พนักงานขาย (Sales)',
-  delivery: 'ทีมจัดส่ง / พนักงานขาย',
+  delivery: 'ทีมจัดส่ง (Logistics)',
   viewer: 'ผู้ตรวจสอบ / บัญชี (Viewer)',
 };
 
