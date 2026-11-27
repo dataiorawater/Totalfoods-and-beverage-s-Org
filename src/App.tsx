@@ -1966,7 +1966,7 @@ export default function App() {
   // If user is not logged in, render the login screen
   if (!isLoggedIn) {
     return (
-      <div className="relative min-h-screen bg-slate-900">
+      <div className="relative min-h-screen bg-[#F1F5F9] text-[#0F172A]">
         {toast && (
           <div
             id="app-toast-banner-login"
@@ -2020,7 +2020,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100/70 text-slate-900 font-sans flex flex-col lg:flex-row selection:bg-blue-600 selection:text-white pb-20 lg:pb-0">
+    <div className="min-h-screen bg-[#FFFFFF] text-[#0F172A] font-sans flex flex-col lg:flex-row selection:bg-[#1D4ED8] selection:text-white pb-20 lg:pb-0">
       {/* Toast Notification Alert */}
       {toast && (
         <div
@@ -2081,16 +2081,16 @@ export default function App() {
       {/* Main Content Area */}
       <div className="flex-1 min-w-0 flex flex-col min-h-screen">
         {/* Top Header Bar (Application Name & Logged-in Employee Name) */}
-        <header className="flex sticky top-0 z-20 bg-white gpu-layer border-b border-slate-200/80 px-2.5 sm:px-6 lg:px-8 py-2 sm:py-3 items-center justify-between gap-2 w-full max-w-full overflow-hidden shadow-2xs">
+        <header className="flex sticky top-0 z-20 bg-[#FFFFFF] gpu-layer border-b border-slate-200 px-2.5 sm:px-6 lg:px-8 py-2 sm:py-3 items-center justify-between gap-2 w-full max-w-full overflow-hidden">
           <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             {/* Mobile Logo & App Name (visible only on mobile where Navbar is hidden) */}
             <div className="flex lg:hidden items-center gap-1.5 sm:gap-2">
-              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-white flex items-center justify-center shadow-sm border border-slate-200/70 p-0.5 shrink-0">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-[#FFFFFF] flex items-center justify-center shadow-2xs border border-slate-200 p-0.5 shrink-0">
                 <TotalEmblem className="w-5 h-5 sm:w-6 sm:h-6 drop-shadow-xs" />
               </div>
               <div className="flex flex-col">
                 <div className="flex items-center gap-1">
-                  <h1 className="font-extrabold text-[12px] sm:text-[13px] tracking-tight text-slate-900 leading-none truncate">
+                  <h1 className="font-extrabold text-[12px] sm:text-[13px] tracking-tight text-[#0F172A] leading-none truncate">
                     TOTAL
                   </h1>
                 </div>
@@ -2100,10 +2100,10 @@ export default function App() {
               </div>
             </div>
 
-            <span className="font-extrabold text-sm sm:text-base text-slate-900 tracking-tight hidden sm:block">ระบบจัดการงาน</span>
+            <span className="font-extrabold text-sm sm:text-base text-[#0F172A] tracking-tight hidden sm:block">ระบบจัดการงาน</span>
             {sheetsConfig?.spreadsheetId ? (
               <div className="flex items-center gap-1 sm:gap-1.5">
-                <span className="inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap">
+                <span className="inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold bg-[#F1F5F9] text-[#1D4ED8] border border-slate-200 whitespace-nowrap">
                   <BrandLogo brand="google-sheets" className="w-3 h-3 text-[#34A853] shrink-0" />
                   <span className="hidden sm:inline">Google Sheets Online</span><span className="sm:hidden">Online</span>
                 </span>
@@ -2117,10 +2117,10 @@ export default function App() {
                     }
                   }}
                   disabled={isLoadingData}
-                  className="p-1 sm:px-2 sm:py-0.5 rounded-lg text-[11px] font-semibold text-slate-600 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 transition-colors inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 shrink-0"
+                  className="p-1 sm:px-2.5 sm:py-1 rounded-lg text-[11px] font-semibold text-[#0F172A] bg-[#F1F5F9] hover:text-[#1D4ED8] hover:bg-blue-50 border border-slate-200 transition-colors inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 shrink-0"
                   title="คลิกเพื่อดึงข้อมูลทั้งหมดจากฐานข้อมูลใหม่"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingData ? 'animate-spin text-blue-600' : 'text-slate-500'}`} />
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingData ? 'animate-spin text-[#1D4ED8]' : 'text-slate-500'}`} />
                   <span className="hidden md:inline">{isLoadingData ? 'กำลังซิงค์...' : 'รีเฟรชฐานข้อมูล'}</span>
                 </button>
               </div>
@@ -2137,21 +2137,21 @@ export default function App() {
             <button
               id="desktop-header-user-badge"
               onClick={() => setIsRoleSwitcherOpen(true)}
-              className="flex items-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl border border-blue-200/90 bg-blue-50/70 hover:bg-blue-100/70 active:bg-blue-100 transition-all text-left shadow-2xs group cursor-pointer min-w-0 max-w-full"
+              className="flex items-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl border border-slate-200 bg-[#F1F5F9] hover:bg-blue-50 hover:border-blue-200 active:bg-blue-100/70 transition-all text-left group cursor-pointer min-w-0 max-w-full"
               title={`เข้าสู่ระบบโดย: ${currentUser.name} - คลิกเพื่อสลับสิทธิ์ผู้ใช้งาน`}
             >
-              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-blue-600 text-white font-bold text-[11px] sm:text-xs flex items-center justify-center shrink-0 shadow-2xs">
+              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#1D4ED8] text-white font-bold text-[11px] sm:text-xs flex items-center justify-center shrink-0 shadow-2xs">
                 {currentUser.name.charAt(0)}
               </div>
               <div className="flex flex-col min-w-0 flex-1">
                 <div className="flex items-center gap-1 sm:gap-1.5 min-w-0">
                   <span className="text-[10px] sm:text-xs text-slate-500 font-medium hidden sm:inline shrink-0">เข้าสู่ระบบโดย:</span>
-                  <span className="text-[11px] sm:text-sm font-bold text-slate-900 truncate">
+                  <span className="text-[11px] sm:text-sm font-bold text-[#0F172A] truncate">
                     {currentUser.name}
                   </span>
-                  <ChevronDown className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-700 group-hover:text-blue-900 shrink-0" />
+                  <ChevronDown className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#1D4ED8] shrink-0" />
                 </div>
-                <div className="flex items-center gap-1 text-[9.5px] sm:text-[10px] text-blue-700 font-medium min-w-0 leading-tight">
+                <div className="flex items-center gap-1 text-[9.5px] sm:text-[10px] text-[#1D4ED8] font-semibold min-w-0 leading-tight">
                   <span className="truncate">
                     {currentUser.role === 'admin'
                       ? 'Admin สูงสุด'
@@ -2347,10 +2347,13 @@ export default function App() {
           ) : (
             <DashboardView
               orders={orders}
+              customers={customers}
+              routes={routes}
               currentUser={currentUser}
               onOpenNewOrder={() => { setEditingOrder(null); setActiveTab('new_order'); }}
               onNavigateToLogistics={() => setActiveTab('logistics')}
               onNavigateToMaintenance={() => setActiveTab('maintenance')}
+              onNavigateToCustomers={() => setActiveTab('customers')}
             />
           )}
         </main>

@@ -502,7 +502,7 @@ export const LogisticsManagementView: React.FC<LogisticsManagementViewProps> = (
       ) : (
         <div className="space-y-5">
       {/* 1. Header Banner & Title */}
-      <div className="bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-900 rounded-3xl p-5 sm:p-7 text-white shadow-md relative overflow-hidden">
+      <div className="bg-[#1D4ED8] rounded-3xl p-5 sm:p-7 text-white shadow-md shadow-blue-700/15 relative overflow-hidden">
         <div className="absolute right-0 top-0 bottom-0 opacity-10 flex items-center pr-6 pointer-events-none">
           <Truck className="w-56 h-56 -mr-10 text-white" />
         </div>

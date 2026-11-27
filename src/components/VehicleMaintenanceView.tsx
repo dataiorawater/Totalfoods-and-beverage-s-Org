@@ -2080,9 +2080,9 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
       {isFormModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
           <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-6">
-            <div className="px-5 py-4 bg-gradient-to-r from-slate-900 to-blue-950 text-white flex items-center justify-between">
+            <div className="px-5 py-4 bg-[#1D4ED8] text-white flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-blue-600/80 flex items-center justify-center">
+                <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center">
                   <Wrench className="w-5 h-5 text-white" />
                 </div>
                 <div>

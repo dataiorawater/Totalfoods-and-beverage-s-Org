@@ -126,16 +126,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
-      <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col my-auto relative">
+    <div className="min-h-screen bg-[#F1F5F9] flex items-center justify-center p-3 sm:p-4">
+      <div className="w-full max-w-lg bg-[#FFFFFF] rounded-3xl shadow-xl border border-slate-200 overflow-hidden flex flex-col my-auto relative">
         {/* Success & Full Database Sync Popup */}
         {showSuccessPopup && (
-          <div className="absolute inset-0 z-50 bg-white/98 backdrop-blur-md rounded-3xl flex flex-col items-center justify-center p-6 sm:p-8 animate-in fade-in zoom-in-95 duration-300">
+          <div className="absolute inset-0 z-50 bg-[#FFFFFF]/98 backdrop-blur-md rounded-3xl flex flex-col items-center justify-center p-6 sm:p-8 animate-in fade-in zoom-in-95 duration-300">
             <div className="w-18 h-18 sm:w-20 sm:h-20 bg-emerald-100 rounded-full flex items-center justify-center mb-4 shadow-inner relative">
               <CheckCircle2 className={`w-10 h-10 text-emerald-600 ${isSyncComplete ? '' : 'animate-pulse'}`} />
             </div>
 
-            <h2 className="text-xl sm:text-2xl font-black text-slate-800 text-center">เข้าสู่ระบบสำเร็จ</h2>
+            <h2 className="text-xl sm:text-2xl font-black text-[#0F172A] text-center">เข้าสู่ระบบสำเร็จ</h2>
             <p className="text-xs text-slate-500 text-center mt-1">
               กำลังโหลดข้อมูลทั้งหมดจากฐานข้อมูลให้พร้อมใช้งานทันที
             </p>
@@ -143,20 +143,20 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             {/* Live Progress Bar */}
             <div className="w-full max-w-sm mt-5 space-y-1.5">
               <div className="flex justify-between items-center text-xs font-semibold">
-                <span className="text-slate-600 flex items-center gap-1.5 truncate">
+                <span className="text-[#0F172A] flex items-center gap-1.5 truncate">
                   {!isSyncComplete ? (
-                    <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0" />
+                    <div className="w-3 h-3 border-2 border-[#1D4ED8] border-t-transparent rounded-full animate-spin shrink-0" />
                   ) : (
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                   )}
                   <span className="truncate">{syncStatusText}</span>
                 </span>
-                <span className="text-blue-700 font-bold shrink-0">{syncProgress}%</span>
+                <span className="text-[#1D4ED8] font-bold shrink-0">{syncProgress}%</span>
               </div>
-              <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200">
+              <div className="w-full h-2.5 bg-[#F1F5F9] rounded-full overflow-hidden p-0.5 border border-slate-200">
                 <div
                   className={`h-full rounded-full transition-all duration-300 ${
-                    isSyncComplete ? 'bg-emerald-500' : 'bg-gradient-to-r from-blue-500 to-indigo-600'
+                    isSyncComplete ? 'bg-emerald-500' : 'bg-[#1D4ED8]'
                   }`}
                   style={{ width: `${syncProgress}%` }}
                 />
@@ -165,34 +165,34 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
             {/* Preparation Checklist */}
             <div className="w-full max-w-sm grid grid-cols-2 gap-2 mt-5 text-[11px]">
-              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-2">
-                <Package className="w-4 h-4 text-blue-600 shrink-0" />
+              <div className="p-2.5 rounded-xl bg-[#F1F5F9] border border-slate-200 flex items-center gap-2">
+                <Package className="w-4 h-4 text-[#1D4ED8] shrink-0" />
                 <div className="truncate">
-                  <div className="font-bold text-slate-800 truncate">ออเดอร์ & สินค้า</div>
+                  <div className="font-bold text-[#0F172A] truncate">ออเดอร์ & สินค้า</div>
                   <div className="text-[10px] text-emerald-600 font-medium">พร้อมใช้งาน</div>
                 </div>
               </div>
 
-              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-2">
+              <div className="p-2.5 rounded-xl bg-[#F1F5F9] border border-slate-200 flex items-center gap-2">
                 <Users className="w-4 h-4 text-emerald-600 shrink-0" />
                 <div className="truncate">
-                  <div className="font-bold text-slate-800 truncate">ลูกค้า & สายส่ง</div>
+                  <div className="font-bold text-[#0F172A] truncate">ลูกค้า & สายส่ง</div>
                   <div className="text-[10px] text-emerald-600 font-medium">พร้อมใช้งาน</div>
                 </div>
               </div>
 
-              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-2">
+              <div className="p-2.5 rounded-xl bg-[#F1F5F9] border border-slate-200 flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-amber-600 shrink-0" />
                 <div className="truncate">
-                  <div className="font-bold text-slate-800 truncate">รอบเช็คอินประจำวัน</div>
+                  <div className="font-bold text-[#0F172A] truncate">รอบเช็คอินประจำวัน</div>
                   <div className="text-[10px] text-emerald-600 font-medium">พร้อมใช้งาน</div>
                 </div>
               </div>
 
-              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-2">
-                <Database className="w-4 h-4 text-purple-600 shrink-0" />
+              <div className="p-2.5 rounded-xl bg-[#F1F5F9] border border-slate-200 flex items-center gap-2">
+                <Database className="w-4 h-4 text-[#1D4ED8] shrink-0" />
                 <div className="truncate">
-                  <div className="font-bold text-slate-800 truncate">ฐานข้อมูลระบบ</div>
+                  <div className="font-bold text-[#0F172A] truncate">ฐานข้อมูลระบบ</div>
                   <div className="text-[10px] text-emerald-600 font-medium">ซิงค์สมบูรณ์</div>
                 </div>
               </div>
@@ -201,20 +201,20 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         )}
         
         {/* Header */}
-        <div className="bg-gradient-to-br from-blue-700 via-blue-800 to-indigo-900 p-5 sm:p-6 text-white text-center relative">
-          <div className="w-16 h-16 sm:w-18 sm:h-18 mx-auto rounded-3xl bg-white flex items-center justify-center p-1.5 mb-3 shadow-lg shadow-blue-950/30 border border-white/40">
+        <div className="bg-[#1D4ED8] p-5 sm:p-6 text-white text-center relative">
+          <div className="w-16 h-16 sm:w-18 sm:h-18 mx-auto rounded-3xl bg-[#FFFFFF] flex items-center justify-center p-1.5 mb-3 shadow-lg shadow-blue-950/20 border border-white/40">
             <TotalEmblem className="w-full h-full drop-shadow-xs" />
           </div>
           <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">TOTAL</h1>
           <p className="text-blue-100 text-xs font-semibold tracking-wider mt-0.5 uppercase">
             Foods & Beverage
           </p>
-          <div className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-900/60 border border-blue-400/30 text-[10px] sm:text-[11px] text-blue-200">
+          <div className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 border border-white/25 text-[10px] sm:text-[11px] text-white font-medium">
             <Lock className="w-3 h-3" />
             <span>เข้าสู่ระบบตามระดับสิทธิ์</span>
           </div>
         </div>
-        <div className="p-5 sm:p-6 bg-white">
+        <div className="p-5 sm:p-6 bg-[#FFFFFF]">
           {errorMessage && (
             <div className="mb-4 p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -231,7 +231,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           {activeMode === 'forgot_password' ? (
             <form onSubmit={handleForgotPassword} className="space-y-4">
                <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">อีเมลผู้ใช้งาน</label>
+                <label className="block text-xs font-semibold text-[#0F172A] mb-1">อีเมลผู้ใช้งาน</label>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
@@ -239,13 +239,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                     required
                     value={emailInput}
                     onChange={(e) => setEmailInput(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800"
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-[#F1F5F9]/60 focus:bg-[#FFFFFF] border border-slate-200 text-sm focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8] text-[#0F172A] outline-none transition-colors"
                     placeholder="อีเมลที่ลงทะเบียนไว้"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">ตั้งรหัสผ่านใหม่</label>
+                <label className="block text-xs font-semibold text-[#0F172A] mb-1">ตั้งรหัสผ่านใหม่</label>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
@@ -253,7 +253,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                     required
                     value={passwordInput}
                     onChange={(e) => setPasswordInput(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800"
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-[#F1F5F9]/60 focus:bg-[#FFFFFF] border border-slate-200 text-sm focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8] text-[#0F172A] outline-none transition-colors"
                     placeholder="รหัสผ่านใหม่อย่างน้อย 4 ตัว"
                   />
                 </div>
@@ -261,7 +261,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               <button
                 type="submit"
                 disabled={isSaving}
-                className="w-full py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold text-sm transition-colors shadow-sm"
+                className="w-full py-2.5 rounded-xl bg-[#1D4ED8] hover:bg-[#1E40AF] disabled:opacity-50 text-white font-semibold text-sm transition-colors shadow-sm cursor-pointer"
               >
                 {isSaving ? 'กำลังดำเนินการ...' : 'ยืนยันเปลี่ยนรหัสผ่าน'}
               </button>
@@ -269,7 +269,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 <button
                   type="button"
                   onClick={() => { setActiveMode('signin'); setErrorMessage(null); setSuccessMessage(null); setPasswordInput(''); }}
-                  className="text-xs text-slate-500 hover:text-slate-700 font-medium transition-colors"
+                  className="text-xs text-slate-500 hover:text-[#0F172A] font-medium transition-colors cursor-pointer"
                 >
                   กลับไปหน้าเข้าสู่ระบบ
                 </button>
@@ -278,7 +278,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           ) : activeMode === 'signin' ? (
             <form onSubmit={handleEmailSignIn} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">อีเมลผู้ใช้งาน</label>
+                <label className="block text-xs font-semibold text-[#0F172A] mb-1">อีเมลผู้ใช้งาน</label>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
@@ -286,13 +286,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                     required
                     value={emailInput}
                     onChange={(e) => setEmailInput(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800"
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-[#F1F5F9]/60 focus:bg-[#FFFFFF] border border-slate-200 text-sm focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8] text-[#0F172A] outline-none transition-colors"
                     placeholder="อีเมลพนักงาน"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">รหัสผ่าน</label>
+                <label className="block text-xs font-semibold text-[#0F172A] mb-1">รหัสผ่าน</label>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
@@ -300,14 +300,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                     required
                     value={passwordInput}
                     onChange={(e) => setPasswordInput(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800"
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-[#F1F5F9]/60 focus:bg-[#FFFFFF] border border-slate-200 text-sm focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8] text-[#0F172A] outline-none transition-colors"
                     placeholder="รหัสผ่าน"
                   />
                 </div>
               </div>
               <button
                 type="submit"
-                className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition-colors shadow-sm"
+                className="w-full py-2.5 rounded-xl bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-semibold text-sm transition-colors shadow-sm cursor-pointer"
               >
                 เข้าสู่ระบบ
               </button>
@@ -315,7 +315,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 <button
                   type="button"
                   onClick={() => { setActiveMode('forgot_password'); setErrorMessage(null); setSuccessMessage(null); setPasswordInput(''); }}
-                  className="text-xs text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                  className="text-xs text-[#1D4ED8] hover:text-[#1E40AF] font-medium transition-colors cursor-pointer"
                 >
                   ลืมรหัสผ่าน? (ขอเปลี่ยนรหัสผ่านใหม่)
                 </button>
