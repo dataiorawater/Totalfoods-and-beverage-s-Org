@@ -49,6 +49,7 @@ import {
   fetchProductsFromSheet,
   fetchCustomersFromSheet,
   saveCustomerToSheet,
+  deleteCustomerFromSheet,
   setUserPasswordInSheet,
   syncCheckInToSheets,
   fetchCheckInsFromSheet,
@@ -1448,6 +1449,55 @@ export default function App() {
     return true;
   };
 
+  const handleDeleteCustomer = async (customer: Customer): Promise<boolean> => {
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'manager')) {
+      showToast(
+        'error',
+        'ไม่มีสิทธิ์ดำเนินการ',
+        'เฉพาะผู้ดูแลระบบและผู้จัดการฝ่ายขายเท่านั้นที่สามารถลบข้อมูลลูกค้าได้'
+      );
+      return false;
+    }
+
+    setIsLoadingData(true);
+    try {
+      if (sheetsConfig?.spreadsheetId) {
+        await deleteCustomerFromSheet(sheetsConfig.spreadsheetId, customer);
+        const fetched = await fetchCustomersFromSheet(sheetsConfig.spreadsheetId);
+        const cleanCustomers = sanitizeCustomerData(fetched);
+        setCustomers(cleanCustomers);
+        safeSave('iora_customers', cleanCustomers);
+        showToast(
+          'success',
+          'ลบข้อมูลลูกค้าสำเร็จ',
+          `ลบ "${customer.name}" ออกจากระบบและ Google Sheets เรียบร้อยแล้ว`
+        );
+        return true;
+      }
+
+      setCustomers((prev) => {
+        const updated = prev.filter((c) => {
+          if (customer.id && c.id) return c.id !== customer.id;
+          return !(c.name === customer.name && c.phone === customer.phone);
+        });
+        safeSave('iora_customers', updated);
+        return updated;
+      });
+      showToast('success', 'ลบข้อมูลลูกค้าสำเร็จ', `ลบ "${customer.name}" ออกจากระบบเรียบร้อยแล้ว`);
+      return true;
+    } catch (e: any) {
+      console.warn('deleteCustomerFromSheet error:', e);
+      showToast(
+        'error',
+        'ลบข้อมูลลูกค้าไม่สำเร็จ',
+        e?.message || 'ไม่สามารถลบข้อมูลลูกค้าจาก Google Sheets ได้'
+      );
+      return false;
+    } finally {
+      setIsLoadingData(false);
+    }
+  };
+
   const handleSaveRoute = async (routeData: import('./types').Route): Promise<boolean> => {
     setIsLoadingData(true);
     try {
@@ -2136,6 +2186,7 @@ export default function App() {
               staffList={staffList}
               onManageRoutes={() => setActiveTab('routes')}
               onSaveCustomer={handleSaveCustomer}
+              onDeleteCustomer={handleDeleteCustomer}
               onRefreshCustomers={handleRefreshCustomers}
               onOpenOrderForCustomer={(cust) => {
                 setPreselectedCustomerForOrder(cust);

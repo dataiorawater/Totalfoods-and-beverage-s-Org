@@ -28,6 +28,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Edit3,
+  Trash2,
+  AlertTriangle,
+  Star,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 import { Customer, StaffUser, Route } from '../types';
@@ -70,6 +73,7 @@ interface CustomerManagementViewProps {
     visitDays?: string[];
     photoUrls?: string[];
   }) => Promise<boolean>;
+  onDeleteCustomer?: (customer: Customer) => Promise<boolean>;
   onRefreshCustomers: () => Promise<void>;
   onOpenOrderForCustomer: (customer: Customer) => void;
   onNavigateToCheckIn?: (customer: Customer) => void;
@@ -83,12 +87,14 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
   staffList = [],
   onManageRoutes,
   onSaveCustomer,
+  onDeleteCustomer,
   onRefreshCustomers,
   onOpenOrderForCustomer,
   onNavigateToCheckIn,
   sheetsConnected,
 }) => {
   const todayThai = useMemo(() => getTodayThaiDay(), []);
+  const canDeleteCustomer = currentUser.role === 'admin' || currentUser.role === 'manager';
 
   // Form State
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -107,6 +113,8 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [deletingCustomer, setDeletingCustomer] = useState<Customer | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [viewingGallery, setViewingGallery] = useState<{
     storeName: string;
     photos: string[];
@@ -962,20 +970,33 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
 
                       {/* Right: Store Info & Top-Right Edit Button */}
                       <div className="min-w-0 flex-1 space-y-1.5">
-                        {/* Top Header: Store Name + Edit Button */}
+                        {/* Top Header: Store Name + Edit / Delete Buttons */}
                         <div className="flex items-start justify-between gap-2">
                           <h4 className="font-bold text-slate-900 text-sm sm:text-[15px] leading-snug line-clamp-2">
                             {cust?.name}
                           </h4>
-                          <button
-                            type="button"
-                            onClick={() => handleEditClick(cust)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:text-blue-700 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 rounded-lg transition-colors cursor-pointer shrink-0"
-                            title="แก้ไขข้อมูลลูกค้า"
-                          >
-                            <Edit3 className="w-3 h-3" />
-                            <span>แก้ไข</span>
-                          </button>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleEditClick(cust)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:text-blue-700 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 rounded-lg transition-colors cursor-pointer"
+                              title="แก้ไขข้อมูลลูกค้า"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                              <span>แก้ไข</span>
+                            </button>
+                            {canDeleteCustomer && onDeleteCustomer && (
+                              <button
+                                type="button"
+                                onClick={() => setDeletingCustomer(cust)}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-rose-600 hover:text-rose-700 bg-rose-50/70 hover:bg-rose-100 border border-rose-200/80 hover:border-rose-300 rounded-lg transition-colors cursor-pointer"
+                                title="ลบลูกค้าออกจากระบบ"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                <span>ลบ</span>
+                              </button>
+                            )}
+                          </div>
                         </div>
 
                         {/* Compact Badges: Route + Today Plan + Visit Days */}
@@ -988,8 +1009,9 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                           )}
 
                           {isTodayPlan && (
-                            <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                              <span>⭐ นัดเยี่ยมวันนี้</span>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                              <Star className="w-2.5 h-2.5 fill-current shrink-0" />
+                              <span>นัดเยี่ยมวันนี้</span>
                             </span>
                           )}
 
@@ -1410,6 +1432,110 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
           </div>
         );
       })()}
+      {/* Delete Customer Confirmation Modal (Admin & Manager only) */}
+      {canDeleteCustomer && deletingCustomer && onDeleteCustomer && (
+        <div
+          onClick={() => {
+            if (!isDeleting) setDeletingCustomer(null);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-150"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden"
+          >
+            <div className="p-5 sm:p-6 space-y-4">
+              <div className="flex items-start gap-3.5">
+                <div className="w-11 h-11 rounded-xl bg-rose-50 text-rose-600 border border-rose-200 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-base font-bold text-slate-900">
+                    ยืนยันการลบข้อมูลลูกค้า
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-600 leading-relaxed">
+                    คุณต้องการลบลูกค้านี้{sheetsConnected ? 'ออกจากระบบและฐานข้อมูล Google Sheets' : 'ออกจากระบบ'} ใช่หรือไม่? การลบจะไม่สามารถกู้คืนได้
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setDeletingCustomer(null)}
+                  aria-label="ปิดหน้าต่าง"
+                  className="text-slate-400 hover:text-slate-600 p-1 rounded-lg transition-colors cursor-pointer disabled:opacity-40"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                <div className="text-sm font-bold text-slate-900 break-words">
+                  {deletingCustomer.name}
+                </div>
+                <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
+                  {deletingCustomer.phone && (
+                    <span className="inline-flex items-center gap-1">
+                      <Phone className="w-3 h-3 shrink-0" />
+                      <span>{normalizeThaiPhone(deletingCustomer.phone)}</span>
+                    </span>
+                  )}
+                  {deletingCustomer.routeName && (
+                    <span className="inline-flex items-center gap-1 text-blue-700 font-medium">
+                      <Navigation className="w-3 h-3 shrink-0" />
+                      <span>{deletingCustomer.routeName}</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setDeletingCustomer(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold text-xs sm:text-sm transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={async () => {
+                    const target = deletingCustomer;
+                    setIsDeleting(true);
+                    setErrorMsg(null);
+                    setSuccessMsg(null);
+                    try {
+                      const ok = await onDeleteCustomer(target);
+                      if (ok) {
+                        setDeletingCustomer(null);
+                        setSuccessMsg(`ลบข้อมูลลูกค้า "${target.name}" ออกจากระบบเรียบร้อยแล้ว`);
+                      } else {
+                        setErrorMsg(`ไม่สามารถลบข้อมูลลูกค้า "${target.name}" ได้ กรุณาลองใหม่อีกครั้ง`);
+                      }
+                    } finally {
+                      setIsDeleting(false);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs sm:text-sm transition-colors shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  {isDeleting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>กำลังลบ...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      <span>ยืนยันลบลูกค้า</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -833,6 +833,34 @@ export const saveCustomerToSheet = async (id: string, c: Customer) => {
   }
 };
 
+export const deleteCustomerFromSheet = async (
+  spreadsheetId: string,
+  customer: Pick<Customer, 'id' | 'name' | 'phone'>
+): Promise<boolean> => {
+  const existing = await fetchCustomersFromSheet(spreadsheetId);
+  const targetId = String(customer.id || '').trim();
+  const targetName = String(customer.name || '').trim().toLowerCase();
+  const targetPhone = normalizeThaiPhone(customer.phone || '');
+
+  let found = targetId
+    ? existing.find((x) => String(x.id || '').trim() === targetId)
+    : undefined;
+
+  if (!found && targetName) {
+    found = existing.find((x) => {
+      const xName = String(x.name || '').trim().toLowerCase();
+      if (xName !== targetName) return false;
+      if (!targetPhone) return true;
+      return normalizeThaiPhone(x.phone || '') === targetPhone;
+    });
+  }
+
+  if (found && (found as any).sheetsRowIndex) {
+    await gasRequest(spreadsheetId, 'deleteRow', CUSTOMERS_TAB_NAME, (found as any).sheetsRowIndex);
+  }
+  return true;
+};
+
 // PRODUCTS
 export const fetchProductsFromSheet = async (id: string): Promise<Product[]> => {
   const res = await gasRequest(id, 'getData', PRODUCTS_TAB_NAME);
