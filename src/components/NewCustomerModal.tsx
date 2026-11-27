@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Sparkles,
 } from 'lucide-react';
+import { BrandLogo } from './BrandLogo';
 import { StaffUser, Route } from '../types';
 import { StorePhotoUploader } from './StorePhotoUploader';
 import { uploadStorePhotoToDrive } from '../services/googleDrive';
@@ -336,7 +337,7 @@ export const NewCustomerModal: React.FC<NewCustomerModalProps> = ({
                 onChange={(e) => setMapsUrl(e.target.value)}
                 className="w-full pl-9 pr-16 py-2 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
               />
-              <MapPin className="w-4 h-4 text-blue-600 absolute left-3 top-2.5 pointer-events-none" />
+              <BrandLogo brand="google-maps" className="w-4 h-4 text-[#4285F4] absolute left-3 top-2.5 pointer-events-none" />
 
               {mapsUrl && (
                 <a
@@ -397,7 +398,7 @@ export const NewCustomerModal: React.FC<NewCustomerModalProps> = ({
                 </>
               ) : (
                 <>
-                  <Save className="w-4 h-4" />
+                  <BrandLogo brand="google-sheets" className="w-4 h-4 shrink-0" />
                   <span>บันทึกลง Google Sheets</span>
                 </>
               )}

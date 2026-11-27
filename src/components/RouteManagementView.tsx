@@ -8,7 +8,7 @@ import {
   RouteScheduleHistoryEntry,
   RouteScheduleActionType,
 } from '../types';
-import { Navigation, Plus, Save, RefreshCw, Calendar, Sparkles, History, Trash2 } from 'lucide-react';
+import { Navigation, Plus, Save, RefreshCw, Calendar, Sparkles, History, Trash2, Check } from 'lucide-react';
 import { THAI_DAYS, ThaiDay, THAI_DAY_COLORS, getTodayDateIso } from '../utils/callPlanUtils';
 import { CallPlanCalendarModal } from './CallPlanCalendarModal';
 
@@ -232,13 +232,14 @@ export const RouteManagementView: React.FC<RouteManagementViewProps> = ({
                       key={day}
                       type="button"
                       onClick={() => handleToggleDay(day)}
-                      className={`px-3 py-1 text-xs font-medium rounded-lg border transition-all cursor-pointer ${
+                      className={`inline-flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-lg border transition-all cursor-pointer ${
                         isSelected
                           ? `${colors.bg} ${colors.text} ${colors.border} ring-2 ${colors.ring} shadow-xs font-bold`
                           : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                       }`}
                     >
-                      {isSelected ? '✓ ' : ''}{day}
+                      {isSelected && <Check className="w-3 h-3 shrink-0" />}
+                      <span>{day}</span>
                     </button>
                   );
                 })}

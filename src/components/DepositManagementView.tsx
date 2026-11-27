@@ -28,6 +28,7 @@ import {
   Check,
   AlertTriangle,
 } from 'lucide-react';
+import { BrandLogo } from './BrandLogo';
 import * as XLSX from 'xlsx';
 
 interface DepositManagementViewProps {
@@ -536,8 +537,9 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
             </span>
             <span className="text-xs text-slate-500 font-bold">รายการ</span>
           </div>
-          <p className="text-[11px] text-slate-400 mt-1 font-medium">
-            {sheetsConnected ? 'เชื่อมต่อ Google Sheets' : 'บันทึกในระบบออฟไลน์'}
+          <p className="text-[11px] text-slate-400 mt-1 font-medium inline-flex items-center gap-1">
+            {sheetsConnected && <BrandLogo brand="google-sheets" className="w-3 h-3 text-[#34A853] shrink-0" />}
+            <span>{sheetsConnected ? 'เชื่อมต่อ Google Sheets' : 'บันทึกในระบบออฟไลน์'}</span>
           </p>
         </div>
       </div>

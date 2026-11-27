@@ -42,6 +42,7 @@ import {
   Camera,
   MapPin,
 } from 'lucide-react';
+import { BrandLogo } from './BrandLogo';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -452,7 +453,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <FileSpreadsheet className="w-4 h-4 text-blue-600" />
+            <BrandLogo brand="google-sheets" className="w-4 h-4 text-[#34A853] shrink-0" />
             <span>ฐานข้อมูล Google Sheets</span>
             {sheetsConfig?.spreadsheetId ? (
               <span className="w-2 h-2 rounded-full bg-blue-500"></span>
@@ -467,7 +468,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <HardDrive className="w-4 h-4 text-emerald-600" />
+            <BrandLogo brand="google-drive" className="w-4 h-4 text-[#4285F4] shrink-0" />
             <span>Google Drive รูปภาพ</span>
             {(sheetsConfig?.storePhotoFolderId || sheetsConfig?.checkInPhotoFolderId) ? (
               <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
@@ -482,7 +483,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Bell className="w-4 h-4 text-[#06C755]" />
+            <BrandLogo brand="line" className="w-4 h-4 text-[#00C300] shrink-0" />
             <span>แจ้งเตือนผ่าน LINE</span>
             {lineSettings?.enabled && (
               <span className="w-2 h-2 rounded-full bg-[#06C755]"></span>
@@ -513,7 +514,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               
               <div className="space-y-4 pt-2">
                 <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 flex items-start gap-3">
-                  <Database className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                  <BrandLogo brand="google-sheets" className="w-5 h-5 text-[#34A853] shrink-0 mt-0.5" />
                   <div>
                     <h4 className="text-sm font-bold text-blue-900 mb-1">ดึงข้อมูลอัตโนมัติ (Auto-Sync)</h4>
                     <p className="text-xs text-blue-700 leading-relaxed">
@@ -625,7 +626,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="mt-3 bg-slate-50 rounded-xl border border-slate-200 p-3.5 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Code className="w-4 h-4 text-slate-600" />
+                        <BrandLogo brand="google-apps-script" className="w-4 h-4 text-[#4285F4] shrink-0" />
                         <span className="text-xs font-bold text-slate-800">
                           คู่มือการสร้าง & Deploy Apps Script
                         </span>
@@ -840,8 +841,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       rel="noopener noreferrer"
                       className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors inline-flex items-center justify-center gap-2 cursor-pointer"
                     >
-                      <ExternalLink className="w-4 h-4" />
+                      <BrandLogo brand="google-sheets" className="w-4 h-4 text-[#34A853] shrink-0" />
                       <span>เปิดดูฐานข้อมูล Google Sheets</span>
+                      <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
                     </a>
                   )}
                 </div>
@@ -870,7 +872,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               <div className="bg-emerald-50/70 p-4 rounded-xl border border-emerald-200/80 flex items-start gap-3">
-                <HardDrive className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                <BrandLogo brand="google-drive" className="w-5 h-5 text-[#4285F4] shrink-0 mt-0.5" />
                 <div className="space-y-1">
                   <h4 className="text-sm font-bold text-emerald-900">
                     เก็บรูปภาพแยกโฟลเดอร์บน Google Drive อัตโนมัติ
@@ -1068,7 +1070,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="bg-slate-50 rounded-xl border border-slate-200 p-3.5 space-y-2.5">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2">
-                    <Code className="w-4 h-4 text-slate-600" />
+                    <BrandLogo brand="google-apps-script" className="w-4 h-4 text-[#4285F4] shrink-0" />
                     <span className="text-xs font-bold text-slate-800">
                       ขั้นตอนเตรียม Google Drive & อัปเดต Apps Script (ทำครั้งเดียว)
                     </span>
@@ -1265,7 +1267,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   {isTestingLine ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
-                    <Send className="w-4 h-4" />
+                    <BrandLogo brand="line" className="w-4 h-4 shrink-0" />
                   )}
                   <span>ส่งข้อความทดสอบเข้า LINE</span>
                 </button>

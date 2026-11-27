@@ -21,7 +21,9 @@ import {
   RotateCcw,
   Compass,
   Receipt,
+  Check,
 } from 'lucide-react';
+import { BrandLogo } from './BrandLogo';
 import { getLineShareUrl } from '../services/lineNotify';
 import { normalizeThaiPhone, toTelHref } from '../utils/phoneUtils';
 
@@ -540,7 +542,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
           {/* Status Sync & Quick Control Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200 gap-2 text-xs">
             <span className="flex items-center gap-1.5 text-slate-600">
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+              <BrandLogo brand="google-sheets" className="w-4 h-4 text-[#34A853] shrink-0" />
               <span>สถานะฐานข้อมูล:</span>
               <strong className={order.syncedToSheets ? 'text-emerald-700' : 'text-amber-700'}>
                 {order.syncedToSheets ? 'ซิงค์ลง Google Sheets เรียบร้อย' : 'บันทึกในเครื่อง (รอซิงค์ลง Sheets)'}
@@ -554,16 +556,18 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                   <button
                     type="button"
                     onClick={() => onUpdateStatus(order.id, 'confirmed')}
-                    className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[11px] border border-blue-200 transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[11px] border border-blue-200 transition-colors cursor-pointer"
                   >
-                    ✓ ยืนยัน
+                    <Check className="w-3 h-3" />
+                    <span>ยืนยัน</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => onUpdateStatus(order.id, 'delivering')}
-                    className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[11px] border border-indigo-200 transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[11px] border border-indigo-200 transition-colors cursor-pointer"
                   >
-                    🚚 เริ่มจัดส่ง
+                    <Truck className="w-3 h-3" />
+                    <span>เริ่มจัดส่ง</span>
                   </button>
                 </>
               )}
@@ -572,9 +576,10 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 <button
                   type="button"
                   onClick={() => onUpdateStatus(order.id, 'delivering')}
-                  className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] transition-colors cursor-pointer"
                 >
-                  🚚 เริ่มจัดส่งสินค้า
+                  <Truck className="w-3 h-3" />
+                  <span>เริ่มจัดส่งสินค้า</span>
                 </button>
               )}
 
@@ -583,9 +588,10 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                   <button
                     type="button"
                     onClick={() => onUpdateStatus(order.id, 'completed')}
-                    className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition-colors cursor-pointer"
                   >
-                    ✓ ส่งมอบสำเร็จ
+                    <CheckCircle2 className="w-3 h-3" />
+                    <span>ส่งมอบสำเร็จ</span>
                   </button>
                   <button
                     type="button"
@@ -680,7 +686,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                   rel="noopener noreferrer"
                   className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs shrink-0 transition-all cursor-pointer hover:shadow-sm"
                 >
-                  <Navigation className="w-3.5 h-3.5" />
+                  <BrandLogo brand="google-maps" className="w-3.5 h-3.5 shrink-0" />
                   <span>กดนำทาง Google Maps</span>
                   <ExternalLink className="w-3 h-3" />
                 </a>
@@ -912,7 +918,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#06C755] hover:bg-[#05b04c] text-white text-xs font-bold transition-colors shadow-xs"
             >
-              <Share2 className="w-3.5 h-3.5" />
+              <BrandLogo brand="line" className="w-3.5 h-3.5 shrink-0" />
               <span>แชร์ LINE</span>
             </a>
 

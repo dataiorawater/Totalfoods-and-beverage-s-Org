@@ -32,6 +32,7 @@ import {
   Gift,
   Receipt,
 } from 'lucide-react';
+import { BrandLogo } from './BrandLogo';
 
 interface OrderFormModalProps {
   isOpen: boolean;
@@ -999,7 +1000,11 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
                           disabled={isRefreshingCatalog}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold text-xs transition-colors cursor-pointer"
                         >
-                          <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingCatalog ? 'animate-spin' : ''}`} />
+                          {isRefreshingCatalog ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <BrandLogo brand="google-sheets" className="w-3.5 h-3.5 text-[#34A853] shrink-0" />
+                          )}
                           <span>ซิงค์สินค้าจาก Google Sheets</span>
                         </button>
                       )}
@@ -1248,8 +1253,8 @@ export const OrderFormModal: React.FC<OrderFormModalProps> = ({
           <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-emerald-200/90 shadow-xs space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
-                <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">
-                  🎁
+                <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                  <Gift className="w-3.5 h-3.5" />
                 </span>
                 <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
                   <span>รายการสินค้าแถม (แถมฟรี)</span>

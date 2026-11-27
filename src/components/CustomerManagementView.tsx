@@ -29,6 +29,7 @@ import {
   ChevronRight,
   Edit3,
 } from 'lucide-react';
+import { BrandLogo } from './BrandLogo';
 import { Customer, StaffUser, Route } from '../types';
 import { normalizeThaiPhone, toTelHref } from '../utils/phoneUtils';
 import { StorePhotoUploader } from './StorePhotoUploader';
@@ -773,9 +774,9 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                     type="button"
                     onClick={() => setSearchQuery('')}
                     aria-label="ล้างคำค้นหา"
-                    className="w-6 h-6 flex items-center justify-center rounded-full text-xs text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer font-bold transition-colors"
+                    className="w-6 h-6 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer transition-colors"
                   >
-                    ✕
+                    <X className="w-3.5 h-3.5" />
                   </button>
                 )}
               </div>
@@ -1238,7 +1239,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                     onChange={(e) => setMapsUrl(e.target.value)}
                     className="w-full pl-9 pr-16 py-2 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-2xs"
                   />
-                  <MapPin className="w-4 h-4 text-blue-600 absolute left-3 top-2.5 pointer-events-none" />
+                  <BrandLogo brand="google-maps" className="w-4 h-4 text-[#4285F4] absolute left-3 top-2.5 pointer-events-none" />
 
                   {mapsUrl && (
                     <a

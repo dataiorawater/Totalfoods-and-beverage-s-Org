@@ -46,7 +46,15 @@ import {
   SlidersHorizontal,
   FileSpreadsheet,
   Percent,
+  Droplet,
+  OctagonAlert,
+  Zap,
+  Snowflake,
+  Siren,
+  ClipboardList,
+  Package,
 } from 'lucide-react';
+import { BrandLogo } from './BrandLogo';
 
 interface VehicleMaintenanceViewProps {
   records: VehicleMaintenanceRecord[];
@@ -70,67 +78,73 @@ const FLEET_VEHICLES = [
 
 const CATEGORY_MAP: Record<
   MaintenanceCategory,
-  { label: string; icon: string; badgeClass: string; colorHex: string; desc: string }
+  {
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    badgeClass: string;
+    colorHex: string;
+    desc: string;
+  }
 > = {
   oil_change: {
     label: 'เปลี่ยนถ่ายน้ำมันเครื่อง & ไส้กรอง',
-    icon: '🛢️',
+    icon: Droplet,
     badgeClass: 'bg-amber-50 text-amber-800 border-amber-200',
     colorHex: '#f59e0b',
     desc: 'น้ำมันเครื่อง ไส้กรอง อากาศ เช็คของเหลว',
   },
   periodic_service: {
     label: 'เช็คระยะตามรอบ (กม.)',
-    icon: '🔧',
+    icon: Wrench,
     badgeClass: 'bg-blue-50 text-blue-800 border-blue-200',
     colorHex: '#3b82f6',
     desc: 'ตรวจเช็คตามระยะ 10k-50k กม.',
   },
   tires_brakes: {
     label: 'ยางรถยนต์ & ระบบเบรก',
-    icon: '🛑',
+    icon: OctagonAlert,
     badgeClass: 'bg-rose-50 text-rose-800 border-rose-200',
     colorHex: '#f43f5e',
     desc: 'ผ้าเบรก จานเบรก ยางรถ สลับยาง ถ่วงล้อ',
   },
   battery_electrical: {
     label: 'แบตเตอรี่ & ระบบไฟ',
-    icon: '⚡',
+    icon: Zap,
     badgeClass: 'bg-yellow-50 text-yellow-800 border-yellow-200',
     colorHex: '#eab308',
     desc: 'แบตเตอรี่ ไดชาร์จ ไดสตาร์ท ไฟส่องสว่าง',
   },
   suspension_chassis: {
     label: 'ช่วงล่าง & แหนบรับน้ำหนัก',
-    icon: '🏗️',
+    icon: Truck,
     badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200',
     colorHex: '#10b981',
     desc: 'เสริมแหนบ โช้คอัพ ลูกหมาก บูชยาง',
   },
   cooling_aircon: {
     label: 'หม้อน้ำ & ระบบแอร์',
-    icon: '❄️',
+    icon: Snowflake,
     badgeClass: 'bg-cyan-50 text-cyan-800 border-cyan-200',
     colorHex: '#06b6d4',
     desc: 'หม้อน้ำ พัดลม คอยล์เย็น คอมเพรสเซอร์',
   },
   emergency_repair: {
     label: 'ซ่อมแซมฉุกเฉิน / ยกเข้าอู่',
-    icon: '🚨',
+    icon: Siren,
     badgeClass: 'bg-red-50 text-red-800 border-red-200',
     colorHex: '#ef4444',
     desc: 'เหตุเสียระหว่างทาง เครื่องยนต์ดับ',
   },
   inspection_tax: {
     label: 'ตรวจ ตรอ. & ต่อภาษี/พ.ร.บ.',
-    icon: '📋',
+    icon: ClipboardList,
     badgeClass: 'bg-purple-50 text-purple-800 border-purple-200',
     colorHex: '#a855f7',
     desc: 'ต่อภาษีประจำปี ตรวจสภาพรถขนส่ง พ.ร.บ.',
   },
   other: {
     label: 'อื่นๆ / อุปกรณ์ส่วนควบ',
-    icon: '📦',
+    icon: Package,
     badgeClass: 'bg-slate-100 text-slate-800 border-slate-200',
     colorHex: '#64748b',
     desc: 'ประตูล็อคตู้ทึบ เบาะนั่ง ติดฟิล์ม ฯลฯ',
@@ -627,7 +641,7 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
       {
         category: MaintenanceCategory;
         label: string;
-        icon: string;
+        icon: React.ComponentType<{ className?: string }>;
         color: string;
         total: number;
         count: number;
@@ -896,7 +910,7 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
               </span>
               {sheetsConnected && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  <Check className="w-3 h-3" />
+                  <BrandLogo brand="google-sheets" className="w-3 h-3 text-[#34A853] shrink-0" />
                   Google Sheets ซิงค์แล้ว
                 </span>
               )}
@@ -1544,11 +1558,13 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
               </div>
 
               <div className="space-y-3">
-                {categoryChartData.map((cat) => (
+                {categoryChartData.map((cat) => {
+                  const CategoryIcon = cat.icon;
+                  return (
                   <div key={cat.category} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-                        <span>{cat.icon}</span>
+                        <CategoryIcon className="w-3.5 h-3.5 shrink-0 text-slate-600" />
                         <span className="truncate max-w-[150px]">{cat.label}</span>
                       </span>
                       <div className="flex items-baseline gap-2">
@@ -1570,7 +1586,8 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
                       />
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -1721,7 +1738,7 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
                 <option value="all">หมวดหมู่ทั้งหมด</option>
                 {Object.entries(CATEGORY_MAP).map(([key, item]) => (
                   <option key={key} value={key}>
-                    {item.icon} {item.label}
+                    {item.label}
                   </option>
                 ))}
               </select>
@@ -1827,7 +1844,7 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
                       {/* Category & Title */}
                       <div className="mt-3.5">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-xs">{cat.icon}</span>
+                          <cat.icon className="w-3.5 h-3.5 shrink-0 text-slate-500" />
                           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
                             {cat.label}
                           </span>
@@ -1977,7 +1994,7 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
                           </td>
                           <td className="py-3 px-3.5 max-w-xs">
                             <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium">
-                              <span>{cat.icon}</span>
+                              <cat.icon className="w-3.5 h-3.5 shrink-0 text-slate-500" />
                               <span>{cat.label}</span>
                             </div>
                             <div className="font-bold text-slate-900 truncate mt-0.5" title={r.title}>
@@ -2226,7 +2243,7 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
                   >
                     {Object.entries(CATEGORY_MAP).map(([key, item]) => (
                       <option key={key} value={key}>
-                        {item.icon} {item.label}
+                        {item.label}
                       </option>
                     ))}
                   </select>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { StaffUser } from '../types';
-import { Mail, Lock, CheckCircle2, AlertCircle, Database, Package, Users, MapPin, Sparkles } from 'lucide-react';
+import { Mail, Lock, CheckCircle2, AlertCircle, AlertTriangle, Database, Package, Users, MapPin, Sparkles } from 'lucide-react';
 import { TotalEmblem } from './TotalLogo';
 
 interface LoginScreenProps {
@@ -325,7 +325,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
           {!sheetsConnected && (
             <div className="mt-4 text-center">
-              <span className="text-xs text-rose-500 font-medium">⚠️ ไม่สามารถเชื่อมต่อฐานข้อมูลได้</span>
+              <span className="inline-flex items-center gap-1.5 text-xs text-rose-500 font-medium">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>ไม่สามารถเชื่อมต่อฐานข้อมูลได้</span>
+              </span>
             </div>
           )}
         </div>

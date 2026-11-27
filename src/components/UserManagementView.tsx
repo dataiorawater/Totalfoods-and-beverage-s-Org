@@ -16,7 +16,9 @@ import {
   Calendar,
   AlertCircle,
   FileSpreadsheet,
+  Lock,
 } from 'lucide-react';
+import { BrandLogo } from './BrandLogo';
 import { saveUserToSheet, fetchUsersFromSheets, USERS_TAB_NAME } from '../services/googleSheets';
 
 interface UserManagementViewProps {
@@ -438,7 +440,8 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                           </span>
                           {user.password ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                              🔒 รหัสผ่าน: ••••
+                              <Lock className="w-3 h-3 text-slate-500 shrink-0" />
+                              <span>รหัสผ่าน: ••••</span>
                             </span>
                           ) : (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] text-slate-400 bg-slate-50 border border-slate-200/60">
@@ -489,7 +492,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
         {/* Footer */}
         <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
           <div className="flex items-center gap-1.5">
-            <FileSpreadsheet className="w-4 h-4 text-blue-600" />
+            <BrandLogo brand="google-sheets" className="w-4 h-4 text-[#34A853] shrink-0" />
             <span>
               {sheetsConfig?.spreadsheetId
                 ? `บันทึกแบบรวมศูนย์ใน Google Sheets เดียวกัน (${sheetsConfig.spreadsheetId.slice(0, 8)}...)`

@@ -24,6 +24,7 @@ import {
   AlertTriangle,
   Cloud,
 } from 'lucide-react';
+import { BrandLogo } from './BrandLogo';
 import {
   Route,
   Customer,
@@ -809,7 +810,11 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
                 </span>
               </span>
               <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
-                <Cloud className={`w-3.5 h-3.5 ${sheetsConnected ? 'text-emerald-600' : 'text-slate-400'}`} />
+                {sheetsConnected ? (
+                  <BrandLogo brand="google-sheets" className="w-3.5 h-3.5 text-[#34A853] shrink-0" />
+                ) : (
+                  <Cloud className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                )}
                 <span>
                   {sheetsConnected
                     ? 'บันทึกอัตโนมัติลง Google Sheets (แท็บ DailyRouteSchedules & RouteScheduleHistory)'
@@ -1143,13 +1148,15 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
                         {/* Bottom metrics bar: Store Count & Check-in Progress */}
                         {hasRoutes && (
                           <div className="mt-1 pt-1 border-t border-slate-100 flex items-center justify-between text-[10px]">
-                            <span className="text-slate-500 font-medium">
-                              👥 {metrics?.plannedCount || 0}
+                            <span className="inline-flex items-center gap-1 text-slate-500 font-medium">
+                              <Users className="w-3 h-3 shrink-0" />
+                              <span>{metrics?.plannedCount || 0}</span>
                             </span>
 
                             {(metrics?.completedCount || 0) > 0 && (
-                              <span className="font-bold text-emerald-700 bg-emerald-50 px-1 rounded text-[9px]">
-                                ✓ {metrics?.completedCount}
+                              <span className="inline-flex items-center gap-0.5 font-bold text-emerald-700 bg-emerald-50 px-1 rounded text-[9px]">
+                                <Check className="w-2.5 h-2.5 shrink-0" />
+                                <span>{metrics?.completedCount}</span>
                               </span>
                             )}
                           </div>
@@ -1334,8 +1341,9 @@ export const CallPlanCalendarModal: React.FC<CallPlanCalendarModalProps> = ({
                           </div>
                         </div>
 
-                        <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-xl">
-                          👥 {customerCountInRoute} ร้าน
+                        <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-xl shrink-0">
+                          <Users className="w-3 h-3 shrink-0" />
+                          <span>{customerCountInRoute} ร้าน</span>
                         </span>
                       </div>
                     );

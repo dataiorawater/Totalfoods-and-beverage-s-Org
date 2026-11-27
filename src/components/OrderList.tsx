@@ -25,6 +25,7 @@ import {
   ChevronRight,
   Receipt,
 } from 'lucide-react';
+import { BrandLogo } from './BrandLogo';
 
 interface OrderListProps {
   orders: Order[];
@@ -246,14 +247,15 @@ export const OrderList: React.FC<OrderListProps> = ({
           {/* Filter Dropdowns (Date & Salesperson) */}
           <div className="flex items-center gap-1.5 shrink-0">
             {/* Date Filter */}
-            <div className="flex-1 sm:w-36">
+            <div className="relative flex-1 sm:w-40">
+              <Calendar className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <select
                 id="filter-date-select"
                 value={dateFilter}
                 onChange={(e) => setDateFilter(e.target.value)}
-                className="w-full px-2.5 py-1.5 sm:py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-700 font-medium cursor-pointer focus:ring-2 focus:ring-blue-500 focus:bg-white shadow-2xs"
+                className="w-full pl-8 pr-2.5 py-1.5 sm:py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-700 font-medium cursor-pointer focus:ring-2 focus:ring-blue-500 focus:bg-white shadow-2xs"
               >
-                <option value="all">📅 ทุกช่วงเวลา</option>
+                <option value="all">ทุกช่วงเวลา</option>
                 <option value="today">วันนี้</option>
                 <option value="yesterday">เมื่อวาน</option>
                 <option value="this_month">เดือนนี้</option>
@@ -262,17 +264,18 @@ export const OrderList: React.FC<OrderListProps> = ({
 
             {/* Admin / Manager Salesperson Filter */}
             {!isSalesRole && (
-              <div className="flex-1 sm:w-44">
+              <div className="relative flex-1 sm:w-48">
+                <User className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <select
                   id="filter-sales-select"
                   value={salespersonFilter}
                   onChange={(e) => setSalespersonFilter(e.target.value)}
-                  className="w-full px-2.5 py-1.5 sm:py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-700 font-medium cursor-pointer focus:ring-2 focus:ring-blue-500 focus:bg-white shadow-2xs truncate"
+                  className="w-full pl-8 pr-2.5 py-1.5 sm:py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-700 font-medium cursor-pointer focus:ring-2 focus:ring-blue-500 focus:bg-white shadow-2xs truncate"
                 >
-                  <option value="all">👤 เซลล์ทุกคน ({orders.length})</option>
+                  <option value="all">เซลล์ทุกคน ({orders.length})</option>
                   {distinctSalespersons.map((s) => (
                     <option key={s.id} value={s.id}>
-                      👤 {s.name}
+                      {s.name}
                     </option>
                   ))}
                 </select>
@@ -454,9 +457,9 @@ export const OrderList: React.FC<OrderListProps> = ({
                       {order.syncedToSheets && (
                         <span
                           title="บันทึกลง Google Sheets แล้ว"
-                          className="inline-flex items-center text-[10px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 shrink-0"
+                          className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 shrink-0"
                         >
-                          <FileSpreadsheet className="w-3 h-3 mr-0.5" /> Sheets
+                          <BrandLogo brand="google-sheets" className="w-3 h-3 text-[#34A853]" /> Sheets
                         </span>
                       )}
                       {order.requireTaxInvoice && (

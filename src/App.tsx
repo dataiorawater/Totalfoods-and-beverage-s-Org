@@ -84,6 +84,7 @@ import { getDriveImageDisplayUrl } from './services/googleDrive';
 // Components
 import { Navbar } from './components/Navbar';
 import { TotalEmblem } from './components/TotalLogo';
+import { BrandLogo } from './components/BrandLogo';
 import { OrderList } from './components/OrderList';
 import { DashboardView } from './components/DashboardView';
 import { CustomerManagementView } from './components/CustomerManagementView';
@@ -2053,7 +2054,7 @@ export default function App() {
             {sheetsConfig?.spreadsheetId ? (
               <div className="flex items-center gap-1 sm:gap-1.5">
                 <span className="inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0"></span>
+                  <BrandLogo brand="google-sheets" className="w-3 h-3 text-[#34A853] shrink-0" />
                   <span className="hidden sm:inline">Google Sheets Online</span><span className="sm:hidden">Online</span>
                 </span>
                 <button

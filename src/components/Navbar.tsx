@@ -28,6 +28,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
+import { BrandLogo } from './BrandLogo';
 import { StaffUser, StaffRole, SheetsConfig, LineSettings } from '../types';
 
 interface NavbarProps {
@@ -931,8 +932,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                     {!isSidebarCollapsed && (
                       <div className="flex flex-col text-left min-w-0">
                         <span className="leading-tight truncate">ตั้งค่าระบบ & เชื่อมต่อ</span>
-                        <span className="text-[10px] text-slate-400 font-normal truncate">
-                          Google Sheets & LINE
+                        <span className="text-[10px] text-slate-400 font-normal truncate inline-flex items-center gap-1">
+                          <BrandLogo brand="google-sheets" className="w-2.5 h-2.5 text-[#34A853] shrink-0" />
+                          <span>Google Sheets &amp;</span>
+                          <BrandLogo brand="line" className="w-2.5 h-2.5 text-[#00C300] shrink-0" />
+                          <span>LINE</span>
                         </span>
                       </div>
                     )}
@@ -1493,8 +1497,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                         </div>
                         <div className="flex flex-col text-left min-w-0">
                           <span className="leading-tight truncate">ตั้งค่าระบบ & เชื่อมต่อ</span>
-                          <span className="text-[10px] text-slate-400 font-normal truncate">
-                            Google Sheets & LINE
+                          <span className="text-[10px] text-slate-400 font-normal truncate inline-flex items-center gap-1">
+                            <BrandLogo brand="google-sheets" className="w-2.5 h-2.5 text-[#34A853] shrink-0" />
+                            <span>Google Sheets &amp;</span>
+                            <BrandLogo brand="line" className="w-2.5 h-2.5 text-[#00C300] shrink-0" />
+                            <span>LINE</span>
                           </span>
                         </div>
                       </div>

@@ -26,6 +26,8 @@ import {
   Edit3,
   RotateCcw,
   AlertTriangle,
+  Map as MapIcon,
+  FileText,
 } from 'lucide-react';
 import {
   Customer,
@@ -1233,24 +1235,26 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setVisitStatusFilter('unvisited')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                     visitStatusFilter === 'unvisited'
                       ? 'bg-white text-amber-700 shadow-2xs'
                       : 'text-slate-500 hover:text-slate-700'
                   }`}
                 >
-                  ⏳ ยังไม่เช็คอิน
+                  <Clock className="w-3.5 h-3.5 shrink-0" />
+                  <span>ยังไม่เช็คอิน</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setVisitStatusFilter('visited')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                     visitStatusFilter === 'visited'
                       ? 'bg-white text-emerald-700 shadow-2xs'
                       : 'text-slate-500 hover:text-slate-700'
                   }`}
                 >
-                  ✓ เช็คอินแล้ว
+                  <Check className="w-3.5 h-3.5 shrink-0" />
+                  <span>เช็คอินแล้ว</span>
                 </button>
                 <button
                   type="button"
@@ -1920,17 +1924,27 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                       </div>
 
                       <div className="flex items-center gap-3 text-xs text-slate-500 mt-1 flex-wrap">
-                        <span>👤 {item.salespersonName}</span>
+                        <span className="inline-flex items-center gap-1">
+                          <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>{item.salespersonName}</span>
+                        </span>
                         {item.distanceMeters !== undefined && (
-                          <span>📍 ห่าง {formatDistance(item.distanceMeters)}</span>
+                          <span className="inline-flex items-center gap-1">
+                            <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span>ห่าง {formatDistance(item.distanceMeters)}</span>
+                          </span>
                         )}
                         {item.routeName && (
-                          <span className="text-blue-700 font-medium">
-                            🗺️ สายร้าน: {item.routeName}
+                          <span className="inline-flex items-center gap-1 text-blue-700 font-medium">
+                            <MapIcon className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                            <span>สายร้าน: {item.routeName}</span>
                           </span>
                         )}
                         {item.notes && (
-                          <span className="text-slate-700 font-medium">📝 {item.notes}</span>
+                          <span className="inline-flex items-center gap-1 text-slate-700 font-medium">
+                            <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span>{item.notes}</span>
+                          </span>
                         )}
                       </div>
                     </div>

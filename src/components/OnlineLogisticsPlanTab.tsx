@@ -27,6 +27,7 @@ import {
   Loader2,
   Database,
 } from 'lucide-react';
+import { BrandLogo } from './BrandLogo';
 import { Route, StaffUser } from '../types';
 import { toTelHref } from '../utils/phoneUtils';
 import {
@@ -874,8 +875,8 @@ export const OnlineLogisticsPlanTab: React.FC<OnlineLogisticsPlanTabProps> = ({
         {/* Top Row: Title + Date Selector + Primary Actions */}
         <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
           <div className="flex items-start gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0">
-              <FileSpreadsheet className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+              <BrandLogo brand="google-sheets" className="w-5 h-5" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -884,7 +885,7 @@ export const OnlineLogisticsPlanTab: React.FC<OnlineLogisticsPlanTabProps> = ({
                 </h2>
                 {canUseSheets ? (
                   <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
-                    <Database className="w-3 h-3" />
+                    <BrandLogo brand="google-sheets" className="w-3 h-3 text-[#34A853] shrink-0" />
                     <span>เชื่อมชีต OnlineDeliveryPlan</span>
                   </span>
                 ) : (
