@@ -85,7 +85,6 @@ import { getDriveImageDisplayUrl } from './services/googleDrive';
 // Components
 import { Navbar } from './components/Navbar';
 import { TotalEmblem } from './components/TotalLogo';
-import { BrandLogo } from './components/BrandLogo';
 import { OrderList } from './components/OrderList';
 import { DashboardView } from './components/DashboardView';
 import { CustomerManagementView } from './components/CustomerManagementView';
@@ -111,7 +110,6 @@ import {
   AlertCircle,
   X,
   ChevronDown,
-  RefreshCw,
   MapPin,
   Phone,
   Store,
@@ -2076,6 +2074,14 @@ export default function App() {
         depositCount={activeDepositsCount}
         hiredVehicleCount={pendingHiredPayoutsCount}
         maintenanceCount={activeMaintenanceCount}
+        isLoadingData={isLoadingData}
+        onRefreshDatabase={async () => {
+          showToast('info', 'กำลังซิงค์ฐานข้อมูล', 'กำลังดึงข้อมูลอัปเดตล่าสุดทั้งหมดจาก Google Sheets...');
+          const res = await loadAllDataFromDatabase();
+          if (res.success) {
+            showToast('success', 'ซิงค์สำเร็จ', 'ข้อมูลระบบทั้งหมดเป็นปัจจุบันพร้อมใช้งานแล้ว');
+          }
+        }}
       />
 
       {/* Main Content Area */}
@@ -2100,36 +2106,7 @@ export default function App() {
               </div>
             </div>
 
-            <span className="font-extrabold text-sm sm:text-base text-[#0F172A] tracking-tight hidden sm:block">ระบบจัดการงาน</span>
-            {sheetsConfig?.spreadsheetId ? (
-              <div className="flex items-center gap-1 sm:gap-1.5">
-                <span className="inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold bg-[#F1F5F9] text-[#1D4ED8] border border-slate-200 whitespace-nowrap">
-                  <BrandLogo brand="google-sheets" className="w-3 h-3 text-[#34A853] shrink-0" />
-                  <span className="hidden sm:inline">Google Sheets Online</span><span className="sm:hidden">Online</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    showToast('info', 'กำลังซิงค์ฐานข้อมูล', 'กำลังดึงข้อมูลอัปเดตล่าสุดทั้งหมดจาก Google Sheets...');
-                    const res = await loadAllDataFromDatabase();
-                    if (res.success) {
-                      showToast('success', 'ซิงค์สำเร็จ', 'ข้อมูลระบบทั้งหมดเป็นปัจจุบันพร้อมใช้งานแล้ว');
-                    }
-                  }}
-                  disabled={isLoadingData}
-                  className="p-1 sm:px-2.5 sm:py-1 rounded-lg text-[11px] font-semibold text-[#0F172A] bg-[#F1F5F9] hover:text-[#1D4ED8] hover:bg-blue-50 border border-slate-200 transition-colors inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 shrink-0"
-                  title="คลิกเพื่อดึงข้อมูลทั้งหมดจากฐานข้อมูลใหม่"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingData ? 'animate-spin text-[#1D4ED8]' : 'text-slate-500'}`} />
-                  <span className="hidden md:inline">{isLoadingData ? 'กำลังซิงค์...' : 'รีเฟรชฐานข้อมูล'}</span>
-                </button>
-              </div>
-            ) : (
-              <span className="inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
-                <span className="hidden sm:inline">โหมดออฟไลน์</span><span className="sm:hidden">Offline</span>
-              </span>
-            )}
+            <span className="font-extrabold text-sm sm:text-base text-[#0F172A] tracking-tight hidden sm:block">ระบบจัดการงานภายในองค์กร</span>
           </div>
 
           <div className="flex items-center justify-end gap-1.5 sm:gap-3 min-w-0 flex-1 sm:flex-none">

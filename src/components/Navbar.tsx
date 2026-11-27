@@ -51,6 +51,8 @@ interface NavbarProps {
   depositCount?: number;
   hiredVehicleCount?: number;
   maintenanceCount?: number;
+  isLoadingData?: boolean;
+  onRefreshDatabase?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -85,6 +87,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   depositCount = 0,
   hiredVehicleCount = 0,
   maintenanceCount = 0,
+  isLoadingData = false,
+  onRefreshDatabase,
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
@@ -199,54 +203,65 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </div>
 
-          {/* Connection Status */}
+          {/* Connection Status & Database Refresh */}
           {isSidebarCollapsed ? (
-            <div
-              className="mt-2.5 flex items-center justify-center"
-              title={sheetsConfig?.spreadsheetId ? 'สถานะระบบ: เชื่อมต่อ Sheets แล้ว' : 'สถานะระบบ: โหมดออฟไลน์'}
-            >
-              {sheetsConfig?.spreadsheetId ? (
-                <span className="w-2.5 h-2.5 rounded-full bg-[#1D4ED8] animate-pulse ring-4 ring-white"></span>
-              ) : (
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 ring-4 ring-white"></span>
+            <div className="mt-2.5 flex flex-col items-center gap-2">
+              <div
+                className="flex items-center justify-center"
+                title={sheetsConfig?.spreadsheetId ? 'สถานะระบบ: เชื่อมต่อ Sheets แล้ว' : 'สถานะระบบ: โหมดออฟไลน์'}
+              >
+                {sheetsConfig?.spreadsheetId ? (
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#1D4ED8] animate-pulse ring-4 ring-white"></span>
+                ) : (
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 ring-4 ring-white"></span>
+                )}
+              </div>
+              {sheetsConfig?.spreadsheetId && onRefreshDatabase && (
+                <button
+                  id="sidebar-btn-refresh-db-collapsed"
+                  type="button"
+                  onClick={onRefreshDatabase}
+                  disabled={isLoadingData}
+                  title={isLoadingData ? 'กำลังซิงค์ฐานข้อมูล...' : 'รีเฟรชฐานข้อมูล'}
+                  className="w-9 h-9 rounded-xl bg-[#FFFFFF] border border-slate-200/90 hover:border-blue-300 hover:bg-blue-50 text-slate-600 hover:text-[#1D4ED8] flex items-center justify-center shadow-2xs transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isLoadingData ? 'animate-spin text-[#1D4ED8]' : ''}`} />
+                </button>
               )}
             </div>
           ) : (
-            <div className="mt-3.5 p-2 rounded-xl bg-[#FFFFFF] border border-slate-200/90 flex items-center justify-between text-[11px]">
-              <span className="text-slate-500 font-medium">สถานะระบบ:</span>
-              {sheetsConfig?.spreadsheetId ? (
-                <span className="text-[#1D4ED8] font-semibold flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-[#1D4ED8] animate-pulse"></span>
-                  <span>เชื่อมต่อ Sheets แล้ว</span>
-                </span>
-              ) : (
-                <span className="text-amber-700 font-semibold flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                  <span>โหมดออฟไลน์</span>
-                </span>
+            <div className="mt-3.5 p-2.5 rounded-xl bg-[#FFFFFF] border border-slate-200/90 shadow-2xs space-y-2">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-500 font-medium">สถานะระบบ:</span>
+                {sheetsConfig?.spreadsheetId ? (
+                  <span className="text-[#1D4ED8] font-semibold flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#1D4ED8] animate-pulse"></span>
+                    <span>เชื่อมต่อ Sheets แล้ว</span>
+                  </span>
+                ) : (
+                  <span className="text-amber-700 font-semibold flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                    <span>โหมดออฟไลน์</span>
+                  </span>
+                )}
+              </div>
+
+              {sheetsConfig?.spreadsheetId && onRefreshDatabase && (
+                <button
+                  id="sidebar-btn-refresh-db"
+                  type="button"
+                  onClick={onRefreshDatabase}
+                  disabled={isLoadingData}
+                  title="คลิกเพื่อดึงข้อมูลทั้งหมดจากฐานข้อมูลใหม่"
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-[#F1F5F9] hover:bg-blue-50 hover:text-[#1D4ED8] hover:border-blue-200 border border-slate-200/80 text-[#0F172A] text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-98 disabled:opacity-60"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isLoadingData ? 'animate-spin text-[#1D4ED8]' : 'text-[#1D4ED8]'}`} />
+                  <span>{isLoadingData ? 'กำลังซิงค์ฐานข้อมูล...' : 'รีเฟรชฐานข้อมูล'}</span>
+                </button>
               )}
             </div>
           )}
         </div>
-
-        {/* Action Buttons Section */}
-        {!isViewer && (
-          <div className={`${isSidebarCollapsed ? 'p-3 flex justify-center' : 'p-4'} border-b border-slate-200/80`}>
-            <button
-              id="sidebar-btn-new-order"
-              onClick={onOpenNewOrder}
-              title="ลงออเดอร์ใหม่"
-              className={`${
-                isSidebarCollapsed
-                  ? 'w-11 h-11 p-0 rounded-xl'
-                  : 'w-full py-2.5 px-4 rounded-xl gap-2'
-              } flex items-center justify-center bg-[#1D4ED8] hover:bg-[#1E40AF] active:scale-98 text-white font-bold text-xs shadow-md shadow-blue-700/20 transition-all cursor-pointer`}
-            >
-              <PlusCircle className={`${isSidebarCollapsed ? 'w-5 h-5' : 'w-4 h-4'} shrink-0`} />
-              {!isSidebarCollapsed && <span>ลงออเดอร์ใหม่</span>}
-            </button>
-          </div>
-        )}
 
         {/* Scrollable Navigation Menu Groups */}
         <div
@@ -267,6 +282,27 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             )}
             <nav className="space-y-1">
+              {/* Primary Action inside Sales Menu: New Order */}
+              {!isViewer && (
+                <div className={isSidebarCollapsed ? 'flex justify-center pb-1' : 'pb-1.5'}>
+                  <button
+                    id="sidebar-btn-new-order"
+                    onClick={onOpenNewOrder}
+                    title="ลงออเดอร์ใหม่"
+                    className={`${
+                      isSidebarCollapsed
+                        ? 'w-10 h-10 p-0 rounded-xl'
+                        : 'w-full py-2.5 px-3 rounded-xl gap-2'
+                    } flex items-center justify-center bg-[#1D4ED8] hover:bg-[#1E40AF] active:scale-98 text-white font-bold text-xs shadow-sm shadow-blue-700/20 transition-all cursor-pointer ${
+                      activeTab === 'new_order' ? 'ring-2 ring-[#1D4ED8]/30 ring-offset-1 ring-offset-[#F1F5F9]' : ''
+                    }`}
+                  >
+                    <PlusCircle className={`${isSidebarCollapsed ? 'w-5 h-5' : 'w-4 h-4'} shrink-0`} />
+                    {!isSidebarCollapsed && <span>ลงออเดอร์ใหม่</span>}
+                  </button>
+                </div>
+              )}
+
               {/* 1. Customers */}
               <button
                 id="sidebar-tab-customers"
@@ -950,66 +986,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
           )}
 
-          <div className={`mt-auto ${isSidebarCollapsed ? 'pt-3' : 'pt-6'} border-t border-slate-200/60`}>
-            {/* User Info Bar at bottom of sidebar */}
-            {isSidebarCollapsed ? (
-              <div className="flex flex-col items-center gap-2">
-                <button
-                  id="sidebar-user-switcher"
-                  onClick={onOpenRoleSwitcher}
-                  className="w-9 h-9 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-2xs transition-colors cursor-pointer"
-                  title={`${currentUser.name} (${getRoleName(currentUser.role)}) - คลิกเพื่อสลับสิทธิ์`}
-                >
-                  {currentUser.name.charAt(0)}
-                </button>
-                <button
-                  id="btn-logout-sidebar"
-                  onClick={onLogout}
-                  title="ออกจากระบบ"
-                  className="w-9 h-9 rounded-xl text-rose-500 hover:bg-rose-50 flex items-center justify-center transition-colors cursor-pointer"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <div className="bg-[#FFFFFF] border border-slate-200 rounded-xl p-3 flex flex-col gap-2 shadow-2xs">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                    เข้าสู่ระบบ
-                  </span>
-                  <button
-                    id="btn-logout-sidebar"
-                    onClick={onLogout}
-                    title="ออกจากระบบ"
-                    className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 transition-colors cursor-pointer"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                <button
-                  id="sidebar-user-switcher"
-                  onClick={onOpenRoleSwitcher}
-                  className="flex items-center gap-2.5 text-left group cursor-pointer hover:bg-[#F1F5F9] p-1.5 -mx-1.5 rounded-lg transition-colors"
-                  title={`เข้าสู่ระบบโดย: ${currentUser.name} - คลิกเพื่อสลับสิทธิ์`}
-                >
-                  <div className="w-7 h-7 rounded-full bg-[#1D4ED8] text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-2xs">
-                    {currentUser.name.charAt(0)}
-                  </div>
-                  <div className="min-w-0 flex flex-col justify-center">
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs sm:text-sm font-bold text-[#0F172A] leading-tight truncate">
-                        {currentUser.name}
-                      </span>
-                      <ChevronDown className="w-3 h-3 text-[#1D4ED8] shrink-0" />
-                    </div>
-                    <span className="text-[10px] text-[#1D4ED8] font-semibold leading-none">
-                      {getRoleName(currentUser.role)}
-                    </span>
-                  </div>
-                </button>
-              </div>
-            )}
-          </div>
         </div>
       </aside>
 
@@ -1514,36 +1490,23 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
               )}
 
-              {/* Menu Group: Account */}
-              <div className="pt-2 border-t border-slate-100">
-                <div className="bg-slate-50 rounded-2xl p-4 flex flex-col gap-3 border border-slate-200/60">
-                  <div className="flex items-center gap-3 mb-1">
-                    <div className="w-10 h-10 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center shrink-0 shadow-sm">
-                      {currentUser.name.charAt(0)}
-                    </div>
-                    <div>
-                      <div className="text-sm font-bold text-slate-900">{currentUser.name}</div>
-                      <div className="text-[11px] font-medium text-blue-700">{getRoleName(currentUser.role)}</div>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => { onOpenRoleSwitcher(); setIsMobileMenuOpen(false); }}
-                      className="flex-1 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 shadow-sm text-center"
-                    >
-                      สลับสิทธิ์ผู้ใช้งาน
-                    </button>
-                    <button
-                      onClick={() => { onLogout && onLogout(); setIsMobileMenuOpen(false); }}
-                      className="flex-1 py-2 bg-rose-50 border border-rose-100 rounded-xl text-xs font-bold text-rose-700 hover:bg-rose-100 shadow-sm text-center flex items-center justify-center gap-1"
-                    >
-                      <LogOut className="w-3.5 h-3.5" />
-                      ออกจากระบบ
-                    </button>
-                  </div>
+              {/* Database Refresh Action on Mobile */}
+              {sheetsConfig?.spreadsheetId && onRefreshDatabase && (
+                <div className="pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onRefreshDatabase();
+                      setIsMobileMenuOpen(false);
+                    }}
+                    disabled={isLoadingData}
+                    className="w-full py-2.5 bg-[#F1F5F9] border border-slate-200 hover:border-blue-200 hover:bg-blue-50 rounded-xl text-xs font-bold text-[#0F172A] hover:text-[#1D4ED8] shadow-2xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 text-[#1D4ED8] ${isLoadingData ? 'animate-spin' : ''}`} />
+                    <span>{isLoadingData ? 'กำลังซิงค์ฐานข้อมูล...' : 'รีเฟรชฐานข้อมูล'}</span>
+                  </button>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         </div>

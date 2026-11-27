@@ -1,6 +1,6 @@
 {
-  "name": "จัดการออเดอร์",
-  "description": "ระบบจัดการออเดอร์สินค้า TOTAL Foods & Beverage สรุปยอดขายรายวัน บันทึกลง Google Sheets และติดตามสถานะการจัดส่ง",
+  "name": "ระบบจัดการงานภายในองค์กร",
+  "description": "ระบบจัดการงานภายในองค์กร TOTAL Foods & Beverage บริหารออเดอร์ ลูกค้า เช็คอินร้านค้า แผนจัดส่ง และสรุปยอดขายแบบเรียลไทม์",
   "requestFramePermissions": [
     "geolocation",
     "camera"
