@@ -850,7 +850,11 @@ export const fetchCustomersFromSheet = async (id: string): Promise<Customer[]> =
   }));
 };
 
-export const saveCustomerToSheet = async (id: string, c: Customer) => {
+export const saveCustomerToSheet = async (
+  id: string,
+  c: Customer,
+  options?: { isNew?: boolean }
+) => {
   const serializedPhotos =
     Array.isArray(c.photoUrls) && c.photoUrls.length > 0
       ? JSON.stringify(c.photoUrls.slice(0, 3))
@@ -860,6 +864,21 @@ export const saveCustomerToSheet = async (id: string, c: Customer) => {
     c.routeName || '', c.mapsUrl || '', c.latitude || '', c.longitude || '', 
     c.notes || '', c.updatedAt || new Date().toISOString(), serializedPhotos
   ];
+
+  // Fast path 1: New customer -> append directly without reading the entire Customers tab first
+  if (options?.isNew) {
+    await gasRequest(id, 'appendRow', CUSTOMERS_TAB_NAME, undefined, rowData);
+    return;
+  }
+
+  // Fast path 2: Known sheetsRowIndex -> update row directly without reading the entire Customers tab
+  const knownRowIndex = Number(c.sheetsRowIndex);
+  if (Number.isInteger(knownRowIndex) && knownRowIndex >= 2) {
+    await gasRequest(id, 'updateRow', CUSTOMERS_TAB_NAME, knownRowIndex, rowData);
+    return;
+  }
+
+  // Fallback for editing records whose row index is not yet cached locally
   const existing = await fetchCustomersFromSheet(id);
   const found = existing.find(x => x.id === c.id);
   if (found && (found as any).sheetsRowIndex) {

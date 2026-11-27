@@ -89,7 +89,11 @@ import { logoutGoogle } from './services/auth';
 import { sendLineNotification } from './services/lineNotify';
 import { playNotificationChime } from './utils/audio';
 import { extractCustomerCoords } from './utils/geoUtils';
-import { getDriveImageDisplayUrl } from './services/googleDrive';
+import {
+  getDriveImageDisplayUrl,
+  resolveStorePhotoUrl,
+  resolveCheckInPhotoUrl,
+} from './services/googleDrive';
 
 // Eager Core Components (always needed on initial load)
 import { Navbar } from './components/Navbar';
@@ -127,10 +131,34 @@ import {
   Phone,
   Store,
   Loader2,
+  RefreshCw,
 } from 'lucide-react';
 
 // Re-export shared date utilities for backwards compatibility with any child modules
 export { parseDateRobust, formatThaiDateTime };
+
+type PendingSyncJob =
+  | {
+      jobId: string;
+      kind: 'customer';
+      label: string;
+      isNew: boolean;
+      payload: Customer;
+      status: 'pending' | 'syncing' | 'failed';
+      error?: string;
+      createdAt: number;
+    }
+  | {
+      jobId: string;
+      kind: 'checkin';
+      label: string;
+      payload: StoreCheckIn;
+      status: 'pending' | 'syncing' | 'failed';
+      error?: string;
+      createdAt: number;
+    };
+
+const PENDING_SYNC_QUEUE_KEY = 'iora_pending_sync_queue';
 
 type AppTab =
   | 'orders'
@@ -1305,21 +1333,226 @@ export default function App() {
     }
   };
 
-  // Handle Save Check-in (บันทึกการเช็คอินร้านค้า)
-  const handleSaveCheckIn = async (checkIn: StoreCheckIn) => {
+  // Background Sync Queue for instant optimistic Customer & Check-In saves
+  const [pendingSyncJobs, setPendingSyncJobs] = useState<PendingSyncJob[]>(() => {
     try {
-      if (sheetsConfig?.spreadsheetId) {
-        await syncCheckInToSheets(sheetsConfig.spreadsheetId, checkIn);
+      const raw = localStorage.getItem(PENDING_SYNC_QUEUE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return parsed.map((job: PendingSyncJob) =>
+            job.status === 'syncing' ? { ...job, status: 'pending' } : job
+          );
+        }
       }
-      setCheckIns((prev) => [checkIn, ...prev]);
-      playNotificationChime('success');
-      showToast('success', 'บันทึกการเช็คอินสำเร็จ', `เช็คอินร้าน "${checkIn.storeName || checkIn.customerName || 'ร้านค้า'}" เรียบร้อยแล้ว`);
-      return true;
-    } catch (err: any) {
-      console.error('Error saving check-in:', err);
-      showToast('error', 'บันทึกเช็คอินไม่สำเร็จ', err.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
-      return false;
+    } catch {
+      // ignore corrupted queue storage
     }
+    return [];
+  });
+  const pendingSyncJobsRef = useRef<PendingSyncJob[]>(pendingSyncJobs);
+  const syncWorkerRunningRef = useRef(false);
+
+  const updatePendingSyncJobs = useCallback(
+    (updater: (prev: PendingSyncJob[]) => PendingSyncJob[]) => {
+      setPendingSyncJobs((prev) => {
+        const next = updater(prev);
+        pendingSyncJobsRef.current = next;
+        return next;
+      });
+    },
+    []
+  );
+
+  useEffect(() => {
+    pendingSyncJobsRef.current = pendingSyncJobs;
+    try {
+      if (pendingSyncJobs.length === 0) {
+        localStorage.removeItem(PENDING_SYNC_QUEUE_KEY);
+      } else {
+        localStorage.setItem(PENDING_SYNC_QUEUE_KEY, JSON.stringify(pendingSyncJobs));
+      }
+    } catch {
+      // localStorage quota exceeded (e.g., pending base64 photo) — keep safely in memory queue
+    }
+  }, [pendingSyncJobs]);
+
+  const enqueueSyncJob = useCallback((job: PendingSyncJob) => {
+    updatePendingSyncJobs((prev) => {
+      // Coalesce if same customer ID is edited again while still pending
+      if (job.kind === 'customer' && job.payload.id) {
+        const filtered = prev.filter(
+          (item) =>
+            !(
+              item.kind === 'customer' &&
+              item.payload.id === job.payload.id &&
+              item.status !== 'syncing'
+            )
+        );
+        return [...filtered, job];
+      }
+      return [...prev, job];
+    });
+  }, [updatePendingSyncJobs]);
+
+  const handleRetryFailedSyncJobs = useCallback(() => {
+    updatePendingSyncJobs((prev) =>
+      prev.map((j) =>
+        j.status === 'failed' ? { ...j, status: 'pending', error: undefined } : j
+      )
+    );
+  }, [updatePendingSyncJobs]);
+
+  // Auto-retry failed jobs as soon as network connectivity returns
+  useEffect(() => {
+    const handleOnline = () => {
+      updatePendingSyncJobs((prev) => {
+        if (!prev.some((j) => j.status === 'failed')) return prev;
+        return prev.map((j) =>
+          j.status === 'failed' ? { ...j, status: 'pending', error: undefined } : j
+        );
+      });
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [updatePendingSyncJobs]);
+
+  // Background queue processor: resolves photos in parallel (reusing pre-uploads) & syncs to Sheets
+  useEffect(() => {
+    const spreadsheetId = sheetsConfig?.spreadsheetId;
+    if (!spreadsheetId) return;
+    if (syncWorkerRunningRef.current) return;
+    const nextPending = pendingSyncJobs.find((j) => j.status === 'pending');
+    if (!nextPending) return;
+
+    syncWorkerRunningRef.current = true;
+    const attemptedInRun = new Set<string>();
+
+    const runQueue = async () => {
+      try {
+        while (true) {
+          const targetJob = pendingSyncJobsRef.current.find(
+            (j) => j.status === 'pending' && !attemptedInRun.has(j.jobId)
+          );
+          if (!targetJob) break;
+          attemptedInRun.add(targetJob.jobId);
+
+          updatePendingSyncJobs((prev) =>
+            prev.map((j) =>
+              j.jobId === targetJob.jobId ? { ...j, status: 'syncing', error: undefined } : j
+            )
+          );
+
+          try {
+            if (targetJob.kind === 'customer') {
+              const rawPhotos = Array.isArray(targetJob.payload.photoUrls)
+                ? targetJob.payload.photoUrls.slice(0, 3)
+                : [];
+              // Resolve/upload all pending storefront photos in PARALLEL (reuses in-flight pre-uploads!)
+              const resolvedPhotos = await Promise.all(
+                rawPhotos.map((url, idx) =>
+                  url && url.startsWith('data:')
+                    ? resolveStorePhotoUrl(url, targetJob.payload.name, idx + 1)
+                    : Promise.resolve(url)
+                )
+              );
+
+              const finalCustomer: Customer = {
+                ...targetJob.payload,
+                photoUrls: resolvedPhotos,
+                syncedToSheets: true,
+              };
+
+              await saveCustomerToSheet(spreadsheetId, finalCustomer, {
+                isNew: targetJob.isNew,
+              });
+
+              // Replace temporary local base64 previews with final Google Drive links in state
+              setCustomers((prev) =>
+                prev.map((c) => (c.id === finalCustomer.id ? { ...c, ...finalCustomer } : c))
+              );
+              setSavedCustomerSuccessPopup((prev) =>
+                prev && prev.customer.id === finalCustomer.id
+                  ? { ...prev, customer: finalCustomer }
+                  : prev
+              );
+            } else if (targetJob.kind === 'checkin') {
+              const rawPhoto = targetJob.payload.photoUrl || '';
+              const resolvedPhotoUrl =
+                rawPhoto && rawPhoto.startsWith('data:')
+                  ? await resolveCheckInPhotoUrl(rawPhoto, {
+                      storeName: targetJob.payload.storeName,
+                      salespersonName: targetJob.payload.salespersonName,
+                      date: new Date(targetJob.payload.createdAt || Date.now()),
+                    })
+                  : rawPhoto;
+
+              const finalCheckIn: StoreCheckIn = {
+                ...targetJob.payload,
+                photoUrl: resolvedPhotoUrl,
+                syncedToSheets: true,
+              };
+
+              await syncCheckInToSheets(spreadsheetId, finalCheckIn);
+
+              // Update check-in in state with Drive URL + synced flag
+              setCheckIns((prev) =>
+                prev.map((ci) => (ci.id === finalCheckIn.id ? finalCheckIn : ci))
+              );
+            }
+
+            // Job completed -> remove from pending queue
+            updatePendingSyncJobs((prev) => prev.filter((j) => j.jobId !== targetJob.jobId));
+          } catch (err: any) {
+            console.warn(`Background sync failed [${targetJob.kind}]:`, err);
+            updatePendingSyncJobs((prev) =>
+              prev.map((j) =>
+                j.jobId === targetJob.jobId
+                  ? {
+                      ...j,
+                      status: 'failed',
+                      error: err?.message || 'การเชื่อมต่อขัดข้อง',
+                    }
+                  : j
+              )
+            );
+          }
+        }
+      } finally {
+        syncWorkerRunningRef.current = false;
+      }
+    };
+
+    runQueue();
+  }, [pendingSyncJobs, sheetsConfig?.spreadsheetId, updatePendingSyncJobs]);
+
+  // Handle Save Check-in (Optimistic instant save + background Drive upload & Sheets sync)
+  const handleSaveCheckIn = async (checkIn: StoreCheckIn) => {
+    const optimisticCheckIn: StoreCheckIn = {
+      ...checkIn,
+      syncedToSheets: !sheetsConfig?.spreadsheetId,
+    };
+
+    setCheckIns((prev) => [optimisticCheckIn, ...prev]);
+    playNotificationChime('success');
+    showToast(
+      'success',
+      'บันทึกการเช็คอินสำเร็จ',
+      `เช็คอินร้าน "${checkIn.storeName || checkIn.customerName || 'ร้านค้า'}" เรียบร้อยแล้ว`
+    );
+
+    if (sheetsConfig?.spreadsheetId) {
+      enqueueSyncJob({
+        jobId: `sync-chk-${checkIn.id}-${Date.now()}`,
+        kind: 'checkin',
+        label: `เช็คอิน: ${checkIn.storeName || 'ร้านค้า'}`,
+        payload: optimisticCheckIn,
+        status: 'pending',
+        createdAt: Date.now(),
+      });
+    }
+
+    return true;
   };
 
   // Status Change Handler
@@ -1519,6 +1752,9 @@ export default function App() {
     );
     const resolvedRouteId = matchedRoute?.id || rawRoute;
     const isEditMode = Boolean(custData.id);
+    const existingCustomer = isEditMode
+      ? customers.find((c) => c.id === custData.id)
+      : undefined;
     const parsedCoords = extractCustomerCoords({
       id: custData.id || '',
       name: custData.name,
@@ -1535,11 +1771,14 @@ export default function App() {
       latitude: parsedCoords?.lat,
       longitude: parsedCoords?.lng,
       photoUrls: Array.isArray(custData.photoUrls) ? custData.photoUrls.slice(0, 3) : [],
-      updatedAt: nowUtcPlus7
+      updatedAt: nowUtcPlus7,
+      sheetsRowIndex: existingCustomer?.sheetsRowIndex,
+      syncedToSheets: !sheetsConfig?.spreadsheetId,
     };
-    
-    setCustomers(prev => {
-      const exists = prev.findIndex(c => c.id === newCustomer.id);
+
+    // Optimistic state update (< 0.1s perceived save)
+    setCustomers((prev) => {
+      const exists = prev.findIndex((c) => c.id === newCustomer.id);
       if (exists > -1) {
         const copy = [...prev];
         copy[exists] = newCustomer;
@@ -1548,19 +1787,21 @@ export default function App() {
       return [...prev, newCustomer];
     });
 
-    if (sheetsConfig?.spreadsheetId) {
-      try {
-        await saveCustomerToSheet(sheetsConfig.spreadsheetId, newCustomer);
-        playNotificationChime('success');
-        setSavedCustomerSuccessPopup({ customer: newCustomer, isEdit: isEditMode });
-        return true;
-      } catch (err) {
-        console.warn('saveCustomerToSheet error:', err);
-        return false;
-      }
-    }
     playNotificationChime('success');
     setSavedCustomerSuccessPopup({ customer: newCustomer, isEdit: isEditMode });
+
+    if (sheetsConfig?.spreadsheetId) {
+      enqueueSyncJob({
+        jobId: `sync-cust-${newCustomer.id}-${Date.now()}`,
+        kind: 'customer',
+        label: `${isEditMode ? 'อัปเดตลูกค้า' : 'ลูกค้าใหม่'}: ${newCustomer.name}`,
+        isNew: !isEditMode,
+        payload: newCustomer,
+        status: 'pending',
+        createdAt: Date.now(),
+      });
+    }
+
     return true;
   };
 
@@ -2720,6 +2961,54 @@ export default function App() {
           </div>
         </div>
       )}
+      {/* Background Sync Floating Indicator (shown ONLY while actively syncing or when retry is needed) */}
+      {pendingSyncJobs.length > 0 && (() => {
+        const activeJobs = pendingSyncJobs.filter(
+          (j) => j.status === 'syncing' || j.status === 'pending'
+        );
+        const failedJobs = pendingSyncJobs.filter((j) => j.status === 'failed');
+        const currentJob = activeJobs[0] || failedJobs[0];
+        const isSyncingNow = activeJobs.length > 0;
+        return (
+          <div className="fixed bottom-20 lg:bottom-5 right-3 sm:right-5 z-40 max-w-xs sm:max-w-sm animate-in fade-in slide-in-from-bottom-2 duration-150">
+            <div
+              className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl shadow-lg border text-xs ${
+                isSyncingNow
+                  ? 'bg-white border-blue-200 text-slate-800'
+                  : 'bg-amber-50 border-amber-300 text-amber-900'
+              }`}
+            >
+              {isSyncingNow ? (
+                <Loader2 className="w-4 h-4 text-[#1D4ED8] animate-spin shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="font-bold leading-tight truncate">
+                  {isSyncingNow
+                    ? `กำลังซิงค์ข้อมูลขึ้นระบบ (${activeJobs.length} รายการ)`
+                    : `ค้างซิงค์ ${failedJobs.length} รายการ`}
+                </p>
+                {currentJob && (
+                  <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                    {currentJob.label}
+                  </p>
+                )}
+              </div>
+              {!isSyncingNow && failedJobs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleRetryFailedSyncJobs}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-700 text-white font-bold text-[11px] shrink-0 cursor-pointer transition-colors"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>ลองส่งใหม่</span>
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

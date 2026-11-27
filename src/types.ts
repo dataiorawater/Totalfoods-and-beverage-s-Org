@@ -86,6 +86,8 @@ export interface Customer {
   updatedAt?: string;
   notes?: string;
   photoUrls?: string[]; // รูปถ่ายร้านค้าที่เก็บใน Google Drive (สูงสุด 3 รูป)
+  sheetsRowIndex?: number;
+  syncedToSheets?: boolean;
 }
 
 export interface Order {

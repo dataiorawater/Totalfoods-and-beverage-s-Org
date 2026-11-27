@@ -16,8 +16,8 @@ import {
 import { BrandLogo } from './BrandLogo';
 import { StaffUser, Route } from '../types';
 import { StorePhotoUploader } from './StorePhotoUploader';
-import { uploadStorePhotoToDrive } from '../services/googleDrive';
-import { doesRouteBelongToUser } from '../utils/callPlanUtils';
+import { getCachedPreUploadedUrl } from '../services/googleDrive';
+import { doesRouteBelongToUser, getTodayThaiDay, doesRouteRunOnDay } from '../utils/callPlanUtils';
 
 interface NewCustomerModalProps {
   isOpen: boolean;
@@ -72,40 +72,75 @@ export const NewCustomerModal: React.FC<NewCustomerModalProps> = ({
     });
   }, [canViewAllRoutes, routes, currentUser]);
 
+  const todayThai = useMemo(() => getTodayThaiDay(), []);
+
   useEffect(() => {
     if (!canViewAllRoutes && routeName && !scopedRoutes.some((r) => (r.id || r.name) === routeName)) {
       setRouteName('');
     }
   }, [canViewAllRoutes, routeName, scopedRoutes]);
 
-  if (!isOpen) return null;
-
   // Function to capture GPS location and build Google Maps URL
-  const handleCaptureGPS = () => {
+  const handleCaptureGPS = (silent = false) => {
     if (!navigator.geolocation) {
-      setErrorMsg('เบราว์เซอร์ของคุณไม่รองรับการจับพิกัด GPS');
+      if (!silent) setErrorMsg('เบราว์เซอร์ของคุณไม่รองรับการจับพิกัด GPS');
       return;
     }
 
     setIsLocating(true);
-    setErrorMsg(null);
+    if (!silent) setErrorMsg(null);
+
+    const onSuccess = (position: GeolocationPosition) => {
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+      const generatedUrl = `https://maps.google.com/?q=${lat.toFixed(6)},${lng.toFixed(6)}`;
+      setMapsUrl((prev) => (silent && prev.trim() ? prev : generatedUrl));
+      setIsLocating(false);
+    };
 
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        const generatedUrl = `https://maps.google.com/?q=${lat.toFixed(6)},${lng.toFixed(6)}`;
-        setMapsUrl(generatedUrl);
-        setIsLocating(false);
-      },
+      onSuccess,
       (err) => {
+        if (err.code === err.TIMEOUT || err.code === err.POSITION_UNAVAILABLE) {
+          navigator.geolocation.getCurrentPosition(
+            onSuccess,
+            (fallbackErr) => {
+              console.warn('Geolocation fallback error:', fallbackErr);
+              setIsLocating(false);
+              if (!silent) {
+                setErrorMsg('ไม่สามารถจับพิกัด GPS ได้ กรุณาเปิด Location หรือใส่ลิ้งก์ด้วยตนเอง');
+              }
+            },
+            { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+          );
+          return;
+        }
         console.warn('Geolocation error:', err);
         setIsLocating(false);
-        setErrorMsg('ไม่สามารถจับพิกัด GPS ได้ กรุณาเปิด Location หรือใส่ลิ้งก์ด้วยตนเอง');
+        if (!silent) {
+          setErrorMsg('ไม่สามารถจับพิกัด GPS ได้ กรุณาเปิด Location หรือใส่ลิ้งก์ด้วยตนเอง');
+        }
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 20000 }
     );
   };
+
+  // Auto-select default route (today's route or sole route) & silently pre-capture GPS on open
+  useEffect(() => {
+    if (!isOpen) return;
+    setRouteName((prev) => {
+      if (prev) return prev;
+      const todayRoute = scopedRoutes.find((r) => doesRouteRunOnDay(r, todayThai));
+      const defaultRoute = todayRoute || (scopedRoutes.length === 1 ? scopedRoutes[0] : undefined);
+      return defaultRoute ? String(defaultRoute.id || defaultRoute.name) : '';
+    });
+    if (!mapsUrl.trim()) {
+      handleCaptureGPS(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -146,17 +181,10 @@ export const NewCustomerModal: React.FC<NewCustomerModalProps> = ({
 
     setIsSubmitting(true);
     try {
-      const hasPendingLocal = photoUrls.some((p) => p.startsWith('data:'));
-      let finalPhotoUrls = [...photoUrls].slice(0, 3);
-      if (hasPendingLocal) {
-        for (let i = 0; i < finalPhotoUrls.length; i++) {
-          if (finalPhotoUrls[i].startsWith('data:')) {
-            const uploaded = await uploadStorePhotoToDrive(finalPhotoUrls[i], cleanName, i + 1);
-            finalPhotoUrls[i] = uploaded.webViewLink;
-          }
-        }
-        setPhotoUrls(finalPhotoUrls);
-      }
+      // Reuse any Drive URLs that already finished pre-uploading; remaining photos upload in parallel in background
+      const finalPhotoUrls = photoUrls
+        .slice(0, 3)
+        .map((url) => getCachedPreUploadedUrl(url) || url);
 
       const success = await onSaveCustomer({
         name: cleanName,
@@ -320,7 +348,7 @@ export const NewCustomerModal: React.FC<NewCustomerModalProps> = ({
               </label>
               <button
                 type="button"
-                onClick={handleCaptureGPS}
+                onClick={() => handleCaptureGPS(false)}
                 disabled={isLocating}
                 className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-0.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
               >
@@ -364,6 +392,7 @@ export const NewCustomerModal: React.FC<NewCustomerModalProps> = ({
             maxPhotos={3}
             minPhotos={1}
             disabled={isSubmitting}
+            sheetsConnected={sheetsConnected}
           />
 
           {/* Sheets Integration Notice */}

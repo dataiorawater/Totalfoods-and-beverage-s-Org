@@ -37,7 +37,7 @@ import { Customer, StaffUser, Route } from '../types';
 import { normalizeThaiPhone, toTelHref } from '../utils/phoneUtils';
 import { StorePhotoUploader } from './StorePhotoUploader';
 import {
-  uploadStorePhotoToDrive,
+  getCachedPreUploadedUrl,
   extractDriveFileId,
   getDriveImageDisplayUrl,
 } from '../services/googleDrive';
@@ -319,30 +319,49 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     searchQuery,
   ]);
 
-  // GPS Capture
-  const handleCaptureGPS = () => {
+  // GPS Capture (supports cached recent fix + fast low-accuracy fallback + silent auto-capture)
+  const handleCaptureGPS = (silent = false) => {
     if (!navigator.geolocation) {
-      setErrorMsg('เบราว์เซอร์ไม่รองรับการจับพิกัด GPS');
+      if (!silent) setErrorMsg('เบราว์เซอร์ไม่รองรับการจับพิกัด GPS');
       return;
     }
 
     setIsLocating(true);
-    setErrorMsg(null);
+    if (!silent) setErrorMsg(null);
+
+    const onSuccess = (position: GeolocationPosition) => {
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+      const generatedUrl = `https://maps.google.com/?q=${lat.toFixed(6)},${lng.toFixed(6)}`;
+      setMapsUrl((prev) => (silent && prev.trim() ? prev : generatedUrl));
+      setIsLocating(false);
+    };
 
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        const generatedUrl = `https://maps.google.com/?q=${lat.toFixed(6)},${lng.toFixed(6)}`;
-        setMapsUrl(generatedUrl);
-        setIsLocating(false);
-      },
+      onSuccess,
       (err) => {
+        // Fallback once to faster network/cell positioning on timeout or unavailable
+        if (err.code === err.TIMEOUT || err.code === err.POSITION_UNAVAILABLE) {
+          navigator.geolocation.getCurrentPosition(
+            onSuccess,
+            (fallbackErr) => {
+              console.warn('Geolocation fallback error:', fallbackErr);
+              setIsLocating(false);
+              if (!silent) {
+                setErrorMsg('ไม่สามารถจับพิกัด GPS ได้ กรุณาเปิดสิทธิ์ Location หรือวางลิ้งก์จาก Google Maps');
+              }
+            },
+            { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+          );
+          return;
+        }
         console.warn('Geolocation error:', err);
         setIsLocating(false);
-        setErrorMsg('ไม่สามารถจับพิกัด GPS ได้ กรุณาเปิดสิทธิ์ Location หรือวางลิ้งก์จาก Google Maps');
+        if (!silent) {
+          setErrorMsg('ไม่สามารถจับพิกัด GPS ได้ กรุณาเปิดสิทธิ์ Location หรือวางลิ้งก์จาก Google Maps');
+        }
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 20000 }
     );
   };
 
@@ -390,28 +409,12 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     }
 
     setIsSubmitting(true);
-    setUploadStatusText(null);
+    setUploadStatusText('กำลังบันทึก...');
     try {
-      const pendingPhotos = photoUrls.slice(0, 3);
-      const pendingLocalCount = pendingPhotos.filter((p) => p.startsWith('data:')).length;
-      const finalPhotoUrls: string[] = [...pendingPhotos];
-      let uploadedSoFar = 0;
-
-      for (let i = 0; i < finalPhotoUrls.length; i++) {
-        const currentUrl = finalPhotoUrls[i];
-        if (currentUrl && currentUrl.startsWith('data:')) {
-          uploadedSoFar += 1;
-          setUploadStatusText(
-            `กำลังอัปโหลดรูปที่ ${uploadedSoFar}/${pendingLocalCount} ลง Google Drive...`
-          );
-          const uploaded = await uploadStorePhotoToDrive(currentUrl, cleanName, i + 1);
-          finalPhotoUrls[i] = uploaded.webViewLink;
-        }
-      }
-
-      // Sync uploaded URLs into form state so retries won't re-upload already succeeded photos
-      setPhotoUrls(finalPhotoUrls);
-      setUploadStatusText('กำลังบันทึกข้อมูลลูกค้า...');
+      // Reuse any Drive URLs that already finished pre-uploading; remaining photos upload in parallel in background
+      const finalPhotoUrls = photoUrls
+        .slice(0, 3)
+        .map((url) => getCachedPreUploadedUrl(url) || url);
 
       const success = await onSaveCustomer({
         id: editingId || undefined,
@@ -469,19 +472,22 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
     setTimeout(() => setCopiedId(null), 1500);
   };
 
-  // Open Add New Customer popup
+  // Open Add New Customer popup (auto-select today's route & silently capture GPS for faster entry)
   const handleOpenAddModal = () => {
     setEditingId(null);
     setName('');
     setPhone('');
     setAddress('');
-    setRouteName('');
+    const todayRoute = scopedRoutes.find((r) => doesRouteRunOnDay(r, todayThai));
+    const defaultRoute = todayRoute || (scopedRoutes.length === 1 ? scopedRoutes[0] : undefined);
+    setRouteName(defaultRoute ? String(defaultRoute.id || defaultRoute.name) : '');
     setMapsUrl('');
     setVisitDays([]);
     setPhotoUrls([]);
     setErrorMsg(null);
     setSuccessMsg(null);
     setIsFormModalOpen(true);
+    handleCaptureGPS(true);
   };
 
   // Fill form with existing customer to edit in popup
@@ -1244,7 +1250,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                   </label>
                   <button
                     type="button"
-                    onClick={handleCaptureGPS}
+                    onClick={() => handleCaptureGPS(false)}
                     disabled={isLocating}
                     className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-0.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
                   >
@@ -1285,6 +1291,7 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                 maxPhotos={3}
                 minPhotos={1}
                 disabled={isSubmitting}
+                sheetsConnected={sheetsConnected}
               />
 
               {/* Modal Actions */}

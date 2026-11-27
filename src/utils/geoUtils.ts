@@ -88,15 +88,22 @@ export function compressImageFile(
   fileOrBlobOrUrl: File | Blob | string,
   maxWidth = 960,
   maxHeight = 960,
-  quality = 0.72
+  quality = 0.7
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     if (typeof fileOrBlobOrUrl === 'string') {
-      // If it's already a short dataUrl or http url, no need to recompress unless large base64
+      // If it's already a non-data URL (e.g., Google Drive / HTTPS URL), return immediately
       if (!fileOrBlobOrUrl.startsWith('data:image')) {
         return resolve(fileOrBlobOrUrl);
       }
-      if (fileOrBlobOrUrl.length < 50000) {
+      // Skip redundant re-compression when already compressed to a mobile-sized JPEG (~<=180KB)
+      if (
+        fileOrBlobOrUrl.length < 240_000 &&
+        /^data:image\/jpe?g;base64,/i.test(fileOrBlobOrUrl)
+      ) {
+        return resolve(fileOrBlobOrUrl);
+      }
+      if (fileOrBlobOrUrl.length < 60_000) {
         return resolve(fileOrBlobOrUrl);
       }
     }

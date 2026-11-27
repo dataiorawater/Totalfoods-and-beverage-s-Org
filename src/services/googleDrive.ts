@@ -285,7 +285,7 @@ export async function uploadStorePhotoToDrive(
   storeName: string,
   slotNumber: number
 ): Promise<DriveUploadResult> {
-  const compressedDataUrl = await compressImageFile(fileOrDataUrl, 1200, 1200, 0.8);
+  const compressedDataUrl = await compressImageFile(fileOrDataUrl, 960, 960, 0.7);
   const { gasUrl, spreadsheetId, storePhotoFolderId } = getConfiguredSheetsSettings();
   const cleanStoreName = String(storeName || '').trim() || 'ร้านค้าใหม่';
   const mimeMatch = compressedDataUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,/);
@@ -361,7 +361,7 @@ export async function uploadCheckInPhotoToDrive(
     date?: Date;
   }
 ): Promise<DriveUploadResult> {
-  const compressedDataUrl = await compressImageFile(fileOrDataUrl, 1200, 1200, 0.8);
+  const compressedDataUrl = await compressImageFile(fileOrDataUrl, 960, 960, 0.7);
   const { gasUrl, spreadsheetId, storePhotoFolderId, checkInPhotoFolderId } =
     getConfiguredSheetsSettings();
 
@@ -571,3 +571,140 @@ export function getDriveViewUrl(urlOrId: string): string {
   }
   return '';
 }
+
+// ============================================================
+// Background Pre-Upload & Deduplication Cache (Store & Check-In)
+// ============================================================
+const preUploadInFlightMap = new Map<string, Promise<DriveUploadResult>>();
+const preUploadResolvedMap = new Map<string, string>();
+const MAX_PREUPLOAD_CACHE_ENTRIES = 40;
+
+function getDataUrlFingerprint(dataUrl: string): string {
+  const len = dataUrl.length;
+  const head = dataUrl.slice(0, 80);
+  const mid = dataUrl.slice(Math.floor(len / 2), Math.floor(len / 2) + 40);
+  const tail = dataUrl.slice(-80);
+  return `${len}:${head}:${mid}:${tail}`;
+}
+
+function prunePreUploadCaches() {
+  if (preUploadResolvedMap.size > MAX_PREUPLOAD_CACHE_ENTRIES) {
+    const oldestKey = preUploadResolvedMap.keys().next().value;
+    if (oldestKey) preUploadResolvedMap.delete(oldestKey);
+  }
+  if (preUploadInFlightMap.size > MAX_PREUPLOAD_CACHE_ENTRIES) {
+    const oldestKey = preUploadInFlightMap.keys().next().value;
+    if (oldestKey) preUploadInFlightMap.delete(oldestKey);
+  }
+}
+
+export function getCachedPreUploadedUrl(urlOrDataUrl: string): string | null {
+  if (!urlOrDataUrl || !urlOrDataUrl.startsWith('data:')) return urlOrDataUrl || null;
+  const key = getDataUrlFingerprint(urlOrDataUrl);
+  return preUploadResolvedMap.get(key) || null;
+}
+
+export function preUploadStorePhoto(
+  dataUrl: string,
+  storeName: string,
+  slotNumber: number
+): Promise<DriveUploadResult> {
+  const key = getDataUrlFingerprint(dataUrl);
+  const resolvedUrl = preUploadResolvedMap.get(key);
+  if (resolvedUrl) {
+    return Promise.resolve({
+      fileId: extractDriveFileId(resolvedUrl) || '',
+      fileName: `${storeName || 'ร้านค้าใหม่'} รูปที่ ${slotNumber}.jpg`,
+      webViewLink: resolvedUrl,
+      thumbnailUrl: getDriveImageDisplayUrl(resolvedUrl),
+    });
+  }
+
+  const existing = preUploadInFlightMap.get(key);
+  if (existing) return existing;
+
+  prunePreUploadCaches();
+  const promise = uploadStorePhotoToDrive(dataUrl, storeName, slotNumber)
+    .then((result) => {
+      if (result.webViewLink) {
+        preUploadResolvedMap.set(key, result.webViewLink);
+      }
+      preUploadInFlightMap.delete(key);
+      return result;
+    })
+    .catch((err) => {
+      preUploadInFlightMap.delete(key);
+      throw err;
+    });
+
+  preUploadInFlightMap.set(key, promise);
+  return promise;
+}
+
+export async function resolveStorePhotoUrl(
+  urlOrDataUrl: string,
+  storeName: string,
+  slotNumber: number
+): Promise<string> {
+  if (!urlOrDataUrl || !urlOrDataUrl.startsWith('data:')) {
+    return urlOrDataUrl;
+  }
+  const uploaded = await preUploadStorePhoto(urlOrDataUrl, storeName, slotNumber);
+  return uploaded.webViewLink;
+}
+
+export function preUploadCheckInPhoto(
+  dataUrl: string,
+  options: {
+    storeName: string;
+    salespersonName?: string;
+    date?: Date;
+  }
+): Promise<DriveUploadResult> {
+  const key = getDataUrlFingerprint(dataUrl);
+  const resolvedUrl = preUploadResolvedMap.get(key);
+  if (resolvedUrl) {
+    return Promise.resolve({
+      fileId: extractDriveFileId(resolvedUrl) || '',
+      fileName: `${options.storeName || 'ร้านค้า'}.jpg`,
+      webViewLink: resolvedUrl,
+      thumbnailUrl: getDriveImageDisplayUrl(resolvedUrl),
+    });
+  }
+
+  const existing = preUploadInFlightMap.get(key);
+  if (existing) return existing;
+
+  prunePreUploadCaches();
+  const promise = uploadCheckInPhotoToDrive(dataUrl, options)
+    .then((result) => {
+      if (result.webViewLink) {
+        preUploadResolvedMap.set(key, result.webViewLink);
+      }
+      preUploadInFlightMap.delete(key);
+      return result;
+    })
+    .catch((err) => {
+      preUploadInFlightMap.delete(key);
+      throw err;
+    });
+
+  preUploadInFlightMap.set(key, promise);
+  return promise;
+}
+
+export async function resolveCheckInPhotoUrl(
+  urlOrDataUrl: string,
+  options: {
+    storeName: string;
+    salespersonName?: string;
+    date?: Date;
+  }
+): Promise<string> {
+  if (!urlOrDataUrl || !urlOrDataUrl.startsWith('data:')) {
+    return urlOrDataUrl;
+  }
+  const uploaded = await preUploadCheckInPhoto(urlOrDataUrl, options);
+  return uploaded.webViewLink;
+}
+

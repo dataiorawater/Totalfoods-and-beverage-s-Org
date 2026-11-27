@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   Camera,
   ImagePlus,
@@ -6,12 +6,14 @@ import {
   ExternalLink,
   AlertCircle,
   Loader2,
+  CheckCircle2,
 } from 'lucide-react';
 import {
   deleteStorePhotoFromDrive,
   getDriveImageDisplayUrl,
   getDriveViewUrl,
   isGoogleDriveUrl,
+  preUploadStorePhoto,
 } from '../services/googleDrive';
 import { compressImageFile } from '../utils/geoUtils';
 
@@ -22,6 +24,7 @@ interface StorePhotoUploaderProps {
   maxPhotos?: number;
   minPhotos?: number;
   disabled?: boolean;
+  sheetsConnected?: boolean;
 }
 
 export const StorePhotoUploader: React.FC<StorePhotoUploaderProps> = ({
@@ -31,14 +34,34 @@ export const StorePhotoUploader: React.FC<StorePhotoUploaderProps> = ({
   maxPhotos = 3,
   minPhotos = 1,
   disabled = false,
+  sheetsConnected = true,
 }) => {
   const [processingSlots, setProcessingSlots] = useState<Record<number, boolean>>({});
+  const [preUploadingDataUrls, setPreUploadingDataUrls] = useState<Record<string, boolean>>({});
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [confirmRemoveIdx, setConfirmRemoveIdx] = useState<number | null>(null);
   const [isDeletingRemote, setIsDeletingRemote] = useState(false);
 
   const cameraInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const fileInputRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const photosRef = useRef<string[]>(photos);
+  const onChangeRef = useRef(onChange);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    photosRef.current = photos;
+  }, [photos]);
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const cleanStoreName = storeName.trim();
 
@@ -53,18 +76,54 @@ export const StorePhotoUploader: React.FC<StorePhotoUploaderProps> = ({
 
     setProcessingSlots((prev) => ({ ...prev, [slotIdx]: true }));
     try {
-      const compressedDataUrl = await compressImageFile(file, 1200, 1200, 0.8);
-      const updated = [...photos];
+      // Single-pass mobile-optimized compression (~60-110 KB)
+      const compressedDataUrl = await compressImageFile(file, 960, 960, 0.7);
+      const updated = [...photosRef.current];
+      const targetIndex = slotIdx < updated.length ? slotIdx : updated.length;
       if (slotIdx < updated.length) {
         updated[slotIdx] = compressedDataUrl;
       } else {
         updated.push(compressedDataUrl);
       }
-      onChange(updated.slice(0, maxPhotos));
+      const nextPhotos = updated.slice(0, maxPhotos);
+      photosRef.current = nextPhotos;
+      onChangeRef.current(nextPhotos);
+
+      // Start background pre-upload immediately while user finishes filling out the form
+      if (sheetsConnected && compressedDataUrl.startsWith('data:')) {
+        const uploadKey = compressedDataUrl.slice(0, 64) + ':' + compressedDataUrl.length;
+        setPreUploadingDataUrls((prev) => ({ ...prev, [uploadKey]: true }));
+        preUploadStorePhoto(compressedDataUrl, cleanStoreName || 'ร้านค้าใหม่', targetIndex + 1)
+          .then((uploaded) => {
+            if (!isMountedRef.current || !uploaded?.webViewLink) return;
+            const currentList = photosRef.current;
+            const idxInList = currentList.indexOf(compressedDataUrl);
+            if (idxInList !== -1) {
+              const replaced = [...currentList];
+              replaced[idxInList] = uploaded.webViewLink;
+              photosRef.current = replaced;
+              onChangeRef.current(replaced);
+            }
+          })
+          .catch(() => {
+            // Silently ignore here — background sync queue will upload/retry on submit
+          })
+          .finally(() => {
+            if (isMountedRef.current) {
+              setPreUploadingDataUrls((prev) => {
+                const next = { ...prev };
+                delete next[uploadKey];
+                return next;
+              });
+            }
+          });
+      }
     } catch (err: any) {
       setUploadError(err?.message || 'เกิดข้อผิดพลาดในการอ่านรูปภาพ');
     } finally {
-      setProcessingSlots((prev) => ({ ...prev, [slotIdx]: false }));
+      if (isMountedRef.current) {
+        setProcessingSlots((prev) => ({ ...prev, [slotIdx]: false }));
+      }
     }
   };
 
@@ -177,6 +236,11 @@ export const StorePhotoUploader: React.FC<StorePhotoUploaderProps> = ({
           const isRequiredSlot = slotIdx < minPhotos;
           const isProcessing = Boolean(processingSlots[slotIdx]);
           const isSaved = photoUrl ? isGoogleDriveUrl(photoUrl) : false;
+          const uploadKey =
+            photoUrl && photoUrl.startsWith('data:')
+              ? photoUrl.slice(0, 64) + ':' + photoUrl.length
+              : '';
+          const isPreUploading = Boolean(uploadKey && preUploadingDataUrls[uploadKey]);
           const canAddHere = slotIdx <= photos.length;
 
           return (
@@ -248,8 +312,24 @@ export const StorePhotoUploader: React.FC<StorePhotoUploaderProps> = ({
                   </div>
 
                   <div className="px-1.5 py-1 flex items-center justify-between gap-1 bg-white border-t border-slate-100 text-[10px]">
-                    <span className="font-semibold text-emerald-700 truncate">
-                      {cleanStoreName ? `${cleanStoreName} รูปที่ ${slotIdx + 1}` : `รูปที่ ${slotIdx + 1}`}
+                    <span className="font-semibold text-emerald-700 truncate flex items-center gap-1">
+                      {isPreUploading ? (
+                        <>
+                          <Loader2 className="w-2.5 h-2.5 animate-spin text-blue-600 shrink-0" />
+                          <span className="text-blue-700 truncate">กำลังอัปโหลด...</span>
+                        </>
+                      ) : isSaved ? (
+                        <>
+                          <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
+                          <span className="truncate">
+                            {cleanStoreName ? `${cleanStoreName} รูปที่ ${slotIdx + 1}` : `รูปที่ ${slotIdx + 1}`}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="truncate">
+                          {cleanStoreName ? `${cleanStoreName} รูปที่ ${slotIdx + 1}` : `รูปที่ ${slotIdx + 1}`}
+                        </span>
+                      )}
                     </span>
                     {isSaved && (
                       <a

@@ -40,7 +40,8 @@ import {
 import { toTelHref } from '../utils/phoneUtils';
 import { calculateDistanceMeters, formatDistance, extractCustomerCoords, compressImageFile } from '../utils/geoUtils';
 import {
-  uploadCheckInPhotoToDrive,
+  preUploadCheckInPhoto,
+  getCachedPreUploadedUrl,
   getDriveImageDisplayUrl,
 } from '../services/googleDrive';
 import {
@@ -291,7 +292,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  // Request GPS Location
+  // Request GPS Location (accepts recent cached GPS fix + fast low-accuracy fallback)
   const requestCurrentLocation = () => {
     if (!navigator.geolocation) {
       setLocationError('เบราว์เซอร์นี้ไม่รองรับระบบตรวจจับตำแหน่ง GPS');
@@ -301,44 +302,58 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     setIsLocating(true);
     setLocationError(null);
 
+    const onSuccess = (position: GeolocationPosition) => {
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+      const acc = Math.round(position.coords.accuracy);
+
+      setCurrentLat(lat);
+      setCurrentLng(lng);
+      setAccuracy(acc);
+      setIsLocating(false);
+      setLastLocationUpdateTime(
+        new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      );
+    };
+
+    const onFinalError = (error: GeolocationPositionError) => {
+      setIsLocating(false);
+      let errorMsg = 'ไม่สามารถดึงตำแหน่ง GPS ได้';
+      if (error.code === error.PERMISSION_DENIED) {
+        errorMsg = 'กรุณากด "อนุญาต" สิทธิ์การเข้าถึงตำแหน่ง (GPS) บนเบราว์เซอร์หรืออุปกรณ์ของคุณ';
+      } else if (error.code === error.POSITION_UNAVAILABLE) {
+        errorMsg = 'สัญญาณดาวเทียมหรือเครือข่ายตำแหน่งไม่พร้อมใช้งานในขณะนี้';
+      } else if (error.code === error.TIMEOUT) {
+        errorMsg = 'หมดเวลาในการค้นหาสัญญาณ GPS กรุณากดลองใหม่อีกครั้ง';
+      }
+      setLocationError(errorMsg);
+
+      // Fallback default coordinates if never detected (Bangkok default coordinates for preview)
+      if (currentLat === null) {
+        setCurrentLat(13.7563);
+        setCurrentLng(100.5018);
+        setAccuracy(15);
+        setLastLocationUpdateTime('ค่าจำลองพิกัด');
+      }
+    };
+
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        const acc = Math.round(position.coords.accuracy);
-
-        setCurrentLat(lat);
-        setCurrentLng(lng);
-        setAccuracy(acc);
-        setIsLocating(false);
-        setLastLocationUpdateTime(
-          new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-        );
-      },
+      onSuccess,
       (error) => {
-        setIsLocating(false);
-        let errorMsg = 'ไม่สามารถดึงตำแหน่ง GPS ได้';
-        if (error.code === error.PERMISSION_DENIED) {
-          errorMsg = 'กรุณากด "อนุญาต" สิทธิ์การเข้าถึงตำแหน่ง (GPS) บนเบราว์เซอร์หรืออุปกรณ์ของคุณ';
-        } else if (error.code === error.POSITION_UNAVAILABLE) {
-          errorMsg = 'สัญญาณดาวเทียมหรือเครือข่ายตำแหน่งไม่พร้อมใช้งานในขณะนี้';
-        } else if (error.code === error.TIMEOUT) {
-          errorMsg = 'หมดเวลาในการค้นหาสัญญาณ GPS กรุณากดลองใหม่อีกครั้ง';
+        if (error.code === error.TIMEOUT || error.code === error.POSITION_UNAVAILABLE) {
+          navigator.geolocation.getCurrentPosition(
+            onSuccess,
+            onFinalError,
+            { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+          );
+          return;
         }
-        setLocationError(errorMsg);
-
-        // Fallback default coordinates if never detected (Bangkok default coordinates for preview)
-        if (currentLat === null) {
-          setCurrentLat(13.7563);
-          setCurrentLng(100.5018);
-          setAccuracy(15);
-          setLastLocationUpdateTime('ค่าจำลองพิกัด');
-        }
+        onFinalError(error);
       },
       {
         enableHighAccuracy: true,
-        timeout: 12000,
-        maximumAge: 0,
+        timeout: 8000,
+        maximumAge: 20000,
       }
     );
   };
@@ -347,11 +362,6 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
   useEffect(() => {
     requestCurrentLocation();
   }, [gpsRefreshTrigger]);
-
-  // Save check-ins to localStorage whenever updated
-  useEffect(() => {
-    localStorage.setItem('iora_checkins', JSON.stringify(checkIns));
-  }, [checkIns]);
 
   // Compute stores sorted by distance from current GPS (scoped to user role)
   const storesWithDistance = useMemo(() => {
@@ -766,7 +776,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     setIsCheckInModalOpen(true);
   };
 
-  // Handle Image Selection / Photo Capture
+  // Handle Image Selection / Photo Capture (single-pass compress + immediate background pre-upload)
   const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -774,8 +784,30 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     setIsCompressingPhoto(true);
     setFormError(null);
     try {
-      const compressedDataUrl = await compressImageFile(file, 1000, 1000, 0.75);
+      const compressedDataUrl = await compressImageFile(file, 960, 960, 0.7);
       setPhotoDataUrl(compressedDataUrl);
+
+      // Start uploading to Google Drive immediately in background while user selects purpose/notes
+      if (sheetsConnected && compressedDataUrl.startsWith('data:')) {
+        const previewStoreName = isCustomStore
+          ? customStoreName.trim() || 'ร้านค้าใหม่'
+          : String(selectedCustomer?.name || '').trim() || 'ร้านค้า';
+        preUploadCheckInPhoto(compressedDataUrl, {
+          storeName: previewStoreName,
+          salespersonName: currentUser.name,
+          date: new Date(),
+        })
+          .then((uploaded) => {
+            if (uploaded?.webViewLink) {
+              setPhotoDataUrl((current) =>
+                current === compressedDataUrl ? uploaded.webViewLink : current
+              );
+            }
+          })
+          .catch(() => {
+            // Silently ignore — background sync queue will upload/retry on submit
+          });
+      }
     } catch (err: any) {
       setFormError(err?.message || 'ไม่สามารถประมวลผลไฟล์รูปภาพได้');
     } finally {
@@ -785,7 +817,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
     }
   };
 
-  // Submit Check-in
+  // Submit Check-in (Optimistic instant save; remaining photo upload & Sheets sync run in background)
   const handleSubmitCheckIn = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -820,16 +852,8 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
         second: '2-digit',
       });
 
-      // Upload check-in photo to Google Drive (stores only Drive link in Google Sheets)
-      let finalPhotoUrl = photoDataUrl;
-      if (photoDataUrl.startsWith('data:')) {
-        const uploaded = await uploadCheckInPhotoToDrive(photoDataUrl, {
-          storeName,
-          salespersonName: currentUser.name,
-          date: now,
-        });
-        finalPhotoUrl = uploaded.webViewLink;
-      }
+      // Reuse already pre-uploaded Drive URL immediately if ready; otherwise background queue resolves it
+      const finalPhotoUrl = getCachedPreUploadedUrl(photoDataUrl) || photoDataUrl;
 
       // Calculate distance if known customer
       let distanceMeters: number | undefined = undefined;
@@ -2288,7 +2312,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                   title={!photoDataUrl ? 'กรุณาถ่ายรูปหน้าร้านก่อนการบันทึก' : 'กดบันทึกเช็คอิน'}
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>{isSubmitting ? 'กำลังอัปโหลดรูปและบันทึก...' : 'บันทึกการเช็คอิน'}</span>
+                  <span>{isSubmitting ? 'กำลังบันทึก...' : 'บันทึกการเช็คอิน'}</span>
                 </button>
               </div>
             </form>
