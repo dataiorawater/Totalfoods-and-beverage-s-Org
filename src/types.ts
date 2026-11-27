@@ -391,4 +391,52 @@ export interface FleetVehicle {
   sheetsRowIndex?: number;
 }
 
+export type PartnerDepositStatus = 'กำลังหักเงิน' | 'ครบกำหนดหักแล้ว' | 'หยุดวิ่งงาน';
+
+export interface PartnerDepositVehicle {
+  vehicleId: string;              // รหัสรถ เช่น V001
+  licensePlate: string;           // ทะเบียนรถร่วม
+  driverName: string;             // ชื่อ-นามสกุล คนขับ
+  phone: string;                  // เบอร์โทรศัพท์
+  startDate: string;              // วันที่เริ่มสะสมเงินประกัน (YYYY-MM-DD)
+  monthlyDeduction: number;       // อัตราหักสะสมต่อเดือน (บาท) default 2500
+  targetAmount: number;           // วงเงินสะสมเป้าหมาย (บาท) default 30000
+  status: PartnerDepositStatus;   // สถานะกองทุน
+  notes?: string;                 // หมายเหตุเพิ่มเติม
+  fleetVehicleId?: string;        // รหัสอ้างอิงจากเมนูจัดการรถ (FleetVehicle.id)
+  syncedToSheets?: boolean;
+  sheetsRowIndex?: number;
+}
+
+export interface PartnerDepositDeduction {
+  deductionId: string;            // รหัสรายการหัก เช่น D0001
+  vehicleId: string;              // อ้างอิง PartnerDepositVehicle.vehicleId
+  monthYear: string;              // งวดเดือน/ปี เช่น 07/2026
+  date: string;                   // วันที่บันทึกหัก (YYYY-MM-DD)
+  amount: number;                 // จำนวนเงินที่หัก (บาท)
+  notes?: string;                 // หมายเหตุ
+  syncedToSheets?: boolean;
+  sheetsRowIndex?: number;
+}
+
+export interface PartnerDepositWithdrawal {
+  withdrawalId: string;           // รหัสรายการเบิก เช่น W0001
+  vehicleId: string;              // อ้างอิง PartnerDepositVehicle.vehicleId
+  date: string;                   // วันที่เบิก (YYYY-MM-DD)
+  amount: number;                 // จำนวนเงินที่เบิก (บาท)
+  reason: string;                 // สาเหตุที่เบิก (เช่น ค่าซ่อมบำรุง/ยางแตก)
+  notes?: string;                 // หมายเหตุเพิ่มเติม
+  syncedToSheets?: boolean;
+  sheetsRowIndex?: number;
+}
+
+export interface PartnerDepositVehicleSummary extends PartnerDepositVehicle {
+  totalDeductions: number;        // ยอดหักสมทบสะสมรวม
+  totalWithdrawals: number;       // ยอดเบิกจ่ายรวม
+  currentBalance: number;         // ยอดคงเหลือสุทธิ (totalDeductions - totalWithdrawals)
+  remainingAmount: number;        // ยอดที่ยังต้องหักเพิ่มเพื่อให้ครบเป้าหมาย
+  deductionPercentage: number;    // เปอร์เซ็นต์ความคืบหน้า (0 - 100)
+}
+
+
 

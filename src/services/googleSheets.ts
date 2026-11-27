@@ -1,4 +1,4 @@
-import { Order, OrderItem, FreebieItem, Route, StaffUser, Product, Customer, StoreCheckIn, Expense, DepositRecord, HiredVehicleTripRecord, VehicleMaintenanceRecord, FleetVehicle, DailyRouteSchedule, RouteScheduleHistoryEntry, RouteScheduleActionType } from '../types';
+import { Order, OrderItem, FreebieItem, Route, StaffUser, Product, Customer, StoreCheckIn, Expense, DepositRecord, HiredVehicleTripRecord, VehicleMaintenanceRecord, FleetVehicle, DailyRouteSchedule, RouteScheduleHistoryEntry, RouteScheduleActionType, PartnerDepositVehicle, PartnerDepositDeduction, PartnerDepositWithdrawal, PartnerDepositStatus } from '../types';
 import { normalizeThaiPhone, formatPhoneForGoogleSheets } from '../utils/phoneUtils';
 import {
   OnlineOrderRawRow,
@@ -16,6 +16,9 @@ export const ROUTES_TAB_NAME = 'routes';
 export const CHECKIN_TAB_NAME = 'CheckIn';
 export const EXPENSES_TAB_NAME = 'Expenses';
 export const DEPOSITS_TAB_NAME = 'Deposits';
+export const PARTNER_DEPOSIT_VEHICLES_TAB_NAME = 'PartnerDepositVehicles';
+export const PARTNER_DEPOSIT_DEDUCTIONS_TAB_NAME = 'PartnerDepositDeductions';
+export const PARTNER_DEPOSIT_WITHDRAWALS_TAB_NAME = 'PartnerDepositWithdrawals';
 export const HIRED_VEHICLES_TAB_NAME = 'HiredVehicles';
 export const MAINTENANCE_TAB_NAME = 'VehicleMaintenance';
 export const FLEET_VEHICLES_TAB_NAME = 'FleetVehicles';
@@ -24,6 +27,37 @@ export const ONLINE_DELIVERY_PLAN_TAB_NAME = 'OnlineDeliveryPlan';
 export const ONLINE_POSTAL_ROUTES_TAB_NAME = 'OnlinePostalRoutes';
 export const DAILY_ROUTE_SCHEDULES_TAB_NAME = 'DailyRouteSchedules';
 export const ROUTE_SCHEDULE_HISTORY_TAB_NAME = 'RouteScheduleHistory';
+
+export const PARTNER_DEPOSIT_VEHICLES_HEADERS = [
+  'vehicleId',
+  'licensePlate',
+  'driverName',
+  'phone',
+  'startDate',
+  'monthlyDeduction',
+  'targetAmount',
+  'status',
+  'notes',
+  'fleetVehicleId',
+];
+
+export const PARTNER_DEPOSIT_DEDUCTIONS_HEADERS = [
+  'deductionId',
+  'vehicleId',
+  'monthYear',
+  'date',
+  'amount',
+  'notes',
+];
+
+export const PARTNER_DEPOSIT_WITHDRAWALS_HEADERS = [
+  'withdrawalId',
+  'vehicleId',
+  'date',
+  'amount',
+  'reason',
+  'notes',
+];
 
 export const FLEET_VEHICLES_HEADERS = [
   'id',
@@ -506,6 +540,18 @@ export const ensureAllSheetsTabs = async (spreadsheetId: string, customOrderShee
     {
       name: ROUTE_SCHEDULE_HISTORY_TAB_NAME,
       headers: ROUTE_SCHEDULE_HISTORY_HEADERS,
+    },
+    {
+      name: PARTNER_DEPOSIT_VEHICLES_TAB_NAME,
+      headers: PARTNER_DEPOSIT_VEHICLES_HEADERS,
+    },
+    {
+      name: PARTNER_DEPOSIT_DEDUCTIONS_TAB_NAME,
+      headers: PARTNER_DEPOSIT_DEDUCTIONS_HEADERS,
+    },
+    {
+      name: PARTNER_DEPOSIT_WITHDRAWALS_TAB_NAME,
+      headers: PARTNER_DEPOSIT_WITHDRAWALS_HEADERS,
     },
   ];
 
@@ -1652,8 +1698,11 @@ export const fetchAllDataBulk = async (spreadsheetId: string, customOrderSheet?:
   const fleetVehiclesVal = findSheetValues(FLEET_VEHICLES_TAB_NAME, ['fleetvehicles', 'fleet_vehicles', 'vehicles', 'จัดการรถ', 'กองรถ', 'ทะเบียนรถ']);
   const dailySchedulesVal = findSheetValues(DAILY_ROUTE_SCHEDULES_TAB_NAME, ['dailyrouteschedules', 'daily_route_schedules', 'แผนการวิ่งรายวัน']);
   const routeHistoryVal = findSheetValues(ROUTE_SCHEDULE_HISTORY_TAB_NAME, ['routeschedulehistory', 'route_schedule_history', 'ประวัติตั้งค่าสาย']);
+  const partnerDepositVehiclesVal = findSheetValues(PARTNER_DEPOSIT_VEHICLES_TAB_NAME, ['partnerdepositvehicles', 'partner_deposit_vehicles', 'เงินประกันรถร่วม']);
+  const partnerDepositDeductionsVal = findSheetValues(PARTNER_DEPOSIT_DEDUCTIONS_TAB_NAME, ['partnerdepositdeductions', 'partner_deposit_deductions', 'deductions', 'ประวัติหักประกัน']);
+  const partnerDepositWithdrawalsVal = findSheetValues(PARTNER_DEPOSIT_WITHDRAWALS_TAB_NAME, ['partnerdepositwithdrawals', 'partner_deposit_withdrawals', 'withdrawals', 'ประวัติเบิกประกัน']);
 
-  if (ordersVal || usersVal || productsVal || customersVal || routesVal || checkinsVal || expensesVal || depositsVal || hiredVehiclesVal || maintenanceVal || fleetVehiclesVal || dailySchedulesVal || routeHistoryVal) {
+  if (ordersVal || usersVal || productsVal || customersVal || routesVal || checkinsVal || expensesVal || depositsVal || hiredVehiclesVal || maintenanceVal || fleetVehiclesVal || dailySchedulesVal || routeHistoryVal || partnerDepositVehiclesVal || partnerDepositDeductionsVal || partnerDepositWithdrawalsVal) {
     return {
       users: usersVal ? parseUsers(usersVal) : [],
       orders: ordersVal ? parseOrdersFromValues(ordersVal) : [],
@@ -1668,6 +1717,9 @@ export const fetchAllDataBulk = async (spreadsheetId: string, customOrderSheet?:
       fleetVehicles: fleetVehiclesVal ? parseFleetVehicles(fleetVehiclesVal) : null,
       dailySchedules: dailySchedulesVal ? parseDailyRouteSchedules(dailySchedulesVal) : null,
       routeScheduleHistory: routeHistoryVal ? parseRouteScheduleHistory(routeHistoryVal) : null,
+      partnerDepositVehicles: partnerDepositVehiclesVal ? parsePartnerDepositVehicles(partnerDepositVehiclesVal) : null,
+      partnerDepositDeductions: partnerDepositDeductionsVal ? parsePartnerDepositDeductions(partnerDepositDeductionsVal) : null,
+      partnerDepositWithdrawals: partnerDepositWithdrawalsVal ? parsePartnerDepositWithdrawals(partnerDepositWithdrawalsVal) : null,
     };
   }
   return null;
@@ -2913,6 +2965,309 @@ export const appendRouteScheduleHistoryToSheet = async (
   ];
   await gasRequest(spreadsheetId, 'appendRow', ROUTE_SCHEDULE_HISTORY_TAB_NAME, undefined, rowData);
 };
+
+// =========================================================================
+// PARTNER VEHICLE SECURITY DEPOSIT (3 TABS IN MAIN GOOGLE SHEET)
+// =========================================================================
+
+const normalizePartnerDepositDateCell = (val: any): string => {
+  if (!val) return '';
+  const str = String(val).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const isoMatch = str.match(/^(\d{4}-\d{2}-\d{2})T/);
+  if (isoMatch) return isoMatch[1];
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  return str;
+};
+
+const normalizePartnerDepositStatus = (raw: any): PartnerDepositStatus => {
+  const s = String(raw || '').trim();
+  if (s === 'ครบกำหนดหักแล้ว' || s === 'completed') return 'ครบกำหนดหักแล้ว';
+  if (s === 'หยุดวิ่งงาน' || s === 'inactive' || s === 'stopped') return 'หยุดวิ่งงาน';
+  return 'กำลังหักเงิน';
+};
+
+export const ensurePartnerDepositTabs = async (spreadsheetId: string): Promise<void> => {
+  const tabs = [
+    { name: PARTNER_DEPOSIT_VEHICLES_TAB_NAME, headers: PARTNER_DEPOSIT_VEHICLES_HEADERS },
+    { name: PARTNER_DEPOSIT_DEDUCTIONS_TAB_NAME, headers: PARTNER_DEPOSIT_DEDUCTIONS_HEADERS },
+    { name: PARTNER_DEPOSIT_WITHDRAWALS_TAB_NAME, headers: PARTNER_DEPOSIT_WITHDRAWALS_HEADERS },
+  ];
+  for (const tab of tabs) {
+    try {
+      await gasRequest(spreadsheetId, 'addSheet', tab.name);
+      const res = await gasRequest(spreadsheetId, 'getData', tab.name);
+      if (!res || !res.values || res.values.length === 0) {
+        await gasRequest(spreadsheetId, 'appendRow', tab.name, undefined, tab.headers);
+      }
+    } catch (err) {
+      console.warn(`[ensurePartnerDepositTabs] Warning for ${tab.name}:`, err);
+    }
+  }
+};
+
+export const parsePartnerDepositVehicles = (values: any[]): PartnerDepositVehicle[] => {
+  if (!values || values.length <= 1) return [];
+  const list: PartnerDepositVehicle[] = [];
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i] || [];
+    const vehicleId = String(row[0] ?? '').trim();
+    const licensePlate = String(row[1] ?? '').trim();
+    if (!vehicleId && !licensePlate) continue;
+    list.push({
+      vehicleId: vehicleId || `V${String(i).padStart(3, '0')}`,
+      licensePlate,
+      driverName: String(row[2] ?? '').trim(),
+      phone: normalizeThaiPhone(String(row[3] ?? '').trim()),
+      startDate: normalizePartnerDepositDateCell(row[4]),
+      monthlyDeduction: Number(String(row[5] ?? '2500').replace(/,/g, '')) || 2500,
+      targetAmount: Number(String(row[6] ?? '30000').replace(/,/g, '')) || 30000,
+      status: normalizePartnerDepositStatus(row[7]),
+      notes: String(row[8] ?? '').trim() || undefined,
+      fleetVehicleId: String(row[9] ?? '').trim() || undefined,
+      syncedToSheets: true,
+      sheetsRowIndex: i + 1,
+    });
+  }
+  return list;
+};
+
+const normalizePartnerMonthYearCell = (val: any): string => {
+  if (!val) return '';
+  const str = String(val).trim();
+  if (/^\d{1,2}\/\d{4}$/.test(str)) return str;
+  const isoMatch = str.match(/^(\d{4})-(\d{2})-\d{2}/);
+  if (isoMatch) return `${isoMatch[2]}/${isoMatch[1]}`;
+  if (str.includes('GMT') || /^[A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d{1,2}\s+\d{4}/.test(str)) {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      const bkk = new Date(d.getTime() + 7 * 60 * 60 * 1000);
+      const m = String(bkk.getUTCMonth() + 1).padStart(2, '0');
+      const y = bkk.getUTCFullYear();
+      return `${m}/${y}`;
+    }
+  }
+  return str;
+};
+
+export const parsePartnerDepositDeductions = (values: any[]): PartnerDepositDeduction[] => {
+  if (!values || values.length <= 1) return [];
+  const list: PartnerDepositDeduction[] = [];
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i] || [];
+    const deductionId = String(row[0] ?? '').trim();
+    const vehicleId = String(row[1] ?? '').trim();
+    if (!deductionId && !vehicleId) continue;
+    list.push({
+      deductionId: deductionId || `D${String(i).padStart(4, '0')}`,
+      vehicleId,
+      monthYear: normalizePartnerMonthYearCell(row[2]),
+      date: normalizePartnerDepositDateCell(row[3]),
+      amount: Number(String(row[4] ?? '0').replace(/,/g, '')) || 0,
+      notes: String(row[5] ?? '').trim() || undefined,
+      syncedToSheets: true,
+      sheetsRowIndex: i + 1,
+    });
+  }
+  return list;
+};
+
+export const parsePartnerDepositWithdrawals = (values: any[]): PartnerDepositWithdrawal[] => {
+  if (!values || values.length <= 1) return [];
+  const list: PartnerDepositWithdrawal[] = [];
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i] || [];
+    const withdrawalId = String(row[0] ?? '').trim();
+    const vehicleId = String(row[1] ?? '').trim();
+    if (!withdrawalId && !vehicleId) continue;
+    list.push({
+      withdrawalId: withdrawalId || `W${String(i).padStart(4, '0')}`,
+      vehicleId,
+      date: normalizePartnerDepositDateCell(row[2]),
+      amount: Number(String(row[3] ?? '0').replace(/,/g, '')) || 0,
+      reason: String(row[4] ?? '').trim(),
+      notes: String(row[5] ?? '').trim() || undefined,
+      syncedToSheets: true,
+      sheetsRowIndex: i + 1,
+    });
+  }
+  return list;
+};
+
+export const fetchPartnerDepositDataFromSheet = async (
+  spreadsheetId: string
+): Promise<{
+  vehicles: PartnerDepositVehicle[];
+  deductions: PartnerDepositDeduction[];
+  withdrawals: PartnerDepositWithdrawal[];
+}> => {
+  const safeGet = async (tabName: string) => {
+    try {
+      const res = await gasRequest(spreadsheetId, 'getData', tabName);
+      return res?.values || [];
+    } catch (err: any) {
+      const msg = String(err?.message || '').toLowerCase();
+      if (msg.includes('not found') || msg.includes('sheet')) return [];
+      throw err;
+    }
+  };
+
+  const [vRows, dRows, wRows] = await Promise.all([
+    safeGet(PARTNER_DEPOSIT_VEHICLES_TAB_NAME),
+    safeGet(PARTNER_DEPOSIT_DEDUCTIONS_TAB_NAME),
+    safeGet(PARTNER_DEPOSIT_WITHDRAWALS_TAB_NAME),
+  ]);
+
+  return {
+    vehicles: parsePartnerDepositVehicles(vRows),
+    deductions: parsePartnerDepositDeductions(dRows),
+    withdrawals: parsePartnerDepositWithdrawals(wRows),
+  };
+};
+
+const buildPartnerDepositVehicleRow = (v: PartnerDepositVehicle): any[] => [
+  v.vehicleId,
+  v.licensePlate,
+  v.driverName,
+  formatPhoneForGoogleSheets(v.phone),
+  formatSheetsTextCell(v.startDate),
+  Number(v.monthlyDeduction) || 0,
+  Number(v.targetAmount) || 0,
+  v.status,
+  v.notes || '',
+  v.fleetVehicleId || '',
+];
+
+export const appendPartnerDepositVehicleToSheet = async (
+  spreadsheetId: string,
+  vehicle: PartnerDepositVehicle
+): Promise<void> => {
+  await ensurePartnerDepositTabs(spreadsheetId);
+  await gasRequest(
+    spreadsheetId,
+    'appendRow',
+    PARTNER_DEPOSIT_VEHICLES_TAB_NAME,
+    undefined,
+    buildPartnerDepositVehicleRow(vehicle)
+  );
+};
+
+export const updatePartnerDepositVehicleInSheet = async (
+  spreadsheetId: string,
+  vehicle: PartnerDepositVehicle
+): Promise<void> => {
+  await ensurePartnerDepositTabs(spreadsheetId);
+  const rowData = buildPartnerDepositVehicleRow(vehicle);
+  const res = await gasRequest(spreadsheetId, 'getData', PARTNER_DEPOSIT_VEHICLES_TAB_NAME);
+  const rows: any[][] = res?.values || [];
+  let foundRowIndex: number | null = null;
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i]?.[0] ?? '').trim() === vehicle.vehicleId) {
+      foundRowIndex = i + 1;
+      break;
+    }
+  }
+  if (foundRowIndex) {
+    await gasRequest(spreadsheetId, 'updateRow', PARTNER_DEPOSIT_VEHICLES_TAB_NAME, foundRowIndex, rowData);
+  } else {
+    await gasRequest(spreadsheetId, 'appendRow', PARTNER_DEPOSIT_VEHICLES_TAB_NAME, undefined, rowData);
+  }
+};
+
+export const deletePartnerDepositVehicleFromSheet = async (
+  spreadsheetId: string,
+  vehicleId: string
+): Promise<void> => {
+  const deleteMatchingRows = async (tabName: string, colIndex: number) => {
+    try {
+      const res = await gasRequest(spreadsheetId, 'getData', tabName);
+      const rows: any[][] = res?.values || [];
+      const indicesToDelete: number[] = [];
+      for (let i = 1; i < rows.length; i++) {
+        if (String(rows[i]?.[colIndex] ?? '').trim() === vehicleId) {
+          indicesToDelete.push(i + 1);
+        }
+      }
+      // Delete from bottom to top so row numbers don't shift
+      for (let k = indicesToDelete.length - 1; k >= 0; k--) {
+        await gasRequest(spreadsheetId, 'deleteRow', tabName, indicesToDelete[k]);
+      }
+    } catch (err) {
+      console.warn(`[deletePartnerDepositVehicleFromSheet] Warning deleting from ${tabName}:`, err);
+    }
+  };
+
+  await deleteMatchingRows(PARTNER_DEPOSIT_VEHICLES_TAB_NAME, 0);
+  await deleteMatchingRows(PARTNER_DEPOSIT_DEDUCTIONS_TAB_NAME, 1);
+  await deleteMatchingRows(PARTNER_DEPOSIT_WITHDRAWALS_TAB_NAME, 1);
+};
+
+export const appendPartnerDepositDeductionToSheet = async (
+  spreadsheetId: string,
+  deduction: PartnerDepositDeduction
+): Promise<void> => {
+  await ensurePartnerDepositTabs(spreadsheetId);
+  const rowData = [
+    deduction.deductionId,
+    deduction.vehicleId,
+    formatSheetsTextCell(deduction.monthYear),
+    formatSheetsTextCell(deduction.date),
+    Number(deduction.amount) || 0,
+    deduction.notes || '',
+  ];
+  await gasRequest(spreadsheetId, 'appendRow', PARTNER_DEPOSIT_DEDUCTIONS_TAB_NAME, undefined, rowData);
+};
+
+export const deletePartnerDepositDeductionFromSheet = async (
+  spreadsheetId: string,
+  deductionId: string
+): Promise<void> => {
+  const res = await gasRequest(spreadsheetId, 'getData', PARTNER_DEPOSIT_DEDUCTIONS_TAB_NAME);
+  const rows: any[][] = res?.values || [];
+  for (let i = rows.length - 1; i >= 1; i--) {
+    if (String(rows[i]?.[0] ?? '').trim() === deductionId) {
+      await gasRequest(spreadsheetId, 'deleteRow', PARTNER_DEPOSIT_DEDUCTIONS_TAB_NAME, i + 1);
+      break;
+    }
+  }
+};
+
+export const appendPartnerDepositWithdrawalToSheet = async (
+  spreadsheetId: string,
+  withdrawal: PartnerDepositWithdrawal
+): Promise<void> => {
+  await ensurePartnerDepositTabs(spreadsheetId);
+  const rowData = [
+    withdrawal.withdrawalId,
+    withdrawal.vehicleId,
+    formatSheetsTextCell(withdrawal.date),
+    Number(withdrawal.amount) || 0,
+    withdrawal.reason || '',
+    withdrawal.notes || '',
+  ];
+  await gasRequest(spreadsheetId, 'appendRow', PARTNER_DEPOSIT_WITHDRAWALS_TAB_NAME, undefined, rowData);
+};
+
+export const deletePartnerDepositWithdrawalFromSheet = async (
+  spreadsheetId: string,
+  withdrawalId: string
+): Promise<void> => {
+  const res = await gasRequest(spreadsheetId, 'getData', PARTNER_DEPOSIT_WITHDRAWALS_TAB_NAME);
+  const rows: any[][] = res?.values || [];
+  for (let i = rows.length - 1; i >= 1; i--) {
+    if (String(rows[i]?.[0] ?? '').trim() === withdrawalId) {
+      await gasRequest(spreadsheetId, 'deleteRow', PARTNER_DEPOSIT_WITHDRAWALS_TAB_NAME, i + 1);
+      break;
+    }
+  }
+};
+
 
 
 

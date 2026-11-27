@@ -366,7 +366,7 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({
             icon: ShieldCheck,
             title: depositCount > 0 ? `จัดการเงินประกัน (${depositCount})` : 'จัดการเงินประกัน',
             label: 'จัดการเงินประกัน',
-            subtitle: 'เงินมัดจำถัง & ค้ำประกัน',
+            subtitle: 'เงินประกันรถร่วม & เบิกถอน',
             badgeCount: depositCount,
             collapsedBadgeColor: 'bg-emerald-600',
             showInMobileDrawer: true,
@@ -387,7 +387,7 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({
                       : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80'
                   }`}
                 >
-                  มัดจำ
+                  ประกัน
                 </span>
               ),
             mobileBadge: (isActive) =>
@@ -405,7 +405,7 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({
                     isActive ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'
                   }`}
                 >
-                  มัดจำ
+                  ประกัน
                 </span>
               ),
           },

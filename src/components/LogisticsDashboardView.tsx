@@ -5,6 +5,9 @@ import {
   HiredVehicleTripRecord,
   DepositRecord,
   FleetVehicle,
+  PartnerDepositVehicle,
+  PartnerDepositDeduction,
+  PartnerDepositWithdrawal,
 } from '../types';
 import {
   Truck,
@@ -28,6 +31,9 @@ interface LogisticsDashboardViewProps {
   maintenanceRecords: VehicleMaintenanceRecord[];
   hiredVehicles: HiredVehicleTripRecord[];
   deposits: DepositRecord[];
+  partnerDepositVehicles?: PartnerDepositVehicle[];
+  partnerDepositDeductions?: PartnerDepositDeduction[];
+  partnerDepositWithdrawals?: PartnerDepositWithdrawal[];
   fleetVehicles: FleetVehicle[];
   onNavigateToLogistics: () => void;
   onNavigateToMaintenance: () => void;
@@ -41,6 +47,9 @@ export const LogisticsDashboardView: React.FC<LogisticsDashboardViewProps> = Rea
   maintenanceRecords,
   hiredVehicles,
   deposits,
+  partnerDepositVehicles = [],
+  partnerDepositDeductions = [],
+  partnerDepositWithdrawals = [],
   fleetVehicles,
   onNavigateToLogistics,
   onNavigateToMaintenance,
@@ -132,22 +141,36 @@ export const LogisticsDashboardView: React.FC<LogisticsDashboardViewProps> = Rea
     const hiredTotalNet = scopedTrips.reduce((sum, t) => sum + (t.netPayout || 0), 0);
     const hiredPendingCount = hiredVehicles.filter((t) => t.payoutStatus === 'pending').length;
 
-    const activeDeposits = deposits.filter(
-      (d) => d.status === 'active' || d.status === 'partial_refunded'
-    );
-    const heldDepositAmount = activeDeposits.reduce(
-      (sum, d) => sum + Math.max(0, (d.totalAmount || 0) - (d.refundedAmount || 0) - (d.deductedAmount || 0)),
+    const totalPartnerDeductions = partnerDepositDeductions.reduce(
+      (sum, d) => sum + (Number(d.amount) || 0),
       0
     );
+    const totalPartnerWithdrawals = partnerDepositWithdrawals.reduce(
+      (sum, w) => sum + (Number(w.amount) || 0),
+      0
+    );
+    const heldDepositAmount = totalPartnerDeductions - totalPartnerWithdrawals;
+    const activeDepositCount = partnerDepositVehicles.filter(
+      (v) => v.status === 'กำลังหักเงิน'
+    ).length;
+    const totalPartnerDepositVehicles = partnerDepositVehicles.length;
 
     return {
       hiredTripCount: scopedTrips.length,
       hiredTotalNet,
       hiredPendingCount,
-      activeDepositCount: activeDeposits.length,
+      activeDepositCount,
+      totalPartnerDepositVehicles,
       heldDepositAmount,
     };
-  }, [hiredVehicles, deposits, period]);
+  }, [
+    hiredVehicles,
+    partnerDepositVehicles,
+    partnerDepositDeductions,
+    partnerDepositWithdrawals,
+    deposits,
+    period,
+  ]);
 
   // 3. Vehicle Maintenance Budget Analytics (Moved & Expanded from Sales Dashboard)
   const maintenanceStats = useMemo(() => {
@@ -393,23 +416,23 @@ export const LogisticsDashboardView: React.FC<LogisticsDashboardViewProps> = Rea
           </div>
         </div>
 
-        {/* Card 4: Active Deposits */}
+        {/* Card 4: Partner Vehicle Security Deposits */}
         <div
           onClick={onNavigateToDeposits}
           className="bg-[#FFFFFF] p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between cursor-pointer hover:border-blue-300 transition-all"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-500 font-medium">เงินประกันที่ดูแลอยู่</span>
+            <span className="text-xs text-slate-500 font-medium">กองทุนเงินประกันรถร่วม</span>
             <div className="w-8 h-8 rounded-lg bg-[#F1F5F9] text-[#1D4ED8] flex items-center justify-center">
               <ShieldCheck className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3">
-            <div className="text-xl sm:text-2xl font-black text-[#0F172A] tracking-tight">
+            <div className="text-xl sm:text-2xl font-black text-[#0F172A] tracking-tight tabular-nums">
               ฿{logisticsFinanceStats.heldDepositAmount.toLocaleString()}
             </div>
-            <span className="text-[11px] text-slate-500 mt-1 block">
-              กำลังดูแล {logisticsFinanceStats.activeDepositCount} สัญญา
+            <span className="text-[11px] text-slate-500 mt-1 block tabular-nums">
+              กำลังหักเงิน {logisticsFinanceStats.activeDepositCount} คัน • ทั้งหมด {logisticsFinanceStats.totalPartnerDepositVehicles} คัน
             </span>
           </div>
         </div>
