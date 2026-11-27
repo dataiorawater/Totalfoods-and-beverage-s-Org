@@ -387,6 +387,14 @@ export interface FleetVehicle {
   photoUrls?: string[];           // ลิงก์รูปรถและภาพถ่ายเอกสารบน Google Drive
   notes?: string;                 // หมายเหตุเพิ่มเติม
   updatedAt?: string;             // วันเวลาที่อัปเดตล่าสุด (ISO)
+  // เงื่อนไขกองทุนเงินประกันรถร่วม (รวมอยู่ในแท็บ FleetVehicles แท็บเดียว)
+  depositEnabled?: boolean;       // เปิดบัญชีเงินประกันรถร่วมแล้วหรือไม่
+  depositCode?: string;           // รหัสกองทุนอ้างอิงตารางหัก/เบิก เช่น V001
+  depositStartDate?: string;      // วันที่เริ่มสะสมเงินประกัน (YYYY-MM-DD)
+  depositMonthlyDeduction?: number; // อัตราหักสะสมต่อเดือน (บาท) default 2500
+  depositTargetAmount?: number;   // วงเงินสะสมเป้าหมาย (บาท) default 30000
+  depositStatus?: PartnerDepositStatus; // สถานะกองทุนเงินประกัน
+  depositNotes?: string;          // หมายเหตุเฉพาะเรื่องเงินประกัน
   syncedToSheets?: boolean;
   sheetsRowIndex?: number;
 }

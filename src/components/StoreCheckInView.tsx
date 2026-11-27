@@ -1914,28 +1914,33 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
                 >
                   {/* Photo thumbnail */}
                   <div className="flex items-center gap-3 min-w-0 flex-1">
-                    {item.photoUrl ? (
-                      <div
-                        onClick={() => setViewingPhotoUrl(item.photoUrl)}
-                        className="relative w-16 h-16 sm:w-18 sm:h-18 rounded-xl overflow-hidden bg-slate-100 shrink-0 border border-slate-200 cursor-pointer group shadow-2xs"
-                        title="คลิกเพื่อดูภาพขยาย"
-                      >
-                        <img
-                          src={getDriveImageDisplayUrl(item.photoUrl, 400)}
-                          alt={item.storeName}
-                          loading="lazy"
-                          decoding="async"
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                        />
-                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity">
-                          <Eye className="w-4 h-4" />
+                    {(() => {
+                      const thumbUrl = item.photoUrl
+                        ? getDriveImageDisplayUrl(item.photoUrl, 400)
+                        : '';
+                      return thumbUrl ? (
+                        <div
+                          onClick={() => setViewingPhotoUrl(item.photoUrl)}
+                          className="relative w-16 h-16 sm:w-18 sm:h-18 rounded-xl overflow-hidden bg-slate-100 shrink-0 border border-slate-200 cursor-pointer group shadow-2xs"
+                          title="คลิกเพื่อดูภาพขยาย"
+                        >
+                          <img
+                            src={thumbUrl}
+                            alt={item.storeName}
+                            loading="lazy"
+                            decoding="async"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                          />
+                          <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity">
+                            <Eye className="w-4 h-4" />
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <div className="w-16 h-16 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
-                        <Camera className="w-6 h-6" />
-                      </div>
-                    )}
+                      ) : (
+                        <div className="w-16 h-16 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
+                          <Camera className="w-6 h-6" />
+                        </div>
+                      );
+                    })()}
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -2321,7 +2326,7 @@ export const StoreCheckInView: React.FC<StoreCheckInViewProps> = ({
       )}
 
       {/* Full-size Photo Viewer Modal */}
-      {viewingPhotoUrl && (
+      {viewingPhotoUrl && getDriveImageDisplayUrl(viewingPhotoUrl, 1400) && (
         <div
           onClick={() => setViewingPhotoUrl(null)}
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-in fade-in"

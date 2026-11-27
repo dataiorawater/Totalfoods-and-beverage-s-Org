@@ -520,15 +520,15 @@ export const ExpenseManagementView: React.FC<ExpenseManagementViewProps> = ({
                       )}
 
                       {/* Receipt Image */}
-                      {exp.receiptUrl && (
+                      {exp.receiptUrl?.trim() && (
                         <div className="mt-2 relative group">
                           <img
-                            src={exp.receiptUrl}
+                            src={exp.receiptUrl.trim()}
                             alt="Receipt"
                             className="w-full h-28 object-cover rounded-xl border border-slate-200 cursor-pointer"
                             onClick={() =>
                               setPreviewImage({
-                                url: exp.receiptUrl!,
+                                url: exp.receiptUrl!.trim(),
                                 title: `ใบเสร็จ - ${exp.expenseType} ฿${(exp.amount ?? 0).toLocaleString()}`,
                               })
                             }
@@ -1209,11 +1209,13 @@ export const ExpenseManagementView: React.FC<ExpenseManagementViewProps> = ({
               </button>
             </div>
             <div className="p-4 flex justify-center bg-black/50 max-h-[75vh] overflow-auto">
-              <img
-                src={previewImage.url}
-                alt={previewImage.title}
-                className="max-h-[65vh] object-contain rounded-lg"
-              />
+              {previewImage.url?.trim() && (
+                <img
+                  src={previewImage.url.trim()}
+                  alt={previewImage.title}
+                  className="max-h-[65vh] object-contain rounded-lg"
+                />
+              )}
             </div>
           </div>
         </div>

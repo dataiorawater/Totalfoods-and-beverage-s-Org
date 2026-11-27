@@ -285,7 +285,7 @@ export const StorePhotoUploader: React.FC<StorePhotoUploaderProps> = ({
                 }}
               />
 
-              {photoUrl ? (
+              {photoUrl && getDriveImageDisplayUrl(photoUrl, 400) ? (
                 <>
                   <div className="relative w-full h-24 bg-slate-100">
                     <img

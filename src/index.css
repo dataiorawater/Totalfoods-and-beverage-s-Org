@@ -31,13 +31,13 @@
     /* Prevent 300ms tap delay and double-tap zoom delay on mobile */
     touch-action: manipulation;
     -webkit-text-size-adjust: 100%;
-    background-color: #FFFFFF;
+    background-color: #F1F5F9;
     color: #0F172A;
   }
 
   body {
     font-family: 'Prompt', 'Sarabun', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background-color: #FFFFFF;
+    background-color: #F1F5F9;
     color: #0F172A;
     -webkit-tap-highlight-color: transparent;
     text-rendering: optimizeSpeed;

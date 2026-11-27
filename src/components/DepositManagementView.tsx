@@ -12,7 +12,6 @@ import {
   ShieldCheck,
   Plus,
   Search,
-  RefreshCw,
   Truck,
   TrendingUp,
   ArrowDownLeft,
@@ -25,13 +24,14 @@ import {
   Calendar,
   FileText,
   FileSpreadsheet,
-  Pencil,
+  SlidersHorizontal,
   Trash2,
   History,
   X,
   AlertTriangle,
   Link2,
   Info,
+  ExternalLink,
 } from 'lucide-react';
 import {
   computePartnerDepositSummaries,
@@ -44,6 +44,16 @@ import {
   getTodayISODate,
 } from '../utils/partnerDepositExport';
 
+export interface DepositConfigPayload {
+  depositEnabled: boolean;
+  depositCode: string;
+  depositStartDate: string;
+  depositMonthlyDeduction: number;
+  depositTargetAmount: number;
+  depositStatus: PartnerDepositStatus;
+  depositNotes?: string;
+}
+
 interface DepositManagementViewProps {
   vehicles: PartnerDepositVehicle[];
   deductions: PartnerDepositDeduction[];
@@ -53,17 +63,24 @@ interface DepositManagementViewProps {
   sheetsConnected?: boolean;
   isSyncing?: boolean;
   onRefresh?: () => Promise<void> | void;
-  onAddVehicle: (vehicle: PartnerDepositVehicle) => Promise<void> | void;
-  onUpdateVehicle: (vehicle: PartnerDepositVehicle) => Promise<void> | void;
-  onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
+  onNavigateToFleet?: () => void;
+  onSaveDepositConfig: (
+    fleetVehicleId: string,
+    config: DepositConfigPayload,
+    isNewEnrollment: boolean
+  ) => Promise<void> | void;
+  onUnenrollVehicleDeposit: (
+    fleetVehicleId: string,
+    depositCode: string
+  ) => Promise<void> | void;
   onAddDeduction: (
     deduction: PartnerDepositDeduction,
-    updatedVehicle?: PartnerDepositVehicle
+    autoStatusUpdate?: { fleetVehicleId: string; status: PartnerDepositStatus }
   ) => Promise<void> | void;
   onDeleteDeduction: (deductionId: string) => Promise<void> | void;
   onAddWithdrawal: (
     withdrawal: PartnerDepositWithdrawal,
-    updatedVehicle?: PartnerDepositVehicle
+    autoStatusUpdate?: { fleetVehicleId: string; status: PartnerDepositStatus }
   ) => Promise<void> | void;
   onDeleteWithdrawal: (withdrawalId: string) => Promise<void> | void;
   onShowToast?: (type: 'success' | 'error' | 'info', title: string, message: string) => void;
@@ -92,9 +109,9 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
   sheetsConnected = false,
   isSyncing = false,
   onRefresh,
-  onAddVehicle,
-  onUpdateVehicle,
-  onDeleteVehicle,
+  onNavigateToFleet,
+  onSaveDepositConfig,
+  onUnenrollVehicleDeposit,
   onAddDeduction,
   onDeleteDeduction,
   onAddWithdrawal,
@@ -111,15 +128,12 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
   const [historyTab, setHistoryTab] = useState<'deductions' | 'withdrawals'>('deductions');
   const [isExportingPdf, setIsExportingPdf] = useState(false);
 
-  // Vehicle Modal state
-  const [showVehicleModal, setShowVehicleModal] = useState(false);
-  const [editingVehicle, setEditingVehicle] = useState<PartnerDepositVehicle | null>(null);
+  // Enroll / Configure Deposit Modal state (strictly binds to FleetVehicles)
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [editingVehicle, setEditingVehicle] = useState<PartnerDepositVehicleSummary | null>(null);
   const [includeCompanyFleet, setIncludeCompanyFleet] = useState(false);
   const [selectedFleetId, setSelectedFleetId] = useState<string>('');
-  const [vId, setVId] = useState('');
-  const [vPlate, setVPlate] = useState('');
-  const [vDriver, setVDriver] = useState('');
-  const [vPhone, setVPhone] = useState('');
+  const [vCode, setVCode] = useState('');
   const [vStartDate, setVStartDate] = useState(getTodayISODate());
   const [vMonthly, setVMonthly] = useState('2500');
   const [vTarget, setVTarget] = useState('30000');
@@ -149,11 +163,12 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
   const [confirmDelete, setConfirmDelete] = useState<{
     type: 'vehicle' | 'deduction' | 'withdrawal';
     id: string;
+    fleetVehicleId?: string;
     title: string;
     description: string;
   } | null>(null);
 
-  // Derived vehicle summaries
+  // Derived vehicle summaries (live from FleetVehicles)
   const summaries = useMemo(
     () => computePartnerDepositSummaries(vehicles, deductions, withdrawals),
     [vehicles, deductions, withdrawals]
@@ -231,25 +246,10 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
       );
   }, [withdrawals, historyVehicleId]);
 
-  // Fleet vehicles available for quick-pick
-  const registeredFleetIds = useMemo(() => {
-    const set = new Set<string>();
-    vehicles.forEach((v) => {
-      if (v.fleetVehicleId) set.add(v.fleetVehicleId);
-    });
-    return set;
-  }, [vehicles]);
-
-  const registeredPlatesNormalized = useMemo(() => {
-    const set = new Set<string>();
-    vehicles.forEach((v) => {
-      if (v.licensePlate) set.add(v.licensePlate.replace(/\s+/g, '').toLowerCase());
-    });
-    return set;
-  }, [vehicles]);
-
-  const selectableFleetVehicles = useMemo(() => {
+  // Fleet vehicles not yet enrolled in the deposit fund
+  const unenrolledFleetVehicles = useMemo(() => {
     return fleetVehicles
+      .filter((fv) => !fv.depositEnabled && !fv.depositCode)
       .filter((fv) => includeCompanyFleet || fv.ownershipType === 'hired')
       .slice()
       .sort((a, b) => {
@@ -260,78 +260,65 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
       });
   }, [fleetVehicles, includeCompanyFleet]);
 
-  // Open Vehicle Modal (Create)
-  const openAddVehicleModal = () => {
+  const selectedFleetVehicle = useMemo(() => {
+    const idToFind = editingVehicle?.fleetVehicleId || selectedFleetId;
+    if (!idToFind) return null;
+    return fleetVehicles.find((fv) => fv.id === idToFind) || null;
+  }, [fleetVehicles, editingVehicle, selectedFleetId]);
+
+  // Open Modal: Enroll a FleetVehicle into Deposit Fund
+  const openEnrollModal = () => {
     setEditingVehicle(null);
-    setSelectedFleetId('');
     setIncludeCompanyFleet(false);
-    setVId(getNextSequentialId('V', vehicles.map((v) => v.vehicleId), 3));
-    setVPlate('');
-    setVDriver('');
-    setVPhone('');
+    const firstAvailable = fleetVehicles.find(
+      (fv) => !fv.depositEnabled && !fv.depositCode && fv.ownershipType === 'hired'
+    );
+    setSelectedFleetId(firstAvailable?.id || '');
+    setVCode(getNextSequentialId('V', vehicles.map((v) => v.vehicleId), 3));
     setVStartDate(getTodayISODate());
     setVMonthly('2500');
     setVTarget('30000');
     setVStatus('กำลังหักเงิน');
     setVNotes('');
     setVFormError('');
-    setShowVehicleModal(true);
+    setShowConfigModal(true);
   };
 
-  // Open Vehicle Modal (Edit)
-  const openEditVehicleModal = (v: PartnerDepositVehicleSummary) => {
+  // Open Modal: Edit Deposit Settings Only (vehicle master fields are read-only)
+  const openEditConfigModal = (v: PartnerDepositVehicleSummary) => {
     setEditingVehicle(v);
     setSelectedFleetId(v.fleetVehicleId || '');
-    setVId(v.vehicleId);
-    setVPlate(v.licensePlate);
-    setVDriver(v.driverName);
-    setVPhone(v.phone || '');
+    setVCode(v.vehicleId);
     setVStartDate(v.startDate || getTodayISODate());
     setVMonthly(String(v.monthlyDeduction ?? 2500));
     setVTarget(String(v.targetAmount ?? 30000));
     setVStatus(v.status);
     setVNotes(v.notes || '');
     setVFormError('');
-    setShowVehicleModal(true);
+    setShowConfigModal(true);
   };
 
-  // Auto-fill from Fleet vehicle selection
-  const handleSelectFleetVehicle = (fleetId: string) => {
-    setSelectedFleetId(fleetId);
-    const fv = fleetVehicles.find((item) => item.id === fleetId);
-    if (!fv) return;
-    const plateWithProvince = fv.province
-      ? `${fv.plateNumber} ${fv.province}`.trim()
-      : fv.plateNumber;
-    setVPlate(plateWithProvince);
-    if (fv.driverName) setVDriver(fv.driverName);
-    if (fv.driverPhone) setVPhone(fv.driverPhone);
-    setVFormError('');
-  };
-
-  // Save Vehicle
-  const handleSubmitVehicle = (e: React.FormEvent) => {
+  // Save Deposit Config onto FleetVehicles
+  const handleSubmitConfig = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanId = vId.trim();
-    const cleanPlate = vPlate.trim();
-    const cleanDriver = vDriver.trim();
+    const targetFleetId = editingVehicle?.fleetVehicleId || selectedFleetId;
+    const cleanCode = vCode.trim();
     const monthlyNum = Number(vMonthly);
     const targetNum = Number(vTarget);
 
-    if (!cleanId) {
-      setVFormError('กรุณาระบุรหัสรถ (เช่น V001)');
+    if (!targetFleetId) {
+      setVFormError('กรุณาเลือกรถจากทะเบียนกองรถ (หากยังไม่มีรถให้เพิ่มที่เมนูจัดการรถก่อน)');
       return;
     }
-    if (!editingVehicle && vehicles.some((v) => v.vehicleId.toLowerCase() === cleanId.toLowerCase())) {
-      setVFormError(`รหัสรถ "${cleanId}" มีอยู่ในระบบแล้ว กรุณาใช้รหัสอื่น`);
+    if (!cleanCode) {
+      setVFormError('กรุณาระบุรหัสกองทุน (เช่น V018)');
       return;
     }
-    if (!cleanPlate) {
-      setVFormError('กรุณาระบุทะเบียนรถร่วม');
-      return;
-    }
-    if (!cleanDriver) {
-      setVFormError('กรุณาระบุชื่อ-นามสกุล พนักงานขับรถ');
+    if (
+      !editingVehicle &&
+      vehicles.some((v) => v.vehicleId.toLowerCase() === cleanCode.toLowerCase())
+    ) {
+      setVFormError(`รหัสกองทุน "${cleanCode}" ถูกใช้งานแล้ว กรุณาใช้รหัสอื่น`);
       return;
     }
     if (isNaN(monthlyNum) || monthlyNum < 0) {
@@ -343,26 +330,20 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
       return;
     }
 
-    const payload: PartnerDepositVehicle = {
-      vehicleId: cleanId,
-      licensePlate: cleanPlate,
-      driverName: cleanDriver,
-      phone: vPhone.trim(),
-      startDate: vStartDate || getTodayISODate(),
-      monthlyDeduction: monthlyNum,
-      targetAmount: targetNum,
-      status: vStatus,
-      notes: vNotes.trim() || undefined,
-      fleetVehicleId: selectedFleetId || editingVehicle?.fleetVehicleId || undefined,
-      sheetsRowIndex: editingVehicle?.sheetsRowIndex,
-    };
-
-    if (editingVehicle) {
-      onUpdateVehicle(payload);
-    } else {
-      onAddVehicle(payload);
-    }
-    setShowVehicleModal(false);
+    onSaveDepositConfig(
+      targetFleetId,
+      {
+        depositEnabled: true,
+        depositCode: cleanCode,
+        depositStartDate: vStartDate || getTodayISODate(),
+        depositMonthlyDeduction: monthlyNum,
+        depositTargetAmount: targetNum,
+        depositStatus: vStatus,
+        depositNotes: vNotes.trim() || undefined,
+      },
+      !editingVehicle
+    );
+    setShowConfigModal(false);
   };
 
   // Open Deduction Modal
@@ -376,7 +357,7 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
     setDFormError('');
   };
 
-  // Save Deduction (with auto-status transition to ครบกำหนดหักแล้ว)
+  // Save Deduction (auto-updates depositStatus on FleetVehicles when reaching target)
   const handleSubmitDeduction = (e: React.FormEvent) => {
     e.preventDefault();
     if (!deductionTarget) return;
@@ -406,28 +387,18 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
     };
 
     const projectedBalance = deductionTarget.currentBalance + amountNum;
-    let updatedVehicle: PartnerDepositVehicle | undefined;
-    if (
+    const autoStatusUpdate =
+      deductionTarget.fleetVehicleId &&
       deductionTarget.status === 'กำลังหักเงิน' &&
       deductionTarget.targetAmount > 0 &&
       projectedBalance >= deductionTarget.targetAmount
-    ) {
-      updatedVehicle = {
-        vehicleId: deductionTarget.vehicleId,
-        licensePlate: deductionTarget.licensePlate,
-        driverName: deductionTarget.driverName,
-        phone: deductionTarget.phone,
-        startDate: deductionTarget.startDate,
-        monthlyDeduction: deductionTarget.monthlyDeduction,
-        targetAmount: deductionTarget.targetAmount,
-        status: 'ครบกำหนดหักแล้ว',
-        notes: deductionTarget.notes,
-        fleetVehicleId: deductionTarget.fleetVehicleId,
-        sheetsRowIndex: deductionTarget.sheetsRowIndex,
-      };
-    }
+        ? {
+            fleetVehicleId: deductionTarget.fleetVehicleId,
+            status: 'ครบกำหนดหักแล้ว' as PartnerDepositStatus,
+          }
+        : undefined;
 
-    onAddDeduction(newDeduction, updatedVehicle);
+    onAddDeduction(newDeduction, autoStatusUpdate);
     setDeductionTarget(null);
   };
 
@@ -442,7 +413,7 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
     setWFormError('');
   };
 
-  // Save Withdrawal (with balance cap & auto-resume status if drops below target)
+  // Save Withdrawal (auto-resumes กำลังหักเงิน on FleetVehicles if balance drops below target)
   const handleSubmitWithdrawal = (e: React.FormEvent) => {
     e.preventDefault();
     if (!withdrawalTarget) return;
@@ -484,27 +455,17 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
     };
 
     const projectedBalance = withdrawalTarget.currentBalance - amountNum;
-    let updatedVehicle: PartnerDepositVehicle | undefined;
-    if (
+    const autoStatusUpdate =
+      withdrawalTarget.fleetVehicleId &&
       withdrawalTarget.status === 'ครบกำหนดหักแล้ว' &&
       projectedBalance < withdrawalTarget.targetAmount
-    ) {
-      updatedVehicle = {
-        vehicleId: withdrawalTarget.vehicleId,
-        licensePlate: withdrawalTarget.licensePlate,
-        driverName: withdrawalTarget.driverName,
-        phone: withdrawalTarget.phone,
-        startDate: withdrawalTarget.startDate,
-        monthlyDeduction: withdrawalTarget.monthlyDeduction,
-        targetAmount: withdrawalTarget.targetAmount,
-        status: 'กำลังหักเงิน',
-        notes: withdrawalTarget.notes,
-        fleetVehicleId: withdrawalTarget.fleetVehicleId,
-        sheetsRowIndex: withdrawalTarget.sheetsRowIndex,
-      };
-    }
+        ? {
+            fleetVehicleId: withdrawalTarget.fleetVehicleId,
+            status: 'กำลังหักเงิน' as PartnerDepositStatus,
+          }
+        : undefined;
 
-    onAddWithdrawal(newWithdrawal, updatedVehicle);
+    onAddWithdrawal(newWithdrawal, autoStatusUpdate);
     setWithdrawalTarget(null);
   };
 
@@ -517,8 +478,8 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
   // Confirm delete handler
   const handleConfirmDeleteAction = () => {
     if (!confirmDelete) return;
-    if (confirmDelete.type === 'vehicle') {
-      onDeleteVehicle(confirmDelete.id);
+    if (confirmDelete.type === 'vehicle' && confirmDelete.fleetVehicleId) {
+      onUnenrollVehicleDeposit(confirmDelete.fleetVehicleId, confirmDelete.id);
       if (historyVehicleId === confirmDelete.id) {
         setHistoryVehicleId('ALL');
       }
@@ -542,10 +503,18 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
         selectedVehicleId: historyVehicleId,
         preparedBy: currentUser.name,
       });
-      onShowToast?.('success', 'สร้างรายงาน PDF สำเร็จ', 'ดาวน์โหลดไฟล์รายงานเงินประกันรถร่วม (A4) เรียบร้อยแล้ว');
+      onShowToast?.(
+        'success',
+        'สร้างรายงาน PDF สำเร็จ',
+        'ดาวน์โหลดไฟล์รายงานเงินประกันรถร่วม (A4) เรียบร้อยแล้ว'
+      );
     } catch (err) {
       console.error('PDF export error:', err);
-      onShowToast?.('error', 'สร้าง PDF ไม่สำเร็จ', 'เกิดข้อผิดพลาดระหว่างสร้างไฟล์ PDF กรุณาลองใหม่อีกครั้ง');
+      onShowToast?.(
+        'error',
+        'สร้าง PDF ไม่สำเร็จ',
+        'เกิดข้อผิดพลาดระหว่างสร้างไฟล์ PDF กรุณาลองใหม่อีกครั้ง'
+      );
     } finally {
       setIsExportingPdf(false);
     }
@@ -560,7 +529,11 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
         withdrawals,
         selectedVehicleId: historyVehicleId,
       });
-      onShowToast?.('success', 'ส่งออก Excel สำเร็จ', 'ดาวน์โหลดไฟล์สรุปและประวัติเงินประกัน 3 ชีต (.xlsx) เรียบร้อยแล้ว');
+      onShowToast?.(
+        'success',
+        'ส่งออก Excel สำเร็จ',
+        'ดาวน์โหลดไฟล์สรุปและประวัติเงินประกัน 3 ชีต (.xlsx) เรียบร้อยแล้ว'
+      );
     } catch (err) {
       console.error('Excel export error:', err);
       onShowToast?.('error', 'ส่งออก Excel ไม่สำเร็จ', 'เกิดข้อผิดพลาดระหว่างสร้างไฟล์ Excel');
@@ -599,41 +572,24 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
           HEADER BAR
          ================================================================= */}
       <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-lg bg-[#EFF6FF] border border-blue-200/70 text-[#1D4ED8] flex items-center justify-center shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-[#1D4ED8] text-white flex items-center justify-center shrink-0">
             <ShieldCheck className="w-5 h-5" />
           </div>
-          <div>
-            <h1 className="text-lg sm:text-xl font-extrabold text-[#0F172A] tracking-tight">
-              จัดการเงินประกันรถร่วมขนส่ง
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-              ติดตามยอดหักสมทบสะสมรายเดือน การเบิกถอนฉุกเฉิน และออกรายงานทางการ PDF / Excel
-              {sheetsConnected ? ' • ซิงก์ Google Sheet (3 แท็บ)' : ''}
-            </p>
-          </div>
+          <h1 className="text-lg sm:text-xl font-extrabold text-[#0F172A] tracking-tight">
+            จัดการเงินประกันรถร่วมขนส่ง
+          </h1>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          {onRefresh && (
-            <button
-              type="button"
-              onClick={onRefresh}
-              disabled={isSyncing}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
-            >
-              <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span>รีเฟรช</span>
-            </button>
-          )}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           {!isReadOnly && (
             <button
               type="button"
-              onClick={openAddVehicleModal}
+              onClick={openEnrollModal}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-bold text-white bg-[#1D4ED8] hover:bg-[#1E40AF] rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
             >
               <Plus className="w-4 h-4" />
-              <span>ขึ้นทะเบียนรถร่วมใหม่</span>
+              <span>เปิดบัญชีเงินประกันรถร่วม</span>
             </button>
           )}
         </div>
@@ -771,7 +727,7 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="ค้นหาทะเบียนรถ, ชื่อคนขับ, รหัสรถ หรือเบอร์โทร..."
+            placeholder="ค้นหาทะเบียนรถ, ชื่อคนขับ, รหัสกองทุน หรือเบอร์โทร..."
             className="w-full pl-9 pr-8 py-2 text-sm bg-[#F8FAFC] border border-slate-200 rounded-lg text-[#0F172A] placeholder:text-slate-400 focus:outline-none focus:border-[#1D4ED8] focus:bg-white transition-colors"
           />
           {searchQuery && (
@@ -836,20 +792,32 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
             <ShieldCheck className="w-6 h-6" />
           </div>
           <h3 className="text-base font-bold text-[#0F172A]">
-            ยังไม่มีรถร่วมในกองทุนเงินประกัน
+            ยังไม่มีรถร่วมที่เปิดบัญชีเงินประกัน
           </h3>
           <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">
-            เริ่มต้นขึ้นทะเบียนรถร่วมเพื่อกำหนดอัตราหักสะสมรายเดือนและวงเงินเป้าหมาย โดยสามารถดึงรายชื่อรถร่วมจากเมนู "จัดการรถ" มาช่วยกรอกอัตโนมัติได้ทันที
+            เลือกรถร่วมจากฐานข้อมูลกลางในเมนู "จัดการรถ" เพื่อเปิดบัญชีเงินประกันและกำหนดอัตราหักสะสมรายเดือน
           </p>
           {!isReadOnly && (
-            <button
-              type="button"
-              onClick={openAddVehicleModal}
-              className="mt-4 inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-bold text-white bg-[#1D4ED8] hover:bg-[#1E40AF] rounded-lg transition-colors cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>ขึ้นทะเบียนรถร่วมคันแรก</span>
-            </button>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={openEnrollModal}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-bold text-white bg-[#1D4ED8] hover:bg-[#1E40AF] rounded-lg transition-colors cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>เปิดบัญชีเงินประกันรถร่วม</span>
+              </button>
+              {onNavigateToFleet && (
+                <button
+                  type="button"
+                  onClick={onNavigateToFleet}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+                >
+                  <Truck className="w-4 h-4" />
+                  <span>ไปเมนูจัดการรถ</span>
+                </button>
+              )}
+            </div>
           )}
         </div>
       ) : filteredVehicles.length === 0 ? (
@@ -882,7 +850,7 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
 
             return (
               <div
-                key={v.vehicleId}
+                key={v.fleetVehicleId || v.vehicleId}
                 className="bg-white border border-slate-200 rounded-xl flex flex-col justify-between overflow-hidden hover:border-slate-300 transition-colors"
               >
                 <div className="p-4 sm:p-5 space-y-4">
@@ -896,18 +864,18 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
                         <h3 className="text-base sm:text-lg font-extrabold text-[#0F172A] truncate">
                           {v.licensePlate}
                         </h3>
-                        {v.fleetVehicleId && (
-                          <span
-                            title="เชื่อมข้อมูลจากเมนูจัดการรถ"
-                            className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500"
-                          >
-                            <Link2 className="w-3 h-3 text-[#1D4ED8]" />
-                            กองรถ
-                          </span>
-                        )}
+                        <span
+                          title="เชื่อมตรงกับฐานข้อมูล FleetVehicles"
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500"
+                        >
+                          <Link2 className="w-3 h-3 text-[#1D4ED8]" />
+                          กองรถหลัก
+                        </span>
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
-                        <span className="font-semibold text-[#0F172A]">{v.driverName}</span>
+                        <span className="font-semibold text-[#0F172A]">
+                          {v.driverName || 'ยังไม่ระบุคนขับ'}
+                        </span>
                         {v.phone && (
                           <a
                             href={`tel:${v.phone}`}
@@ -1036,29 +1004,32 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
                       <>
                         <button
                           type="button"
-                          onClick={() => openEditVehicleModal(v)}
+                          onClick={() => openEditConfigModal(v)}
                           className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
-                          title="แก้ไขข้อมูลรถร่วม"
+                          title="ตั้งค่าเงื่อนไขเงินประกัน"
                         >
-                          <Pencil className="w-3.5 h-3.5" />
-                          <span>แก้ไข</span>
+                          <SlidersHorizontal className="w-3.5 h-3.5" />
+                          <span>ตั้งค่าหัก</span>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setConfirmDelete({
-                              type: 'vehicle',
-                              id: v.vehicleId,
-                              title: `ลบข้อมูลรถร่วม ${v.licensePlate} (${v.vehicleId})`,
-                              description:
-                                'การลบรถร่วมคันนี้จะลบประวัติการหักสะสมและประวัติการเบิกถอนทั้งหมดของรถคันนี้ออกจากระบบด้วย คุณยืนยันที่จะดำเนินการต่อหรือไม่?',
-                            })
-                          }
-                          className="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-semibold text-[#DC2626] bg-white border border-slate-200 rounded-lg hover:bg-red-50 hover:border-red-200 transition-colors cursor-pointer"
-                          title="ลบข้อมูลรถร่วม"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {v.fleetVehicleId && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setConfirmDelete({
+                                type: 'vehicle',
+                                id: v.vehicleId,
+                                fleetVehicleId: v.fleetVehicleId,
+                                title: `ถอดรถร่วม ${v.licensePlate} (${v.vehicleId}) ออกจากกองทุน`,
+                                description:
+                                  'ระบบจะปิดบัญชีเงินประกันและลบประวัติการหัก/เบิกของรถคันนี้ออก แต่ข้อมูลรถยังคงอยู่ในเมนู "จัดการรถ" ตามเดิม ยืนยันหรือไม่?',
+                              })
+                            }
+                            className="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-semibold text-[#DC2626] bg-white border border-slate-200 rounded-lg hover:bg-red-50 hover:border-red-200 transition-colors cursor-pointer"
+                            title="ถอดออกจากกองทุนเงินประกัน"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </>
                     )}
                   </div>
@@ -1120,7 +1091,7 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
               <option value="ALL">รถร่วมทุกคัน ({vehicles.length} คัน)</option>
               {summaries.map((v) => (
                 <option key={v.vehicleId} value={v.vehicleId}>
-                  {v.vehicleId} - {v.licensePlate} ({v.driverName})
+                  {v.vehicleId} - {v.licensePlate} ({v.driverName || 'ไม่ระบุคนขับ'})
                 </option>
               ))}
             </select>
@@ -1191,7 +1162,9 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
                     <th className="py-2.5 px-4 whitespace-nowrap">ทะเบียนรถ / คนขับ</th>
                     <th className="py-2.5 px-4 text-right whitespace-nowrap">จำนวนเงินหัก</th>
                     <th className="py-2.5 px-4">หมายเหตุ</th>
-                    {!isReadOnly && <th className="py-2.5 px-4 text-right whitespace-nowrap">จัดการ</th>}
+                    {!isReadOnly && (
+                      <th className="py-2.5 px-4 text-right whitespace-nowrap">จัดการ</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 tabular-nums">
@@ -1260,7 +1233,9 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
                   <th className="py-2.5 px-4">สาเหตุที่เบิก</th>
                   <th className="py-2.5 px-4 text-right whitespace-nowrap">จำนวนเงินเบิก</th>
                   <th className="py-2.5 px-4">หมายเหตุ</th>
-                  {!isReadOnly && <th className="py-2.5 px-4 text-right whitespace-nowrap">จัดการ</th>}
+                  {!isReadOnly && (
+                    <th className="py-2.5 px-4 text-right whitespace-nowrap">จัดการ</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 tabular-nums">
@@ -1318,72 +1293,148 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
       </section>
 
       {/* =================================================================
-          MODAL 1: ADD / EDIT PARTNER VEHICLE (WITH FLEET AUTO-FILL)
+          MODAL 1: ENROLL / CONFIGURE DEPOSIT TERMS (MASTER DATA READ-ONLY)
          ================================================================= */}
-      {showVehicleModal && (
+      {showConfigModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 overflow-y-auto">
           <div className="bg-white border border-slate-200 rounded-xl w-full max-w-lg overflow-hidden shadow-xl my-auto">
             <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Truck className="w-5 h-5 text-[#1D4ED8]" />
+                <SlidersHorizontal className="w-5 h-5 text-[#1D4ED8]" />
                 <h3 className="text-base font-extrabold text-[#0F172A]">
-                  {editingVehicle ? 'แก้ไขข้อมูลรถร่วมในกองทุน' : 'ขึ้นทะเบียนรถร่วมเข้ากองทุนเงินประกัน'}
+                  {editingVehicle
+                    ? 'ตั้งค่าเงื่อนไขเงินประกันรถร่วม'
+                    : 'เปิดบัญชีเงินประกันให้รถร่วม'}
                 </h3>
               </div>
               <button
                 type="button"
-                onClick={() => setShowVehicleModal(false)}
+                onClick={() => setShowConfigModal(false)}
                 className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmitVehicle} className="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
-              {/* Fleet Quick-Pick (shown when adding new) */}
+            <form
+              onSubmit={handleSubmitConfig}
+              className="p-5 space-y-4 max-h-[82vh] overflow-y-auto"
+            >
+              {/* Select Vehicle from FleetVehicles when enrolling new */}
               {!editingVehicle && (
-                <div className="p-3.5 rounded-lg bg-[#EFF6FF] border border-blue-200 space-y-2">
+                <div className="p-3.5 rounded-lg bg-[#EFF6FF] border border-blue-200 space-y-2.5">
                   <div className="flex items-center justify-between gap-2">
                     <label className="text-xs font-bold text-[#1E40AF] flex items-center gap-1.5">
-                      <Link2 className="w-3.5 h-3.5" />
-                      ดึงข้อมูลรถร่วมจากเมนู "จัดการรถ" อัตโนมัติ
+                      <Truck className="w-3.5 h-3.5" />
+                      เลือกรถจากฐานข้อมูลกลาง (เมนูจัดการรถ) *
                     </label>
                     <label className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-600 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={includeCompanyFleet}
-                        onChange={(e) => setIncludeCompanyFleet(e.target.checked)}
+                        onChange={(e) => {
+                          setIncludeCompanyFleet(e.target.checked);
+                          setSelectedFleetId('');
+                        }}
                         className="rounded border-slate-300"
                       />
                       แสดงรถบริษัทด้วย
                     </label>
                   </div>
-                  <select
-                    value={selectedFleetId}
-                    onChange={(e) => handleSelectFleetVehicle(e.target.value)}
-                    className="w-full px-3 py-2 text-xs sm:text-sm bg-white border border-blue-200 rounded-lg text-[#0F172A] focus:outline-none focus:border-[#1D4ED8]"
-                  >
-                    <option value="">
-                      {selectableFleetVehicles.length > 0
-                        ? `-- เลือกรถจากทะเบียนกองรถ (${selectableFleetVehicles.length} คัน) หรือกรอกเองด้านล่าง --`
-                        : '-- ไม่พบรถร่วมในเมนูจัดการรถ (สามารถกรอกข้อมูลเองได้ด้านล่าง) --'}
-                    </option>
-                    {selectableFleetVehicles.map((fv) => {
-                      const alreadyRegistered =
-                        registeredFleetIds.has(fv.id) ||
-                        registeredPlatesNormalized.has(
-                          (fv.plateNumber || '').replace(/\s+/g, '').toLowerCase()
-                        );
-                      return (
+
+                  {unenrolledFleetVehicles.length > 0 ? (
+                    <select
+                      value={selectedFleetId}
+                      onChange={(e) => {
+                        setSelectedFleetId(e.target.value);
+                        setVFormError('');
+                      }}
+                      className="w-full px-3 py-2 text-xs sm:text-sm bg-white border border-blue-200 rounded-lg text-[#0F172A] focus:outline-none focus:border-[#1D4ED8]"
+                      required
+                    >
+                      <option value="">
+                        -- เลือกรถที่ยังไม่เปิดบัญชีเงินประกัน ({unenrolledFleetVehicles.length} คัน) --
+                      </option>
+                      {unenrolledFleetVehicles.map((fv) => (
                         <option key={fv.id} value={fv.id}>
                           {fv.plateNumber}
-                          {fv.province ? ` ${fv.province}` : ''} — {fv.driverName || 'ยังไม่ระบุคนขับ'}
+                          {fv.province ? ` ${fv.province}` : ''} —{' '}
+                          {fv.driverName || 'ยังไม่ระบุคนขับ'}
                           {fv.ownershipType === 'hired' ? ' [รถร่วม]' : ' [รถบริษัท]'}
-                          {alreadyRegistered ? ' (ขึ้นทะเบียนแล้ว)' : ''}
                         </option>
-                      );
-                    })}
-                  </select>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="p-3 rounded-lg bg-white border border-blue-100 text-xs text-slate-600 space-y-2">
+                      <p>
+                        รถร่วมทั้งหมดในเมนู "จัดการรถ" เปิดบัญชีเงินประกันครบแล้ว หรือยังไม่ได้เพิ่มรถร่วมใหม่ในระบบ
+                      </p>
+                      {onNavigateToFleet && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowConfigModal(false);
+                            onNavigateToFleet();
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1D4ED8] text-white font-bold text-xs hover:bg-[#1E40AF] cursor-pointer"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span>ไปเพิ่มรถใหม่ที่เมนูจัดการรถ</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Read-Only Master Vehicle Info Card */}
+              {selectedFleetVehicle && (
+                <div className="p-3.5 rounded-lg bg-[#F8FAFC] border border-slate-200 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+                      ข้อมูลรถจากฐานข้อมูลกลาง (อ่านอย่างเดียว)
+                    </span>
+                    {onNavigateToFleet && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowConfigModal(false);
+                          onNavigateToFleet();
+                        }}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-[#1D4ED8] hover:underline cursor-pointer"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        <span>แก้ไขข้อมูลรถที่เมนูจัดการรถ</span>
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                    <div>
+                      <span className="text-slate-500">ทะเบียนรถ: </span>
+                      <strong className="text-[#0F172A]">
+                        {selectedFleetVehicle.plateNumber}
+                        {selectedFleetVehicle.province ? ` ${selectedFleetVehicle.province}` : ''}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">ประเภท: </span>
+                      <strong className="text-[#0F172A]">
+                        {selectedFleetVehicle.ownershipType === 'hired' ? 'รถร่วม' : 'รถบริษัท'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">พนักงานขับรถ: </span>
+                      <strong className="text-[#0F172A]">
+                        {selectedFleetVehicle.driverName || 'ยังไม่ระบุ'}
+                      </strong>
+                    </div>
+                    <div className="tabular-nums">
+                      <span className="text-slate-500">เบอร์โทร: </span>
+                      <strong className="text-[#0F172A]">
+                        {selectedFleetVehicle.driverPhone || '-'}
+                      </strong>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1394,68 +1445,25 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
                 </div>
               )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Deposit Configuration Fields Only */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    รหัสรถ *
+                    รหัสกองทุนเงินประกัน *
                   </label>
                   <input
                     type="text"
-                    value={vId}
-                    onChange={(e) => setVId(e.target.value)}
+                    value={vCode}
+                    onChange={(e) => setVCode(e.target.value)}
                     disabled={!!editingVehicle}
-                    placeholder="V001"
+                    placeholder="V018"
                     className="w-full px-3 py-2 text-sm font-mono bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-[#1D4ED8] disabled:bg-slate-100 disabled:text-slate-500"
                     required
                   />
                 </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    ทะเบียนรถร่วม *
-                  </label>
-                  <input
-                    type="text"
-                    value={vPlate}
-                    onChange={(e) => setVPlate(e.target.value)}
-                    placeholder="เช่น 1ฒศ-8899 กทม."
-                    className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-[#1D4ED8]"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    ชื่อ-นามสกุล พนักงานขับรถ *
-                  </label>
-                  <input
-                    type="text"
-                    value={vDriver}
-                    onChange={(e) => setVDriver(e.target.value)}
-                    placeholder="ชื่อ-นามสกุล คนขับ"
-                    className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-[#1D4ED8]"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    เบอร์โทรศัพท์
-                  </label>
-                  <input
-                    type="tel"
-                    value={vPhone}
-                    onChange={(e) => setVPhone(e.target.value)}
-                    placeholder="08X-XXX-XXXX"
-                    className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-[#1D4ED8] tabular-nums"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    วันที่เริ่มสะสม
+                    วันที่เริ่มสะสมเงินประกัน
                   </label>
                   <input
                     type="date"
@@ -1464,9 +1472,12 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
                     className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-[#1D4ED8] tabular-nums"
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    อัตราหัก/เดือน (บาท) *
+                    อัตราหักสะสมต่อเดือน (บาท) *
                   </label>
                   <input
                     type="number"
@@ -1480,7 +1491,7 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    วงเงินเป้าหมาย (บาท) *
+                    วงเงินสะสมเป้าหมาย (บาท) *
                   </label>
                   <input
                     type="number"
@@ -1511,13 +1522,13 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  หมายเหตุ
+                  หมายเหตุเงินประกัน
                 </label>
                 <textarea
                   rows={2}
                   value={vNotes}
                   onChange={(e) => setVNotes(e.target.value)}
-                  placeholder="เงื่อนไขเพิ่มเติม หรือรายละเอียดสัญญา..."
+                  placeholder="เงื่อนไขเพิ่มเติมเฉพาะเรื่องเงินประกัน..."
                   className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-[#1D4ED8]"
                 />
               </div>
@@ -1525,16 +1536,17 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
               <div className="pt-2 border-t border-slate-200 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowVehicleModal(false)}
+                  onClick={() => setShowConfigModal(false)}
                   className="px-4 py-2 text-sm font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer"
                 >
                   ยกเลิก
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-sm font-bold text-white bg-[#1D4ED8] hover:bg-[#1E40AF] rounded-lg cursor-pointer"
+                  disabled={!editingVehicle && !selectedFleetId}
+                  className="px-4 py-2 text-sm font-bold text-white bg-[#1D4ED8] hover:bg-[#1E40AF] rounded-lg cursor-pointer disabled:opacity-40"
                 >
-                  {editingVehicle ? 'บันทึกการแก้ไข' : 'ขึ้นทะเบียนรถร่วม'}
+                  {editingVehicle ? 'บันทึกเงื่อนไขเงินประกัน' : 'เปิดบัญชีเงินประกัน'}
                 </button>
               </div>
             </form>
@@ -1569,7 +1581,7 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
                 <div className="font-extrabold text-sm text-[#0F172A]">
                   {deductionTarget.licensePlate} ({deductionTarget.vehicleId})
                 </div>
-                <div className="text-slate-600">คนขับ: {deductionTarget.driverName}</div>
+                <div className="text-slate-600">คนขับ: {deductionTarget.driverName || '-'}</div>
                 <div className="flex items-center justify-between pt-1.5 border-t border-slate-200 mt-1.5">
                   <span className="text-slate-500">ยอดคงเหลือปัจจุบัน:</span>
                   <span className="font-bold text-[#0F172A]">
@@ -1615,7 +1627,7 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
                     type="text"
                     value={dMonthYear}
                     onChange={(e) => setDMonthYear(e.target.value)}
-                    placeholder="07/2026"
+                    placeholder="11/2026"
                     className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-[#1D4ED8] tabular-nums"
                     required
                   />
@@ -1658,7 +1670,8 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
                     onClick={() => setDAmount(String(deductionTarget.remainingAmount))}
                     className="text-xs font-semibold text-[#1D4ED8] hover:underline cursor-pointer tabular-nums"
                   >
-                    ใช้ยอดคงเหลือสุดท้ายเพื่อให้ครบเป้าพอดี ({formatCurrencyTHB(deductionTarget.remainingAmount)})
+                    ใช้ยอดคงเหลือสุดท้ายเพื่อให้ครบเป้าพอดี (
+                    {formatCurrencyTHB(deductionTarget.remainingAmount)})
                   </button>
                 )}
 
@@ -1674,9 +1687,7 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
               )}
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  หมายเหตุ
-                </label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">หมายเหตุ</label>
                 <input
                   type="text"
                   value={dNotes}
@@ -1733,7 +1744,7 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
                 <div className="font-extrabold text-sm text-[#0F172A]">
                   {withdrawalTarget.licensePlate} ({withdrawalTarget.vehicleId})
                 </div>
-                <div className="text-slate-600">คนขับ: {withdrawalTarget.driverName}</div>
+                <div className="text-slate-600">คนขับ: {withdrawalTarget.driverName || '-'}</div>
                 <div className="flex items-center justify-between pt-1.5 border-t border-slate-200 mt-1.5">
                   <span className="text-slate-500">ยอดเงินประกันที่เบิกได้สูงสุด:</span>
                   <span className="font-extrabold text-[#1D4ED8] text-sm">
@@ -1802,7 +1813,6 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
                 />
               </div>
 
-              {/* Live balance & shortfall preview */}
               {withdrawalAmountNum > 0 && (
                 <div
                   className={`p-3 rounded-lg border text-xs space-y-1 tabular-nums ${
@@ -1929,7 +1939,7 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
                 onClick={handleConfirmDeleteAction}
                 className="px-3.5 py-2 text-xs sm:text-sm font-bold text-white bg-[#DC2626] hover:bg-red-700 rounded-lg cursor-pointer"
               >
-                ยืนยันลบข้อมูล
+                ยืนยันดำเนินการ
               </button>
             </div>
           </div>

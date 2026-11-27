@@ -494,6 +494,14 @@ export const FleetManagementView: React.FC<FleetManagementViewProps> = React.mem
         photoUrls: Array.isArray(formData.photoUrls) ? formData.photoUrls.slice(0, 4) : [],
         notes: String(formData.notes || '').trim(),
         updatedAt: new Date().toISOString(),
+        // คงค่าตั้งค่ากองทุนเงินประกันเดิมไว้เสมอไม่ให้ถูกเขียนทับเมื่อแก้ข้อมูลรถ
+        depositEnabled: editingVehicle?.depositEnabled,
+        depositCode: editingVehicle?.depositCode,
+        depositStartDate: editingVehicle?.depositStartDate,
+        depositMonthlyDeduction: editingVehicle?.depositMonthlyDeduction,
+        depositTargetAmount: editingVehicle?.depositTargetAmount,
+        depositStatus: editingVehicle?.depositStatus,
+        depositNotes: editingVehicle?.depositNotes,
         syncedToSheets: editingVehicle?.syncedToSheets,
         sheetsRowIndex: editingVehicle?.sheetsRowIndex,
       };
@@ -1124,7 +1132,7 @@ export const FleetManagementView: React.FC<FleetManagementViewProps> = React.mem
                   {/* Card Top */}
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-base font-extrabold text-[#0F172A]">
                           {v.plateNumber}
                         </span>
@@ -1135,6 +1143,14 @@ export const FleetManagementView: React.FC<FleetManagementViewProps> = React.mem
                         >
                           {v.ownershipType === 'company' ? 'รถบริษัท' : 'รถร่วม'}
                         </span>
+                        {v.depositEnabled && v.depositCode && (
+                          <span
+                            title={`เปิดบัญชีเงินประกันแล้ว (${v.depositStatus || 'กำลังหักเงิน'})`}
+                            className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-[#15803D] border border-emerald-200"
+                          >
+                            ประกัน {v.depositCode}
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs font-semibold text-slate-700 mt-0.5 truncate">
                         {[v.brand, v.model].filter(Boolean).join(' ') || '-'}
@@ -1666,31 +1682,35 @@ export const FleetManagementView: React.FC<FleetManagementViewProps> = React.mem
 
                   {formData.photoUrls && formData.photoUrls.length > 0 && (
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
-                      {formData.photoUrls.map((url, idx) => (
-                        <div
-                          key={`${url}-${idx}`}
-                          className="relative group rounded-xl overflow-hidden border border-slate-200 bg-[#FFFFFF] aspect-[4/3]"
-                        >
-                          <img
-                            src={getDriveImageDisplayUrl(url, 320)}
-                            alt={`เอกสารรถ ${idx + 1}`}
-                            className="w-full h-full object-cover"
-                          />
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setFormData((prev) => ({
-                                ...prev,
-                                photoUrls: (prev.photoUrls || []).filter((_, i) => i !== idx),
-                              }))
-                            }
-                            title="ลบรูปนี้"
-                            className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-[#0F172A]/80 text-white flex items-center justify-center hover:bg-[#DC2626] cursor-pointer"
+                      {formData.photoUrls.map((url, idx) => {
+                        const displayUrl = getDriveImageDisplayUrl(url, 320);
+                        if (!displayUrl) return null;
+                        return (
+                          <div
+                            key={`${url}-${idx}`}
+                            className="relative group rounded-xl overflow-hidden border border-slate-200 bg-[#FFFFFF] aspect-[4/3]"
                           >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ))}
+                            <img
+                              src={displayUrl}
+                              alt={`เอกสารรถ ${idx + 1}`}
+                              className="w-full h-full object-cover"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  photoUrls: (prev.photoUrls || []).filter((_, i) => i !== idx),
+                                }))
+                              }
+                              title="ลบรูปนี้"
+                              className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-[#0F172A]/80 text-white flex items-center justify-center hover:bg-[#DC2626] cursor-pointer"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -2062,25 +2082,29 @@ export const FleetManagementView: React.FC<FleetManagementViewProps> = React.mem
                 <div className="space-y-2">
                   <div className="font-bold text-[#0F172A]">รูปภาพรถ &amp; เอกสารแนบ (Google Drive)</div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                    {detailVehicle.photoUrls.map((url, idx) => (
-                      <a
-                        key={`${url}-${idx}`}
-                        href={getDriveViewUrl(url)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="group relative rounded-xl overflow-hidden border border-slate-200 aspect-[4/3] block bg-[#F1F5F9]"
-                      >
-                        <img
-                          src={getDriveImageDisplayUrl(url, 360)}
-                          alt={`เอกสาร ${idx + 1}`}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                        />
-                        <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-[#0F172A]/80 text-white text-[10px] inline-flex items-center gap-1">
-                          <ExternalLink className="w-2.5 h-2.5" />
-                          เปิดดู
-                        </span>
-                      </a>
-                    ))}
+                    {detailVehicle.photoUrls.map((url, idx) => {
+                      const displayUrl = getDriveImageDisplayUrl(url, 360);
+                      if (!displayUrl) return null;
+                      return (
+                        <a
+                          key={`${url}-${idx}`}
+                          href={getDriveViewUrl(url) || displayUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group relative rounded-xl overflow-hidden border border-slate-200 aspect-[4/3] block bg-[#F1F5F9]"
+                        >
+                          <img
+                            src={displayUrl}
+                            alt={`เอกสาร ${idx + 1}`}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                          />
+                          <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-[#0F172A]/80 text-white text-[10px] inline-flex items-center gap-1">
+                            <ExternalLink className="w-2.5 h-2.5" />
+                            เปิดดู
+                          </span>
+                        </a>
+                      );
+                    })}
                   </div>
                 </div>
               )}

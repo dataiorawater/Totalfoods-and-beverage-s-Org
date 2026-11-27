@@ -408,9 +408,9 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                     }`}
                   >
                     <div className="flex items-start gap-3">
-                      {user.avatar ? (
+                      {user.avatar?.trim() ? (
                         <img
-                          src={user.avatar}
+                          src={user.avatar.trim()}
                           alt={user.name}
                           loading="lazy"
                           decoding="async"

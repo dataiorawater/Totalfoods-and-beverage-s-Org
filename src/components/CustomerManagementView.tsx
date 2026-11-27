@@ -905,74 +905,88 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
                     {/* Main Compact Row: Photo on Left + Store Details on Right */}
                     <div className="flex items-start gap-3">
                       {/* Left: Storefront Photo Preview / Mini-Gallery */}
-                      <div className="w-20 sm:w-24 shrink-0 flex flex-col gap-1">
-                        {primaryPhoto ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setViewingGallery({
-                                storeName: cust.name || 'ร้านค้า',
-                                photos: custPhotos,
-                                index: 0,
-                              })
-                            }
-                            title="แตะเพื่อดูรูปหน้าร้านค้าขนาดใหญ่"
-                            className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 hover:border-blue-400 hover:ring-2 hover:ring-blue-500/20 transition-all cursor-pointer block"
-                          >
-                            <img
-                              src={getDriveImageDisplayUrl(primaryPhoto, 400)}
-                              onError={(e) => handlePhotoImgError(e, primaryPhoto, 400)}
-                              alt={`${cust.name} รูปหน้าร้าน`}
-                              loading="lazy"
-                              decoding="async"
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                            />
-                            {custPhotos.length > 1 && (
-                              <span className="absolute bottom-1 right-1 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-slate-900/75 text-white text-[10px] font-bold backdrop-blur-[1px]">
-                                <Camera className="w-2.5 h-2.5" />
-                                <span>{custPhotos.length}</span>
-                              </span>
-                            )}
-                          </button>
-                        ) : (
-                          <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl border border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-1 px-1.5 text-center text-slate-400 select-none">
-                            <ImageIcon className="w-5 h-5 text-slate-300 shrink-0" />
-                            <span className="text-[10px] font-medium leading-tight">
-                              ยังไม่มีรูปร้านค้า
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Extra Photos (2nd & 3rd) Mini Strip directly below main photo */}
-                        {extraPhotos.length > 0 && (
-                          <div className="grid grid-cols-2 gap-1">
-                            {extraPhotos.map((pUrl, extraIdx) => (
+                      {(() => {
+                        const primaryPhotoUrl = primaryPhoto
+                          ? getDriveImageDisplayUrl(primaryPhoto, 400)
+                          : '';
+                        const validExtraPhotos = extraPhotos
+                          .map((pUrl, extraIdx) => ({
+                            raw: pUrl,
+                            display: getDriveImageDisplayUrl(pUrl, 240),
+                            extraIdx,
+                          }))
+                          .filter((item) => Boolean(item.display));
+                        return (
+                          <div className="w-20 sm:w-24 shrink-0 flex flex-col gap-1">
+                            {primaryPhotoUrl ? (
                               <button
-                                key={`${cust.id || idx}-extra-${extraIdx}`}
                                 type="button"
                                 onClick={() =>
                                   setViewingGallery({
                                     storeName: cust.name || 'ร้านค้า',
-                                    photos: custPhotos,
-                                    index: extraIdx + 1,
+                                    photos: custPhotos.filter((p) => Boolean(getDriveImageDisplayUrl(p, 400))),
+                                    index: 0,
                                   })
                                 }
-                                title={`ดูรูปหน้าร้านที่ ${extraIdx + 2}`}
-                                className="relative h-8 sm:h-9 w-full rounded-lg overflow-hidden border border-slate-200 bg-slate-100 hover:border-blue-400 transition-all cursor-pointer"
+                                title="แตะเพื่อดูรูปหน้าร้านค้าขนาดใหญ่"
+                                className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 hover:border-blue-400 hover:ring-2 hover:ring-blue-500/20 transition-all cursor-pointer block"
                               >
                                 <img
-                                  src={getDriveImageDisplayUrl(pUrl, 240)}
-                                  onError={(e) => handlePhotoImgError(e, pUrl, 240)}
-                                  alt={`${cust.name} รูปที่ ${extraIdx + 2}`}
+                                  src={primaryPhotoUrl}
+                                  onError={(e) => handlePhotoImgError(e, primaryPhoto!, 400)}
+                                  alt={`${cust.name} รูปหน้าร้าน`}
                                   loading="lazy"
                                   decoding="async"
-                                  className="w-full h-full object-cover"
+                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                                 />
+                                {custPhotos.length > 1 && (
+                                  <span className="absolute bottom-1 right-1 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-slate-900/75 text-white text-[10px] font-bold backdrop-blur-[1px]">
+                                    <Camera className="w-2.5 h-2.5" />
+                                    <span>{custPhotos.length}</span>
+                                  </span>
+                                )}
                               </button>
-                            ))}
+                            ) : (
+                              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl border border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-1 px-1.5 text-center text-slate-400 select-none">
+                                <ImageIcon className="w-5 h-5 text-slate-300 shrink-0" />
+                                <span className="text-[10px] font-medium leading-tight">
+                                  ยังไม่มีรูปร้านค้า
+                                </span>
+                              </div>
+                            )}
+
+                            {/* Extra Photos (2nd & 3rd) Mini Strip directly below main photo */}
+                            {validExtraPhotos.length > 0 && (
+                              <div className="grid grid-cols-2 gap-1">
+                                {validExtraPhotos.map(({ raw: pUrl, display, extraIdx }) => (
+                                  <button
+                                    key={`${cust.id || idx}-extra-${extraIdx}`}
+                                    type="button"
+                                    onClick={() =>
+                                      setViewingGallery({
+                                        storeName: cust.name || 'ร้านค้า',
+                                        photos: custPhotos.filter((p) => Boolean(getDriveImageDisplayUrl(p, 400))),
+                                        index: extraIdx + 1,
+                                      })
+                                    }
+                                    title={`ดูรูปหน้าร้านที่ ${extraIdx + 2}`}
+                                    className="relative h-8 sm:h-9 w-full rounded-lg overflow-hidden border border-slate-200 bg-slate-100 hover:border-blue-400 transition-all cursor-pointer"
+                                  >
+                                    <img
+                                      src={display}
+                                      onError={(e) => handlePhotoImgError(e, pUrl, 240)}
+                                      alt={`${cust.name} รูปที่ ${extraIdx + 2}`}
+                                      loading="lazy"
+                                      decoding="async"
+                                      className="w-full h-full object-cover"
+                                    />
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
+                        );
+                      })()}
 
                       {/* Right: Store Info & Top-Right Edit Button */}
                       <div className="min-w-0 flex-1 space-y-1.5">
@@ -1366,13 +1380,17 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
 
               {/* Active Photo Viewer */}
               <div className="relative flex-1 bg-black flex items-center justify-center min-h-[260px] max-h-[65vh] overflow-hidden">
-                <img
-                  key={activePhoto}
-                  src={getDriveImageDisplayUrl(activePhoto, 1400)}
-                  onError={(e) => handlePhotoImgError(e, activePhoto, 1400)}
-                  alt={`${viewingGallery.storeName} รูปที่ ${viewingGallery.index + 1}`}
-                  className="w-full h-full object-contain max-h-[65vh]"
-                />
+                {getDriveImageDisplayUrl(activePhoto, 1400) ? (
+                  <img
+                    key={activePhoto}
+                    src={getDriveImageDisplayUrl(activePhoto, 1400)}
+                    onError={(e) => handlePhotoImgError(e, activePhoto, 1400)}
+                    alt={`${viewingGallery.storeName} รูปที่ ${viewingGallery.index + 1}`}
+                    className="w-full h-full object-contain max-h-[65vh]"
+                  />
+                ) : (
+                  <div className="text-slate-400 text-xs p-6">ไม่สามารถแสดงรูปภาพนี้ได้</div>
+                )}
 
                 {totalPhotos > 1 && (
                   <>
@@ -1412,27 +1430,31 @@ export const CustomerManagementView: React.FC<CustomerManagementViewProps> = ({
               {/* Footer: Thumbnail Switcher (when multiple photos) */}
               {totalPhotos > 1 && (
                 <div className="p-3 bg-slate-950/95 border-t border-white/10 flex items-center justify-center gap-2">
-                  {viewingGallery.photos.map((pUrl, pIdx) => (
-                    <button
-                      key={`lb-thumb-${pIdx}`}
-                      type="button"
-                      onClick={() =>
-                        setViewingGallery((prev) => (prev ? { ...prev, index: pIdx } : null))
-                      }
-                      className={`w-11 h-11 rounded-lg overflow-hidden border-2 transition-all cursor-pointer ${
-                        pIdx === viewingGallery.index
-                          ? 'border-blue-400 ring-2 ring-blue-400/40'
-                          : 'border-white/15 opacity-60 hover:opacity-100'
-                      }`}
-                    >
-                      <img
-                        src={getDriveImageDisplayUrl(pUrl, 200)}
-                        onError={(e) => handlePhotoImgError(e, pUrl, 200)}
-                        alt={`รูปย่อที่ ${pIdx + 1}`}
-                        className="w-full h-full object-cover"
-                      />
-                    </button>
-                  ))}
+                  {viewingGallery.photos.map((pUrl, pIdx) => {
+                    const thumbSrc = getDriveImageDisplayUrl(pUrl, 200);
+                    if (!thumbSrc) return null;
+                    return (
+                      <button
+                        key={`lb-thumb-${pIdx}`}
+                        type="button"
+                        onClick={() =>
+                          setViewingGallery((prev) => (prev ? { ...prev, index: pIdx } : null))
+                        }
+                        className={`w-11 h-11 rounded-lg overflow-hidden border-2 transition-all cursor-pointer ${
+                          pIdx === viewingGallery.index
+                            ? 'border-blue-400 ring-2 ring-blue-400/40'
+                            : 'border-white/15 opacity-60 hover:opacity-100'
+                        }`}
+                      >
+                        <img
+                          src={thumbSrc}
+                          onError={(e) => handlePhotoImgError(e, pUrl, 200)}
+                          alt={`รูปย่อที่ ${pIdx + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>

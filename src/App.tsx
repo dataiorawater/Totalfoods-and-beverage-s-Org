@@ -20,6 +20,7 @@ import {
   PartnerDepositVehicle,
   PartnerDepositDeduction,
   PartnerDepositWithdrawal,
+  PartnerDepositStatus,
 } from './types';
 import {
   INITIAL_ORDERS,
@@ -86,9 +87,7 @@ import {
   deleteDailyRouteScheduleFromSheet,
   appendRouteScheduleHistoryToSheet,
   fetchPartnerDepositDataFromSheet,
-  appendPartnerDepositVehicleToSheet,
-  updatePartnerDepositVehicleInSheet,
-  deletePartnerDepositVehicleFromSheet,
+  deletePartnerDepositHistoryForVehicleFromSheet,
   appendPartnerDepositDeductionToSheet,
   deletePartnerDepositDeductionFromSheet,
   appendPartnerDepositWithdrawalToSheet,
@@ -110,26 +109,63 @@ import { TotalEmblem } from './components/TotalLogo';
 import { LoginScreen } from './components/LoginScreen';
 import { ConfirmModal } from './components/ConfirmModal';
 
+// Resilient lazy loader: retries once on transient network/Vite dep re-opt error,
+// and reloads the page once (guarded by sessionStorage) if a stale chunk hash fails to load.
+const lazyWithRetry = <T extends React.ComponentType<any>>(
+  importer: () => Promise<{ default: T }>,
+  chunkName: string
+) =>
+  lazy(async () => {
+    try {
+      const mod = await importer();
+      try {
+        sessionStorage.removeItem(`iora_chunk_retry_${chunkName}`);
+      } catch {
+        // ignore storage errors
+      }
+      return mod;
+    } catch (firstErr) {
+      await new Promise((r) => setTimeout(r, 350));
+      try {
+        return await importer();
+      } catch (secondErr) {
+        const key = `iora_chunk_retry_${chunkName}`;
+        let alreadyRetried = false;
+        try {
+          alreadyRetried = sessionStorage.getItem(key) === '1';
+          if (!alreadyRetried) sessionStorage.setItem(key, '1');
+        } catch {
+          // ignore storage errors
+        }
+        if (!alreadyRetried && typeof window !== 'undefined') {
+          window.location.reload();
+          return new Promise<{ default: T }>(() => {});
+        }
+        throw secondErr;
+      }
+    }
+  });
+
 // Lazy-Loaded Views & Modals (code-split into separate chunks)
-const OrderList = lazy(() => import('./components/OrderList').then((m) => ({ default: m.OrderList })));
-const DashboardView = lazy(() => import('./components/DashboardView').then((m) => ({ default: m.DashboardView })));
-const CustomerManagementView = lazy(() => import('./components/CustomerManagementView').then((m) => ({ default: m.CustomerManagementView })));
-const StoreCheckInView = lazy(() => import('./components/StoreCheckInView').then((m) => ({ default: m.StoreCheckInView })));
-const ExpenseManagementView = lazy(() => import('./components/ExpenseManagementView').then((m) => ({ default: m.ExpenseManagementView })));
-const NewCustomerModal = lazy(() => import('./components/NewCustomerModal').then((m) => ({ default: m.NewCustomerModal })));
-const RouteManagementView = lazy(() => import('./components/RouteManagementView').then((m) => ({ default: m.RouteManagementView })));
-const OrderFormModal = lazy(() => import('./components/OrderFormModal').then((m) => ({ default: m.OrderFormModal })));
-const OrderDetailModal = lazy(() => import('./components/OrderDetailModal').then((m) => ({ default: m.OrderDetailModal })));
-const ExportReportView = lazy(() => import('./components/ExportReportView').then((m) => ({ default: m.ExportReportView })));
-const SettingsModal = lazy(() => import('./components/SettingsModal').then((m) => ({ default: m.SettingsModal })));
-const RoleSwitcherModal = lazy(() => import('./components/RoleSwitcherModal').then((m) => ({ default: m.RoleSwitcherModal })));
-const UserManagementView = lazy(() => import('./components/UserManagementView').then((m) => ({ default: m.UserManagementView })));
-const LogisticsDashboardView = lazy(() => import('./components/LogisticsDashboardView').then((m) => ({ default: m.LogisticsDashboardView })));
-const LogisticsManagementView = lazy(() => import('./components/LogisticsManagementView').then((m) => ({ default: m.LogisticsManagementView })));
-const DepositManagementView = lazy(() => import('./components/DepositManagementView').then((m) => ({ default: m.DepositManagementView })));
-const HiredVehicleExpensesView = lazy(() => import('./components/HiredVehicleExpensesView').then((m) => ({ default: m.HiredVehicleExpensesView })));
-const FleetManagementView = lazy(() => import('./components/FleetManagementView').then((m) => ({ default: m.FleetManagementView })));
-const VehicleMaintenanceView = lazy(() => import('./components/VehicleMaintenanceView').then((m) => ({ default: m.VehicleMaintenanceView })));
+const OrderList = lazyWithRetry(() => import('./components/OrderList').then((m) => ({ default: m.OrderList })), 'OrderList');
+const DashboardView = lazyWithRetry(() => import('./components/DashboardView').then((m) => ({ default: m.DashboardView })), 'DashboardView');
+const CustomerManagementView = lazyWithRetry(() => import('./components/CustomerManagementView').then((m) => ({ default: m.CustomerManagementView })), 'CustomerManagementView');
+const StoreCheckInView = lazyWithRetry(() => import('./components/StoreCheckInView').then((m) => ({ default: m.StoreCheckInView })), 'StoreCheckInView');
+const ExpenseManagementView = lazyWithRetry(() => import('./components/ExpenseManagementView').then((m) => ({ default: m.ExpenseManagementView })), 'ExpenseManagementView');
+const NewCustomerModal = lazyWithRetry(() => import('./components/NewCustomerModal').then((m) => ({ default: m.NewCustomerModal })), 'NewCustomerModal');
+const RouteManagementView = lazyWithRetry(() => import('./components/RouteManagementView').then((m) => ({ default: m.RouteManagementView })), 'RouteManagementView');
+const OrderFormModal = lazyWithRetry(() => import('./components/OrderFormModal').then((m) => ({ default: m.OrderFormModal })), 'OrderFormModal');
+const OrderDetailModal = lazyWithRetry(() => import('./components/OrderDetailModal').then((m) => ({ default: m.OrderDetailModal })), 'OrderDetailModal');
+const ExportReportView = lazyWithRetry(() => import('./components/ExportReportView').then((m) => ({ default: m.ExportReportView })), 'ExportReportView');
+const SettingsModal = lazyWithRetry(() => import('./components/SettingsModal').then((m) => ({ default: m.SettingsModal })), 'SettingsModal');
+const RoleSwitcherModal = lazyWithRetry(() => import('./components/RoleSwitcherModal').then((m) => ({ default: m.RoleSwitcherModal })), 'RoleSwitcherModal');
+const UserManagementView = lazyWithRetry(() => import('./components/UserManagementView').then((m) => ({ default: m.UserManagementView })), 'UserManagementView');
+const LogisticsDashboardView = lazyWithRetry(() => import('./components/LogisticsDashboardView').then((m) => ({ default: m.LogisticsDashboardView })), 'LogisticsDashboardView');
+const LogisticsManagementView = lazyWithRetry(() => import('./components/LogisticsManagementView').then((m) => ({ default: m.LogisticsManagementView })), 'LogisticsManagementView');
+const DepositManagementView = lazyWithRetry(() => import('./components/DepositManagementView').then((m) => ({ default: m.DepositManagementView })), 'DepositManagementView');
+const HiredVehicleExpensesView = lazyWithRetry(() => import('./components/HiredVehicleExpensesView').then((m) => ({ default: m.HiredVehicleExpensesView })), 'HiredVehicleExpensesView');
+const FleetManagementView = lazyWithRetry(() => import('./components/FleetManagementView').then((m) => ({ default: m.FleetManagementView })), 'FleetManagementView');
+const VehicleMaintenanceView = lazyWithRetry(() => import('./components/VehicleMaintenanceView').then((m) => ({ default: m.VehicleMaintenanceView })), 'VehicleMaintenanceView');
 
 import {
   CheckCircle2,
@@ -554,17 +590,6 @@ export default function App() {
     return [];
   });
 
-  const [partnerDepositVehicles, setPartnerDepositVehicles] = useState<PartnerDepositVehicle[]>(() => {
-    const saved = localStorage.getItem('iora_partner_deposit_vehicles');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      } catch (e) {}
-    }
-    return [];
-  });
-
   const [partnerDepositDeductions, setPartnerDepositDeductions] = useState<PartnerDepositDeduction[]>(() => {
     const saved = localStorage.getItem('iora_partner_deposit_deductions');
     if (saved) {
@@ -814,11 +839,6 @@ export default function App() {
 
   useEffect(() => {
     if (!hasMountedRef.current) return;
-    scheduleStorageSave('iora_partner_deposit_vehicles', partnerDepositVehicles);
-  }, [partnerDepositVehicles]);
-
-  useEffect(() => {
-    if (!hasMountedRef.current) return;
     scheduleStorageSave('iora_partner_deposit_deductions', partnerDepositDeductions);
   }, [partnerDepositDeductions]);
 
@@ -1042,7 +1062,6 @@ export default function App() {
       let sheetFleetVehicles: FleetVehicle[] | null = null;
       let sheetDailySchedules: Record<string, DailyRouteSchedule> | null = null;
       let sheetRouteHistory: RouteScheduleHistoryEntry[] | null = null;
-      let sheetPartnerDepositVehicles: PartnerDepositVehicle[] | null = null;
       let sheetPartnerDepositDeductions: PartnerDepositDeduction[] | null = null;
       let sheetPartnerDepositWithdrawals: PartnerDepositWithdrawal[] | null = null;
 
@@ -1065,9 +1084,6 @@ export default function App() {
           }
           if (Array.isArray((bulkData as any).routeScheduleHistory)) {
             sheetRouteHistory = (bulkData as any).routeScheduleHistory;
-          }
-          if (Array.isArray((bulkData as any).partnerDepositVehicles)) {
-            sheetPartnerDepositVehicles = (bulkData as any).partnerDepositVehicles;
           }
           if (Array.isArray((bulkData as any).partnerDepositDeductions)) {
             sheetPartnerDepositDeductions = (bulkData as any).partnerDepositDeductions;
@@ -1099,7 +1115,7 @@ export default function App() {
       const needsRouteHistory = !sheetRouteHistory;
       const needsPartnerDeposits =
         !isSalesOnly &&
-        (!sheetPartnerDepositVehicles || !sheetPartnerDepositDeductions || !sheetPartnerDepositWithdrawals);
+        (!sheetPartnerDepositDeductions || !sheetPartnerDepositWithdrawals);
 
       const [
         ordersRes,
@@ -1133,7 +1149,7 @@ export default function App() {
         needsPartnerDeposits
           ? fetchPartnerDepositDataFromSheet(sheetsConfig.spreadsheetId)
           : Promise.resolve({
-              vehicles: sheetPartnerDepositVehicles || [],
+              vehicles: [],
               deductions: sheetPartnerDepositDeductions || [],
               withdrawals: sheetPartnerDepositWithdrawals || [],
             }),
@@ -1191,9 +1207,6 @@ export default function App() {
         setRouteScheduleHistory(routeHistoryRes.value);
       }
       if (partnerDepositsRes.status === 'fulfilled' && partnerDepositsRes.value) {
-        if (Array.isArray(partnerDepositsRes.value.vehicles)) {
-          setPartnerDepositVehicles(partnerDepositsRes.value.vehicles);
-        }
         if (Array.isArray(partnerDepositsRes.value.deductions)) {
           setPartnerDepositDeductions(partnerDepositsRes.value.deductions);
         }
@@ -1794,7 +1807,6 @@ export default function App() {
           setDeposits(fetchedDeposits.value);
         }
         if (fetchedPartnerDeposits.status === 'fulfilled' && fetchedPartnerDeposits.value) {
-          setPartnerDepositVehicles(fetchedPartnerDeposits.value.vehicles || []);
           setPartnerDepositDeductions(fetchedPartnerDeposits.value.deductions || []);
           setPartnerDepositWithdrawals(fetchedPartnerDeposits.value.withdrawals || []);
         }
@@ -2282,73 +2294,146 @@ export default function App() {
     ).length;
   }, [orders]);
 
+  // Derive Partner Deposit Vehicles directly from FleetVehicles (Single Source of Truth)
+  const partnerDepositVehicles = useMemo<PartnerDepositVehicle[]>(() => {
+    return fleetVehicles
+      .filter((fv) => fv.depositEnabled || Boolean(fv.depositCode))
+      .map((fv) => ({
+        vehicleId: fv.depositCode || fv.id,
+        licensePlate: fv.province ? `${fv.plateNumber} ${fv.province}`.trim() : fv.plateNumber,
+        driverName: fv.driverName || '',
+        phone: fv.driverPhone || '',
+        startDate: fv.depositStartDate || '',
+        monthlyDeduction: fv.depositMonthlyDeduction ?? 2500,
+        targetAmount: fv.depositTargetAmount ?? 30000,
+        status: fv.depositStatus || 'กำลังหักเงิน',
+        notes: fv.depositNotes || undefined,
+        fleetVehicleId: fv.id,
+        syncedToSheets: fv.syncedToSheets,
+        sheetsRowIndex: fv.sheetsRowIndex,
+      }))
+      .sort((a, b) => a.vehicleId.localeCompare(b.vehicleId, 'en', { numeric: true }));
+  }, [fleetVehicles]);
+
   // Active partner deposit vehicles count for Navbar badge
   const activeDepositsCount = useMemo(() => {
     return partnerDepositVehicles.filter((v) => v.status === 'กำลังหักเงิน').length;
   }, [partnerDepositVehicles]);
 
-  // Partner Vehicle Security Deposit Handlers (3 Google Sheet Tabs)
-  const handleAddPartnerDepositVehicle = async (newVehicle: PartnerDepositVehicle) => {
-    setPartnerDepositVehicles((prev) => [newVehicle, ...prev]);
+  // Partner Vehicle Security Deposit Handlers (Unified onto FleetVehicles + 2 Ledger Tabs)
+  const handleSavePartnerDepositConfig = async (
+    fleetVehicleId: string,
+    config: {
+      depositEnabled: boolean;
+      depositCode: string;
+      depositStartDate: string;
+      depositMonthlyDeduction: number;
+      depositTargetAmount: number;
+      depositStatus: PartnerDepositStatus;
+      depositNotes?: string;
+    },
+    isNewEnrollment: boolean
+  ) => {
+    const existing = fleetVehicles.find((fv) => fv.id === fleetVehicleId);
+    if (!existing) return;
+
+    const updatedFleetVehicle: FleetVehicle = {
+      ...existing,
+      depositEnabled: config.depositEnabled,
+      depositCode: config.depositCode,
+      depositStartDate: config.depositStartDate,
+      depositMonthlyDeduction: config.depositMonthlyDeduction,
+      depositTargetAmount: config.depositTargetAmount,
+      depositStatus: config.depositStatus,
+      depositNotes: config.depositNotes,
+      updatedAt: new Date().toISOString(),
+    };
+
+    setFleetVehicles((prev) =>
+      prev.map((fv) => (fv.id === fleetVehicleId ? updatedFleetVehicle : fv))
+    );
     showToast(
       'success',
-      'ขึ้นทะเบียนรถร่วมสำเร็จ',
-      `เพิ่มรถร่วม ${newVehicle.licensePlate} (${newVehicle.vehicleId}) เข้ากองทุนเงินประกันแล้ว`
+      isNewEnrollment ? 'เปิดบัญชีเงินประกันสำเร็จ' : 'บันทึกเงื่อนไขเงินประกันแล้ว',
+      isNewEnrollment
+        ? `เปิดบัญชีเงินประกัน ${config.depositCode} ให้รถ ${existing.plateNumber} บนฐานข้อมูล FleetVehicles แล้ว`
+        : `อัปเดตเงื่อนไขเงินประกันของรถ ${existing.plateNumber} เรียบร้อยแล้ว`
     );
 
     if (sheetsConfig?.spreadsheetId) {
-      appendPartnerDepositVehicleToSheet(sheetsConfig.spreadsheetId, newVehicle).catch((e) => {
-        console.warn('Append partner deposit vehicle error:', e);
-        showToast('error', 'ซิงก์ชีตไม่สำเร็จ', 'บันทึกในเครื่องแล้ว แต่ไม่สามารถบันทึกลง Google Sheet ได้');
+      updateFleetVehicleInSheet(sheetsConfig.spreadsheetId, updatedFleetVehicle).catch((e) => {
+        console.warn('Update fleet deposit config error:', e);
+        showToast('error', 'ซิงก์ชีตไม่สำเร็จ', 'บันทึกในเครื่องแล้ว แต่ไม่สามารถอัปเดตแท็บ FleetVehicles ได้');
       });
     }
   };
 
-  const handleUpdatePartnerDepositVehicle = async (updatedVehicle: PartnerDepositVehicle) => {
-    setPartnerDepositVehicles((prev) =>
-      prev.map((v) => (v.vehicleId === updatedVehicle.vehicleId ? updatedVehicle : v))
-    );
+  const handleUnenrollPartnerDepositVehicle = async (
+    fleetVehicleId: string,
+    depositCode: string
+  ) => {
+    const existing = fleetVehicles.find((fv) => fv.id === fleetVehicleId);
+    if (existing) {
+      const clearedVehicle: FleetVehicle = {
+        ...existing,
+        depositEnabled: false,
+        depositCode: undefined,
+        depositStartDate: undefined,
+        depositMonthlyDeduction: undefined,
+        depositTargetAmount: undefined,
+        depositStatus: undefined,
+        depositNotes: undefined,
+        updatedAt: new Date().toISOString(),
+      };
+      setFleetVehicles((prev) =>
+        prev.map((fv) => (fv.id === fleetVehicleId ? clearedVehicle : fv))
+      );
+      if (sheetsConfig?.spreadsheetId) {
+        updateFleetVehicleInSheet(sheetsConfig.spreadsheetId, clearedVehicle).catch((e) => {
+          console.warn('Clear fleet deposit fields error:', e);
+        });
+      }
+    }
+
+    setPartnerDepositDeductions((prev) => prev.filter((d) => d.vehicleId !== depositCode));
+    setPartnerDepositWithdrawals((prev) => prev.filter((w) => w.vehicleId !== depositCode));
     showToast(
       'success',
-      'อัปเดตข้อมูลสำเร็จ',
-      `บันทึกการแก้ไขรถร่วม ${updatedVehicle.licensePlate} เรียบร้อยแล้ว`
+      'ถอดออกจากกองทุนแล้ว',
+      `ปิดบัญชีเงินประกัน ${depositCode} แล้ว (ข้อมูลรถยังคงอยู่ในเมนูจัดการรถตามเดิม)`
     );
 
     if (sheetsConfig?.spreadsheetId) {
-      updatePartnerDepositVehicleInSheet(sheetsConfig.spreadsheetId, updatedVehicle).catch((e) => {
-        console.warn('Update partner deposit vehicle error:', e);
-        showToast('error', 'ซิงก์ชีตไม่สำเร็จ', 'อัปเดตในเครื่องแล้ว แต่ไม่สามารถอัปเดต Google Sheet ได้');
-      });
-    }
-  };
-
-  const handleDeletePartnerDepositVehicle = async (vehicleId: string) => {
-    setPartnerDepositVehicles((prev) => prev.filter((v) => v.vehicleId !== vehicleId));
-    setPartnerDepositDeductions((prev) => prev.filter((d) => d.vehicleId !== vehicleId));
-    setPartnerDepositWithdrawals((prev) => prev.filter((w) => w.vehicleId !== vehicleId));
-    showToast('success', 'ลบข้อมูลสำเร็จ', `ลบข้อมูลรถร่วม ${vehicleId} และประวัติที่เกี่ยวข้องเรียบร้อยแล้ว`);
-
-    if (sheetsConfig?.spreadsheetId) {
-      deletePartnerDepositVehicleFromSheet(sheetsConfig.spreadsheetId, vehicleId).catch((e) => {
-        console.warn('Delete partner deposit vehicle error:', e);
+      deletePartnerDepositHistoryForVehicleFromSheet(sheetsConfig.spreadsheetId, depositCode).catch((e) => {
+        console.warn('Delete partner deposit history error:', e);
       });
     }
   };
 
   const handleAddPartnerDepositDeduction = async (
     newDeduction: PartnerDepositDeduction,
-    updatedVehicle?: PartnerDepositVehicle
+    autoStatusUpdate?: { fleetVehicleId: string; status: PartnerDepositStatus }
   ) => {
     setPartnerDepositDeductions((prev) => [newDeduction, ...prev]);
-    if (updatedVehicle) {
-      setPartnerDepositVehicles((prev) =>
-        prev.map((v) => (v.vehicleId === updatedVehicle.vehicleId ? updatedVehicle : v))
-      );
-      showToast(
-        'success',
-        'สะสมเงินประกันครบเป้าหมายแล้ว!',
-        `บันทึกหักสะสม ${newDeduction.deductionId} (฿${newDeduction.amount.toLocaleString()}) และปรับสถานะ ${updatedVehicle.licensePlate} เป็น "ครบกำหนดหักแล้ว" อัตโนมัติ`
-      );
+    let updatedFleetForSheet: FleetVehicle | null = null;
+
+    if (autoStatusUpdate) {
+      const existing = fleetVehicles.find((fv) => fv.id === autoStatusUpdate.fleetVehicleId);
+      if (existing) {
+        updatedFleetForSheet = {
+          ...existing,
+          depositStatus: autoStatusUpdate.status,
+          updatedAt: new Date().toISOString(),
+        };
+        setFleetVehicles((prev) =>
+          prev.map((fv) => (fv.id === autoStatusUpdate.fleetVehicleId ? updatedFleetForSheet! : fv))
+        );
+        showToast(
+          'success',
+          'สะสมเงินประกันครบเป้าหมายแล้ว!',
+          `บันทึกหักสะสม ${newDeduction.deductionId} (฿${newDeduction.amount.toLocaleString()}) และปรับสถานะ ${existing.plateNumber} เป็น "${autoStatusUpdate.status}" อัตโนมัติ`
+        );
+      }
     } else {
       showToast(
         'success',
@@ -2361,9 +2446,9 @@ export default function App() {
       appendPartnerDepositDeductionToSheet(sheetsConfig.spreadsheetId, newDeduction).catch((e) => {
         console.warn('Append partner deposit deduction error:', e);
       });
-      if (updatedVehicle) {
-        updatePartnerDepositVehicleInSheet(sheetsConfig.spreadsheetId, updatedVehicle).catch((e) => {
-          console.warn('Auto-update partner deposit vehicle status error:', e);
+      if (updatedFleetForSheet) {
+        updateFleetVehicleInSheet(sheetsConfig.spreadsheetId, updatedFleetForSheet).catch((e) => {
+          console.warn('Auto-update fleet deposit status error:', e);
         });
       }
     }
@@ -2382,18 +2467,28 @@ export default function App() {
 
   const handleAddPartnerDepositWithdrawal = async (
     newWithdrawal: PartnerDepositWithdrawal,
-    updatedVehicle?: PartnerDepositVehicle
+    autoStatusUpdate?: { fleetVehicleId: string; status: PartnerDepositStatus }
   ) => {
     setPartnerDepositWithdrawals((prev) => [newWithdrawal, ...prev]);
-    if (updatedVehicle) {
-      setPartnerDepositVehicles((prev) =>
-        prev.map((v) => (v.vehicleId === updatedVehicle.vehicleId ? updatedVehicle : v))
-      );
-      showToast(
-        'info',
-        'บันทึกการเบิกจ่ายและปรับสถานะแล้ว',
-        `เบิกเงินประกัน ${newWithdrawal.withdrawalId} จำนวน ฿${newWithdrawal.amount.toLocaleString()} และปรับสถานะ ${updatedVehicle.licensePlate} กลับเป็น "กำลังหักเงิน" อัตโนมัติ`
-      );
+    let updatedFleetForSheet: FleetVehicle | null = null;
+
+    if (autoStatusUpdate) {
+      const existing = fleetVehicles.find((fv) => fv.id === autoStatusUpdate.fleetVehicleId);
+      if (existing) {
+        updatedFleetForSheet = {
+          ...existing,
+          depositStatus: autoStatusUpdate.status,
+          updatedAt: new Date().toISOString(),
+        };
+        setFleetVehicles((prev) =>
+          prev.map((fv) => (fv.id === autoStatusUpdate.fleetVehicleId ? updatedFleetForSheet! : fv))
+        );
+        showToast(
+          'info',
+          'บันทึกการเบิกจ่ายและปรับสถานะแล้ว',
+          `เบิกเงินประกัน ${newWithdrawal.withdrawalId} จำนวน ฿${newWithdrawal.amount.toLocaleString()} และปรับสถานะ ${existing.plateNumber} กลับเป็น "${autoStatusUpdate.status}" อัตโนมัติ`
+        );
+      }
     } else {
       showToast(
         'success',
@@ -2406,9 +2501,9 @@ export default function App() {
       appendPartnerDepositWithdrawalToSheet(sheetsConfig.spreadsheetId, newWithdrawal).catch((e) => {
         console.warn('Append partner deposit withdrawal error:', e);
       });
-      if (updatedVehicle) {
-        updatePartnerDepositVehicleInSheet(sheetsConfig.spreadsheetId, updatedVehicle).catch((e) => {
-          console.warn('Auto-resume partner deposit vehicle status error:', e);
+      if (updatedFleetForSheet) {
+        updateFleetVehicleInSheet(sheetsConfig.spreadsheetId, updatedFleetForSheet).catch((e) => {
+          console.warn('Auto-resume fleet deposit status error:', e);
         });
       }
     }
@@ -2640,7 +2735,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FFFFFF] text-[#0F172A] font-sans flex flex-col lg:flex-row selection:bg-[#1D4ED8] selection:text-white pb-20 lg:pb-0">
+    <div className="min-h-screen bg-[#F1F5F9] text-[#0F172A] font-sans flex flex-col lg:flex-row selection:bg-[#1D4ED8] selection:text-white pb-20 lg:pb-0">
       {/* Toast Notification Alert */}
       {toast && (
         <div
@@ -2888,9 +2983,9 @@ export default function App() {
               sheetsConnected={!!sheetsConfig?.spreadsheetId}
               isSyncing={isLoadingData}
               onRefresh={handleRefreshFromSheets}
-              onAddVehicle={handleAddPartnerDepositVehicle}
-              onUpdateVehicle={handleUpdatePartnerDepositVehicle}
-              onDeleteVehicle={handleDeletePartnerDepositVehicle}
+              onNavigateToFleet={() => setActiveTab('fleet_vehicles')}
+              onSaveDepositConfig={handleSavePartnerDepositConfig}
+              onUnenrollVehicleDeposit={handleUnenrollPartnerDepositVehicle}
               onAddDeduction={handleAddPartnerDepositDeduction}
               onDeleteDeduction={handleDeletePartnerDepositDeduction}
               onAddWithdrawal={handleAddPartnerDepositWithdrawal}
@@ -3133,7 +3228,8 @@ export default function App() {
 
               {/* Saved Store Summary */}
               <div className="mt-4 p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-3 text-left">
-                {savedCustomerSuccessPopup.customer.photoUrls?.[0] ? (
+                {savedCustomerSuccessPopup.customer.photoUrls?.[0] &&
+                getDriveImageDisplayUrl(savedCustomerSuccessPopup.customer.photoUrls[0], 200) ? (
                   <img
                     src={getDriveImageDisplayUrl(savedCustomerSuccessPopup.customer.photoUrls[0], 200)}
                     alt={savedCustomerSuccessPopup.customer.name}

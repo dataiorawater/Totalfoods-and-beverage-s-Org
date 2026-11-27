@@ -88,6 +88,13 @@ export const FLEET_VEHICLES_HEADERS = [
   'photoUrls',
   'notes',
   'updatedAt',
+  'depositEnabled',
+  'depositCode',
+  'depositStartDate',
+  'depositMonthlyDeduction',
+  'depositTargetAmount',
+  'depositStatus',
+  'depositNotes',
 ];
 
 export const DAILY_ROUTE_SCHEDULES_HEADERS = [
@@ -540,10 +547,6 @@ export const ensureAllSheetsTabs = async (spreadsheetId: string, customOrderShee
     {
       name: ROUTE_SCHEDULE_HISTORY_TAB_NAME,
       headers: ROUTE_SCHEDULE_HISTORY_HEADERS,
-    },
-    {
-      name: PARTNER_DEPOSIT_VEHICLES_TAB_NAME,
-      headers: PARTNER_DEPOSIT_VEHICLES_HEADERS,
     },
     {
       name: PARTNER_DEPOSIT_DEDUCTIONS_TAB_NAME,
@@ -2228,6 +2231,25 @@ export const parseFleetVehicles = (values: any[]): FleetVehicle[] => {
       photoUrls: parseFleetPhotoUrlsCell(row[25]),
       notes: row[26] ? String(row[26]).trim() : '',
       updatedAt: row[27] ? String(row[27]).trim() : '',
+      depositEnabled: (() => {
+        const rawFlag = String(row[28] ?? '').trim().toUpperCase();
+        const rawCode = String(row[29] ?? '').trim();
+        if (rawFlag === 'TRUE' || rawFlag === '1' || rawFlag === 'YES' || rawFlag === 'เปิด') return true;
+        if (rawFlag === 'FALSE' || rawFlag === '0' || rawFlag === 'NO' || rawFlag === 'ปิด') return false;
+        return Boolean(rawCode);
+      })(),
+      depositCode: row[29] ? String(row[29]).trim() : undefined,
+      depositStartDate: row[30] ? normalizePartnerDepositDateCell(row[30]) : undefined,
+      depositMonthlyDeduction:
+        row[31] !== undefined && row[31] !== '' && !isNaN(Number(String(row[31]).replace(/,/g, '')))
+          ? Number(String(row[31]).replace(/,/g, ''))
+          : undefined,
+      depositTargetAmount:
+        row[32] !== undefined && row[32] !== '' && !isNaN(Number(String(row[32]).replace(/,/g, '')))
+          ? Number(String(row[32]).replace(/,/g, ''))
+          : undefined,
+      depositStatus: row[33] ? normalizePartnerDepositStatus(row[33]) : undefined,
+      depositNotes: row[34] ? String(row[34]).trim() : undefined,
       syncedToSheets: true,
     });
   });
@@ -2263,6 +2285,13 @@ const serializeFleetVehicleRow = (v: FleetVehicle): any[] => [
   Array.isArray(v.photoUrls) && v.photoUrls.length > 0 ? v.photoUrls.join('\n') : '',
   v.notes || '',
   v.updatedAt || new Date().toISOString(),
+  v.depositEnabled ? 'TRUE' : '',
+  v.depositEnabled && v.depositCode ? v.depositCode : '',
+  v.depositEnabled && v.depositStartDate ? formatSheetsTextCell(v.depositStartDate) : '',
+  v.depositEnabled && v.depositMonthlyDeduction !== undefined ? Number(v.depositMonthlyDeduction) : '',
+  v.depositEnabled && v.depositTargetAmount !== undefined ? Number(v.depositTargetAmount) : '',
+  v.depositEnabled && v.depositStatus ? v.depositStatus : '',
+  v.depositEnabled && v.depositNotes ? v.depositNotes : '',
 ];
 
 export const fetchFleetVehiclesFromSheet = async (spreadsheetId: string): Promise<FleetVehicle[]> => {
@@ -2995,7 +3024,6 @@ const normalizePartnerDepositStatus = (raw: any): PartnerDepositStatus => {
 
 export const ensurePartnerDepositTabs = async (spreadsheetId: string): Promise<void> => {
   const tabs = [
-    { name: PARTNER_DEPOSIT_VEHICLES_TAB_NAME, headers: PARTNER_DEPOSIT_VEHICLES_HEADERS },
     { name: PARTNER_DEPOSIT_DEDUCTIONS_TAB_NAME, headers: PARTNER_DEPOSIT_DEDUCTIONS_HEADERS },
     { name: PARTNER_DEPOSIT_WITHDRAWALS_TAB_NAME, headers: PARTNER_DEPOSIT_WITHDRAWALS_HEADERS },
   ];
@@ -3003,8 +3031,10 @@ export const ensurePartnerDepositTabs = async (spreadsheetId: string): Promise<v
     try {
       await gasRequest(spreadsheetId, 'addSheet', tab.name);
       const res = await gasRequest(spreadsheetId, 'getData', tab.name);
-      if (!res || !res.values || res.values.length === 0) {
-        await gasRequest(spreadsheetId, 'appendRow', tab.name, undefined, tab.headers);
+      const rows: any[][] = res?.values || [];
+      const isBlank = rows.length === 0 || (rows.length === 1 && rows[0].every((c: any) => !String(c ?? '').trim()));
+      if (isBlank) {
+        await gasRequest(spreadsheetId, 'updateRow', tab.name, 1, tab.headers);
       }
     } catch (err) {
       console.warn(`[ensurePartnerDepositTabs] Warning for ${tab.name}:`, err);
@@ -3118,14 +3148,13 @@ export const fetchPartnerDepositDataFromSheet = async (
     }
   };
 
-  const [vRows, dRows, wRows] = await Promise.all([
-    safeGet(PARTNER_DEPOSIT_VEHICLES_TAB_NAME),
+  const [dRows, wRows] = await Promise.all([
     safeGet(PARTNER_DEPOSIT_DEDUCTIONS_TAB_NAME),
     safeGet(PARTNER_DEPOSIT_WITHDRAWALS_TAB_NAME),
   ]);
 
   return {
-    vehicles: parsePartnerDepositVehicles(vRows),
+    vehicles: [],
     deductions: parsePartnerDepositDeductions(dRows),
     withdrawals: parsePartnerDepositWithdrawals(wRows),
   };
@@ -3180,9 +3209,9 @@ export const updatePartnerDepositVehicleInSheet = async (
   }
 };
 
-export const deletePartnerDepositVehicleFromSheet = async (
+export const deletePartnerDepositHistoryForVehicleFromSheet = async (
   spreadsheetId: string,
-  vehicleId: string
+  depositCode: string
 ): Promise<void> => {
   const deleteMatchingRows = async (tabName: string, colIndex: number) => {
     try {
@@ -3190,22 +3219,27 @@ export const deletePartnerDepositVehicleFromSheet = async (
       const rows: any[][] = res?.values || [];
       const indicesToDelete: number[] = [];
       for (let i = 1; i < rows.length; i++) {
-        if (String(rows[i]?.[colIndex] ?? '').trim() === vehicleId) {
+        if (String(rows[i]?.[colIndex] ?? '').trim() === depositCode) {
           indicesToDelete.push(i + 1);
         }
       }
-      // Delete from bottom to top so row numbers don't shift
       for (let k = indicesToDelete.length - 1; k >= 0; k--) {
         await gasRequest(spreadsheetId, 'deleteRow', tabName, indicesToDelete[k]);
       }
     } catch (err) {
-      console.warn(`[deletePartnerDepositVehicleFromSheet] Warning deleting from ${tabName}:`, err);
+      console.warn(`[deletePartnerDepositHistoryForVehicleFromSheet] Warning deleting from ${tabName}:`, err);
     }
   };
 
-  await deleteMatchingRows(PARTNER_DEPOSIT_VEHICLES_TAB_NAME, 0);
   await deleteMatchingRows(PARTNER_DEPOSIT_DEDUCTIONS_TAB_NAME, 1);
   await deleteMatchingRows(PARTNER_DEPOSIT_WITHDRAWALS_TAB_NAME, 1);
+};
+
+export const deletePartnerDepositVehicleFromSheet = async (
+  spreadsheetId: string,
+  vehicleId: string
+): Promise<void> => {
+  await deletePartnerDepositHistoryForVehicleFromSheet(spreadsheetId, vehicleId);
 };
 
 export const appendPartnerDepositDeductionToSheet = async (

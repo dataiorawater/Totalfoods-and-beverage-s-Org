@@ -1,6 +1,4 @@
 import * as XLSX from 'xlsx';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 import {
   PartnerDepositVehicle,
   PartnerDepositDeduction,
@@ -612,6 +610,11 @@ export const exportPartnerDepositPdf = async ({
     if (document.fonts?.ready) {
       await document.fonts.ready;
     }
+
+    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+      import('html2canvas'),
+      import('jspdf'),
+    ]);
 
     const canvas = await html2canvas(container, {
       scale: 2,
