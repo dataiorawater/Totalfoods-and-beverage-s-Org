@@ -1,4 +1,4 @@
-import { Order, OrderItem, FreebieItem, Route, StaffUser, Product, Customer, StoreCheckIn, Expense, DepositRecord, HiredVehicleTripRecord, VehicleMaintenanceRecord, DailyRouteSchedule, RouteScheduleHistoryEntry, RouteScheduleActionType } from '../types';
+import { Order, OrderItem, FreebieItem, Route, StaffUser, Product, Customer, StoreCheckIn, Expense, DepositRecord, HiredVehicleTripRecord, VehicleMaintenanceRecord, FleetVehicle, DailyRouteSchedule, RouteScheduleHistoryEntry, RouteScheduleActionType } from '../types';
 import { normalizeThaiPhone, formatPhoneForGoogleSheets } from '../utils/phoneUtils';
 import {
   OnlineOrderRawRow,
@@ -18,11 +18,43 @@ export const EXPENSES_TAB_NAME = 'Expenses';
 export const DEPOSITS_TAB_NAME = 'Deposits';
 export const HIRED_VEHICLES_TAB_NAME = 'HiredVehicles';
 export const MAINTENANCE_TAB_NAME = 'VehicleMaintenance';
+export const FLEET_VEHICLES_TAB_NAME = 'FleetVehicles';
 export const SYSTEM_CONFIG_TAB_NAME = 'SystemConfig';
 export const ONLINE_DELIVERY_PLAN_TAB_NAME = 'OnlineDeliveryPlan';
 export const ONLINE_POSTAL_ROUTES_TAB_NAME = 'OnlinePostalRoutes';
 export const DAILY_ROUTE_SCHEDULES_TAB_NAME = 'DailyRouteSchedules';
 export const ROUTE_SCHEDULE_HISTORY_TAB_NAME = 'RouteScheduleHistory';
+
+export const FLEET_VEHICLES_HEADERS = [
+  'id',
+  'plateNumber',
+  'province',
+  'ownershipType',
+  'vehicleType',
+  'brand',
+  'model',
+  'modelYear',
+  'color',
+  'fuelType',
+  'status',
+  'driverName',
+  'driverPhone',
+  'currentMileage',
+  'taxExpiryDate',
+  'taxCost',
+  'prbCompany',
+  'prbPolicyNumber',
+  'prbExpiryDate',
+  'prbCost',
+  'insuranceCompany',
+  'insuranceType',
+  'insurancePolicyNumber',
+  'insuranceExpiryDate',
+  'insuranceCost',
+  'photoUrls',
+  'notes',
+  'updatedAt',
+];
 
 export const DAILY_ROUTE_SCHEDULES_HEADERS = [
   'วันที่วิ่ง',
@@ -450,6 +482,10 @@ export const ensureAllSheetsTabs = async (spreadsheetId: string, customOrderShee
         'notes',
         'receiptPhotoUrl',
       ],
+    },
+    {
+      name: FLEET_VEHICLES_TAB_NAME,
+      headers: FLEET_VEHICLES_HEADERS,
     },
     {
       name: SYSTEM_CONFIG_TAB_NAME,
@@ -1594,10 +1630,11 @@ export const fetchAllDataBulk = async (spreadsheetId: string, customOrderSheet?:
   const depositsVal = findSheetValues(DEPOSITS_TAB_NAME, ['deposits', 'deposit', 'เงินประกัน', 'มัดจำถัง', 'เงินมัดจำ']);
   const hiredVehiclesVal = findSheetValues(HIRED_VEHICLES_TAB_NAME, ['hiredvehicles', 'hired_vehicles', 'ค่าใช้จ่ายรถจ้าง', 'รถจ้าง', 'hired', 'ค่าจ้างรถ']);
   const maintenanceVal = findSheetValues(MAINTENANCE_TAB_NAME, ['vehiclemaintenance', 'maintenance', 'บำรุงรักษา', 'บันทึกบำรุงรักษา', 'ซ่อมบำรุง', 'ประวัติซ่อม']);
+  const fleetVehiclesVal = findSheetValues(FLEET_VEHICLES_TAB_NAME, ['fleetvehicles', 'fleet_vehicles', 'vehicles', 'จัดการรถ', 'กองรถ', 'ทะเบียนรถ']);
   const dailySchedulesVal = findSheetValues(DAILY_ROUTE_SCHEDULES_TAB_NAME, ['dailyrouteschedules', 'daily_route_schedules', 'แผนการวิ่งรายวัน']);
   const routeHistoryVal = findSheetValues(ROUTE_SCHEDULE_HISTORY_TAB_NAME, ['routeschedulehistory', 'route_schedule_history', 'ประวัติตั้งค่าสาย']);
 
-  if (ordersVal || usersVal || productsVal || customersVal || routesVal || checkinsVal || expensesVal || depositsVal || hiredVehiclesVal || maintenanceVal || dailySchedulesVal || routeHistoryVal) {
+  if (ordersVal || usersVal || productsVal || customersVal || routesVal || checkinsVal || expensesVal || depositsVal || hiredVehiclesVal || maintenanceVal || fleetVehiclesVal || dailySchedulesVal || routeHistoryVal) {
     return {
       users: usersVal ? parseUsers(usersVal) : [],
       orders: ordersVal ? parseOrdersFromValues(ordersVal) : [],
@@ -1609,6 +1646,7 @@ export const fetchAllDataBulk = async (spreadsheetId: string, customOrderSheet?:
       deposits: depositsVal ? parseDeposits(depositsVal) : null,
       hiredVehicles: hiredVehiclesVal ? parseHiredVehicleTrips(hiredVehiclesVal) : null,
       maintenanceRecords: maintenanceVal ? parseMaintenanceRecords(maintenanceVal) : null,
+      fleetVehicles: fleetVehiclesVal ? parseFleetVehicles(fleetVehiclesVal) : null,
       dailySchedules: dailySchedulesVal ? parseDailyRouteSchedules(dailySchedulesVal) : null,
       routeScheduleHistory: routeHistoryVal ? parseRouteScheduleHistory(routeHistoryVal) : null,
     };
@@ -2042,6 +2080,155 @@ export const deleteMaintenanceFromSheet = async (spreadsheetId: string, mntId: s
   if (found && found.sheetsRowIndex) {
     const emptyRow = new Array(22).fill('');
     await gasRequest(spreadsheetId, 'updateRow', MAINTENANCE_TAB_NAME, found.sheetsRowIndex, emptyRow);
+  }
+};
+
+// =========================================================================
+// FLEET VEHICLES MANAGEMENT (Google Sheets Tab: FleetVehicles)
+// =========================================================================
+
+const parseFleetPhotoUrlsCell = (raw: unknown): string[] => {
+  if (!raw) return [];
+  const str = String(raw).trim();
+  if (!str) return [];
+  if (str.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(str);
+      if (Array.isArray(parsed)) {
+        return parsed.map((u) => String(u || '').trim()).filter(Boolean).slice(0, 6);
+      }
+    } catch {
+      // fallback to split
+    }
+  }
+  return str
+    .split(/[\n,|]+/)
+    .map((u) => u.trim())
+    .filter(Boolean)
+    .slice(0, 6);
+};
+
+export const parseFleetVehicles = (values: any[]): FleetVehicle[] => {
+  if (!values || values.length <= 1) return [];
+  const parsed: FleetVehicle[] = [];
+  values.slice(1).forEach((row: any, idx: number) => {
+    const id = row[0] ? String(row[0]).trim() : '';
+    const plateNumber = row[1] ? String(row[1]).trim() : '';
+    if (!id && !plateNumber) return;
+
+    const rawOwnership = String(row[3] || '').toLowerCase().trim();
+    const ownershipType: FleetVehicle['ownershipType'] =
+      rawOwnership === 'hired' || rawOwnership.includes('ร่วม') || rawOwnership.includes('จ้าง')
+        ? 'hired'
+        : 'company';
+
+    const rawStatus = String(row[10] || '').toLowerCase().trim();
+    let status: FleetVehicle['status'] = 'active';
+    if (rawStatus === 'maintenance' || rawStatus.includes('ซ่อม')) status = 'maintenance';
+    else if (rawStatus === 'inactive' || rawStatus.includes('พัก') || rawStatus.includes('ปลด')) status = 'inactive';
+
+    parsed.push({
+      sheetsRowIndex: idx + 2,
+      id: id || `VEH-${idx + 1}`,
+      plateNumber: plateNumber || '-',
+      province: row[2] ? String(row[2]).trim() : '',
+      ownershipType,
+      vehicleType: row[4] ? String(row[4]).trim() : 'กระบะตอนเดียวตู้ทึบ',
+      brand: row[5] ? String(row[5]).trim() : '',
+      model: row[6] ? String(row[6]).trim() : '',
+      modelYear: row[7] ? String(row[7]).trim() : '',
+      color: row[8] ? String(row[8]).trim() : '',
+      fuelType: row[9] ? String(row[9]).trim() : 'ดีเซล',
+      status,
+      driverName: row[11] ? String(row[11]).trim() : '',
+      driverPhone: normalizeThaiPhone(row[12]),
+      currentMileage: row[13] !== undefined && row[13] !== '' && !isNaN(Number(row[13])) ? Number(row[13]) : undefined,
+      taxExpiryDate: row[14] ? String(row[14]).trim().slice(0, 10) : '',
+      taxCost: row[15] !== undefined && row[15] !== '' && !isNaN(Number(row[15])) ? Number(row[15]) : undefined,
+      prbCompany: row[16] ? String(row[16]).trim() : '',
+      prbPolicyNumber: row[17] ? String(row[17]).trim() : '',
+      prbExpiryDate: row[18] ? String(row[18]).trim().slice(0, 10) : '',
+      prbCost: row[19] !== undefined && row[19] !== '' && !isNaN(Number(row[19])) ? Number(row[19]) : undefined,
+      insuranceCompany: row[20] ? String(row[20]).trim() : '',
+      insuranceType: row[21] ? String(row[21]).trim() : '',
+      insurancePolicyNumber: row[22] ? String(row[22]).trim() : '',
+      insuranceExpiryDate: row[23] ? String(row[23]).trim().slice(0, 10) : '',
+      insuranceCost: row[24] !== undefined && row[24] !== '' && !isNaN(Number(row[24])) ? Number(row[24]) : undefined,
+      photoUrls: parseFleetPhotoUrlsCell(row[25]),
+      notes: row[26] ? String(row[26]).trim() : '',
+      updatedAt: row[27] ? String(row[27]).trim() : '',
+      syncedToSheets: true,
+    });
+  });
+  return parsed;
+};
+
+const serializeFleetVehicleRow = (v: FleetVehicle): any[] => [
+  v.id,
+  v.plateNumber,
+  v.province || '',
+  v.ownershipType === 'hired' ? 'รถร่วม' : 'รถบริษัท',
+  v.vehicleType || '',
+  v.brand || '',
+  v.model || '',
+  v.modelYear || '',
+  v.color || '',
+  v.fuelType || '',
+  v.status === 'maintenance' ? 'อยู่ระหว่างซ่อม' : v.status === 'inactive' ? 'พักใช้งาน' : 'พร้อมใช้งาน',
+  v.driverName || '',
+  v.driverPhone ? formatPhoneForGoogleSheets(v.driverPhone) : '',
+  v.currentMileage ?? '',
+  v.taxExpiryDate || '',
+  v.taxCost ?? '',
+  v.prbCompany || '',
+  v.prbPolicyNumber || '',
+  v.prbExpiryDate || '',
+  v.prbCost ?? '',
+  v.insuranceCompany || '',
+  v.insuranceType || '',
+  v.insurancePolicyNumber || '',
+  v.insuranceExpiryDate || '',
+  v.insuranceCost ?? '',
+  Array.isArray(v.photoUrls) && v.photoUrls.length > 0 ? v.photoUrls.join('\n') : '',
+  v.notes || '',
+  v.updatedAt || new Date().toISOString(),
+];
+
+export const fetchFleetVehiclesFromSheet = async (spreadsheetId: string): Promise<FleetVehicle[]> => {
+  const res = await gasRequest(spreadsheetId, 'getData', FLEET_VEHICLES_TAB_NAME);
+  return parseFleetVehicles(res?.values || []);
+};
+
+export const syncFleetVehicleToSheets = async (spreadsheetId: string, vehicle: FleetVehicle) => {
+  const rowData = serializeFleetVehicleRow(vehicle);
+  if (vehicle.sheetsRowIndex) {
+    await gasRequest(spreadsheetId, 'updateRow', FLEET_VEHICLES_TAB_NAME, vehicle.sheetsRowIndex, rowData);
+  } else {
+    await gasRequest(spreadsheetId, 'appendRow', FLEET_VEHICLES_TAB_NAME, undefined, rowData);
+  }
+};
+
+export const updateFleetVehicleInSheet = async (spreadsheetId: string, vehicle: FleetVehicle) => {
+  const rowData = serializeFleetVehicleRow(vehicle);
+  if (vehicle.sheetsRowIndex) {
+    await gasRequest(spreadsheetId, 'updateRow', FLEET_VEHICLES_TAB_NAME, vehicle.sheetsRowIndex, rowData);
+  } else {
+    const all = await fetchFleetVehiclesFromSheet(spreadsheetId);
+    const found = all.find((item) => item.id === vehicle.id || item.plateNumber === vehicle.plateNumber);
+    if (found && found.sheetsRowIndex) {
+      await gasRequest(spreadsheetId, 'updateRow', FLEET_VEHICLES_TAB_NAME, found.sheetsRowIndex, rowData);
+    } else {
+      await gasRequest(spreadsheetId, 'appendRow', FLEET_VEHICLES_TAB_NAME, undefined, rowData);
+    }
+  }
+};
+
+export const deleteFleetVehicleFromSheet = async (spreadsheetId: string, vehicleId: string) => {
+  const all = await fetchFleetVehiclesFromSheet(spreadsheetId);
+  const found = all.find((item) => item.id === vehicleId);
+  if (found && found.sheetsRowIndex) {
+    const emptyRow = new Array(FLEET_VEHICLES_HEADERS.length).fill('');
+    await gasRequest(spreadsheetId, 'updateRow', FLEET_VEHICLES_TAB_NAME, found.sheetsRowIndex, emptyRow);
   }
 };
 

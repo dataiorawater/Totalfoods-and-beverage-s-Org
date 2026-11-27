@@ -6,6 +6,7 @@ import {
   MaintenancePartItem,
   StaffUser,
   Route,
+  FleetVehicle,
 } from '../types';
 import { TotalEmblem } from './TotalLogo';
 import { formatThaiDateShort, THAI_SHORT_MONTHS } from '../utils/dateUtils';
@@ -59,6 +60,7 @@ import { BrandLogo } from './BrandLogo';
 
 interface VehicleMaintenanceViewProps {
   records: VehicleMaintenanceRecord[];
+  fleetVehicles?: FleetVehicle[];
   currentUser: StaffUser;
   staffList: StaffUser[];
   routes: Route[];
@@ -67,15 +69,6 @@ interface VehicleMaintenanceViewProps {
   onDeleteRecord: (recordId: string) => Promise<void> | void;
   sheetsConnected: boolean;
 }
-
-// Preset logistics vehicles known in the system
-const FLEET_VEHICLES = [
-  { plate: '1ฒศ-8899', type: 'กระบะตอนเดียวตู้ทึบ', driver: 'สมชาย วงศ์สวัสดิ์', phone: '081-456-7890' },
-  { plate: '2ฒข-4512', type: 'กระบะคอก', driver: 'วิชัย มั่นคง', phone: '089-234-5678' },
-  { plate: '3ฒภ-9103', type: '4 ล้อใหญ่', driver: 'ประเสริฐ มีชัย', phone: '086-778-9900' },
-  { plate: '4ฒจ-6641', type: 'กระบะตอนเดียวตู้ทึบ', driver: 'ธนกฤต ชัยชนะ', phone: '082-334-1122' },
-  { plate: '5ฒส-1122', type: 'รถตู้ทึบส่งด่วน', driver: 'กิตติศักดิ์ เจริญดี', phone: '085-998-3344' },
-];
 
 const CATEGORY_MAP: Record<
   MaintenanceCategory,
@@ -188,6 +181,7 @@ function formatThaiMonthYear(yearMonthStr: string): string {
 
 export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
   records,
+  fleetVehicles,
   currentUser,
   staffList,
   routes,
@@ -196,6 +190,18 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
   onDeleteRecord,
   sheetsConnected,
 }) => {
+  // Live fleet vehicle registry from Fleet Management database (no hardcoded mock vehicles)
+  const effectiveFleetList = useMemo(() => {
+    if (!Array.isArray(fleetVehicles)) return [];
+    return fleetVehicles.map((v) => ({
+      plate: v.plateNumber,
+      type: v.vehicleType || [v.brand, v.model].filter(Boolean).join(' ') || 'ยานพาหนะขนส่ง',
+      driver: v.driverName || '',
+      phone: v.driverPhone || '',
+      currentMileage: v.currentMileage || 0,
+      ownershipLabel: v.ownershipType === 'hired' ? 'รถร่วม' : 'รถบริษัท',
+    }));
+  }, [fleetVehicles]);
   // Navigation / Main Tab View: 'dashboard' (Analytics & Comparison Charts) | 'records' (Log & Tables)
   const [activeMainTab, setActiveMainTab] = useState<'dashboard' | 'records'>('dashboard');
 
@@ -225,10 +231,10 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
   // Form State
   const [formData, setFormData] = useState<Partial<VehicleMaintenanceRecord>>({
     date: new Date().toISOString().slice(0, 10),
-    vehiclePlate: FLEET_VEHICLES[0].plate,
-    vehicleType: FLEET_VEHICLES[0].type,
-    driverName: FLEET_VEHICLES[0].driver,
-    currentMileage: 100000,
+    vehiclePlate: '',
+    vehicleType: '',
+    driverName: '',
+    currentMileage: 0,
     serviceCategory: 'oil_change',
     title: '',
     description: '',
@@ -239,7 +245,7 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
     costOther: 0,
     totalCost: 0,
     status: 'completed',
-    nextServiceMileage: 110000,
+    nextServiceMileage: 0,
     nextServiceDate: '',
     partsList: [],
     notes: '',
@@ -252,15 +258,17 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
   const [newPartQty, setNewPartQty] = useState(1);
   const [newPartUnitPrice, setNewPartUnitPrice] = useState(0);
 
-  // Vehicle list options (union of FLEET_VEHICLES + unique from records)
+  // Vehicle list options (union of registered fleetVehicles + unique from records)
   const availableVehicles = useMemo(() => {
     const plates = new Set<string>();
-    FLEET_VEHICLES.forEach((v) => plates.add(v.plate));
+    effectiveFleetList.forEach((v) => {
+      if (v.plate) plates.add(v.plate);
+    });
     records.forEach((r) => {
       if (r.vehiclePlate) plates.add(r.vehiclePlate);
     });
     return Array.from(plates);
-  }, [records]);
+  }, [effectiveFleetList, records]);
 
   // Available Years in Records
   const availableYears = useMemo(() => {
@@ -539,9 +547,9 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
       }
     > = {};
 
-    // Seed preset fleet vehicles so even vehicles with 0 repairs appear in the budget comparison!
+    // Seed registered fleet vehicles so even vehicles with 0 repairs appear in the budget comparison!
     availableVehicles.forEach((plate) => {
-      const matchFleet = FLEET_VEHICLES.find((v) => v.plate === plate);
+      const matchFleet = effectiveFleetList.find((v) => v.plate === plate);
       vehicleMap[plate] = {
         plate,
         type: matchFleet?.type || 'ยานพาหนะขนส่ง',
@@ -551,7 +559,7 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
         labor: 0,
         other: 0,
         count: 0,
-        maxMileage: 0,
+        maxMileage: matchFleet?.currentMileage || 0,
         costPerKm: 0,
         budgetShare: 0,
       };
@@ -616,7 +624,7 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
       maxVehicleSpend,
       grandTotal,
     };
-  }, [dashboardScopedRecords, availableVehicles, vehicleSortKey]);
+  }, [dashboardScopedRecords, availableVehicles, effectiveFleetList, vehicleSortKey]);
 
   // 3. Maintenance Category Distribution
   const categoryChartData = useMemo(() => {
@@ -666,11 +674,13 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
 
   // Open Form Modal for Create
   const handleOpenCreateModal = (presetPlate?: string) => {
-    const targetPlate = presetPlate || FLEET_VEHICLES[0].plate;
-    const fleetMatch = FLEET_VEHICLES.find((v) => v.plate === targetPlate);
-    const existingForPlate = records.filter((r) => r.vehiclePlate === targetPlate);
-    const maxMileage = existingForPlate.reduce((max, r) => Math.max(max, r.currentMileage), 0);
-    const currentMileage = maxMileage > 0 ? maxMileage + 100 : 100000;
+    const targetPlate = presetPlate || effectiveFleetList[0]?.plate || availableVehicles[0] || '';
+    const fleetMatch = effectiveFleetList.find((v) => v.plate === targetPlate);
+    const existingForPlate = targetPlate
+      ? records.filter((r) => r.vehiclePlate === targetPlate)
+      : [];
+    const maxMaintenanceMileage = existingForPlate.reduce((max, r) => Math.max(max, r.currentMileage), 0);
+    const currentMileage = Math.max(fleetMatch?.currentMileage || 0, maxMaintenanceMileage);
 
     setEditingRecord(null);
     setFormParts([]);
@@ -682,9 +692,9 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
       id: `mnt-${Date.now().toString().slice(-6)}`,
       date: new Date().toISOString().slice(0, 10),
       vehiclePlate: targetPlate,
-      vehicleType: fleetMatch?.type || 'กระบะตอนเดียวตู้ทึบ',
+      vehicleType: fleetMatch?.type || '',
       driverName: fleetMatch?.driver || '',
-      currentMileage: currentMileage,
+      currentMileage,
       serviceCategory: 'oil_change',
       title: '',
       description: '',
@@ -695,7 +705,7 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
       costOther: 0,
       totalCost: 0,
       status: 'completed',
-      nextServiceMileage: currentMileage + 10000,
+      nextServiceMileage: currentMileage > 0 ? currentMileage + 10000 : 0,
       nextServiceDate: '',
       notes: '',
       receiptPhotoUrl: '',
@@ -2093,34 +2103,53 @@ export const VehicleMaintenanceView: React.FC<VehicleMaintenanceViewProps> = ({
                   <label className="block font-bold text-slate-700 mb-1">
                     ทะเบียนรถ <span className="text-rose-500">*</span>
                   </label>
-                  <select
-                    value={formData.vehiclePlate}
-                    onChange={(e) => {
-                      const pl = e.target.value;
-                      const fleetMatch = FLEET_VEHICLES.find((v) => v.plate === pl);
-                      setFormData((prev) => ({
-                        ...prev,
-                        vehiclePlate: pl,
-                        vehicleType: fleetMatch?.type || prev.vehicleType,
-                        driverName: fleetMatch?.driver || prev.driverName,
-                      }));
-                    }}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    required
-                  >
-                    {FLEET_VEHICLES.map((v) => (
-                      <option key={v.plate} value={v.plate}>
-                        {v.plate} ({v.type})
-                      </option>
-                    ))}
-                    {availableVehicles
-                      .filter((p) => !FLEET_VEHICLES.some((fv) => fv.plate === p))
-                      .map((p) => (
-                        <option key={p} value={p}>
-                          {p}
+                  {availableVehicles.length > 0 ? (
+                    <select
+                      value={formData.vehiclePlate || ''}
+                      onChange={(e) => {
+                        const pl = e.target.value;
+                        const fleetMatch = effectiveFleetList.find((v) => v.plate === pl);
+                        const maxRecMileage = records
+                          .filter((r) => r.vehiclePlate === pl)
+                          .reduce((m, r) => Math.max(m, r.currentMileage || 0), 0);
+                        const suggestedMileage = Math.max(fleetMatch?.currentMileage || 0, maxRecMileage);
+                        setFormData((prev) => ({
+                          ...prev,
+                          vehiclePlate: pl,
+                          vehicleType: fleetMatch?.type || prev.vehicleType,
+                          driverName: fleetMatch?.driver || prev.driverName,
+                          currentMileage: suggestedMileage > 0 ? suggestedMileage : prev.currentMileage,
+                          nextServiceMileage:
+                            suggestedMileage > 0 ? suggestedMileage + 10000 : prev.nextServiceMileage,
+                        }));
+                      }}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      required
+                    >
+                      <option value="">-- เลือกทะเบียนรถ --</option>
+                      {effectiveFleetList.map((v) => (
+                        <option key={v.plate} value={v.plate}>
+                          {v.plate} ({v.type} · {v.ownershipLabel})
                         </option>
                       ))}
-                  </select>
+                      {availableVehicles
+                        .filter((p) => !effectiveFleetList.some((fv) => fv.plate === p))
+                        .map((p) => (
+                          <option key={p} value={p}>
+                            {p}
+                          </option>
+                        ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={formData.vehiclePlate || ''}
+                      onChange={(e) => setFormData({ ...formData, vehiclePlate: e.target.value })}
+                      placeholder="ระบุทะเบียนรถ (หรือเพิ่มรถที่เมนูจัดการรถ)"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      required
+                    />
+                  )}
                 </div>
 
                 <div>

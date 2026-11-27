@@ -344,6 +344,15 @@ export async function uploadStorePhotoToDrive(
   };
 }
 
+export async function uploadFleetPhotoToDrive(
+  fileOrDataUrl: File | Blob | string,
+  plateNumber: string,
+  slotNumber: number
+): Promise<DriveUploadResult> {
+  const cleanPlate = String(plateNumber || '').trim() || 'รถใหม่';
+  return uploadStorePhotoToDrive(fileOrDataUrl, `รถ_${cleanPlate}`, slotNumber);
+}
+
 export async function uploadCheckInPhotoToDrive(
   fileOrDataUrl: File | Blob | string,
   options: {

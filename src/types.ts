@@ -352,3 +352,41 @@ export interface VehicleMaintenanceRecord {
   sheetsRowIndex?: number;
 }
 
+export type VehicleOwnershipType = 'company' | 'hired';
+
+export type FleetVehicleStatus = 'active' | 'maintenance' | 'inactive';
+
+export interface FleetVehicle {
+  id: string;
+  plateNumber: string;            // ทะเบียนรถ เช่น 1ฒศ-8899
+  province?: string;              // จังหวัดทะเบียนรถ
+  ownershipType: VehicleOwnershipType; // 'company' (รถบริษัท) | 'hired' (รถร่วม/รถจ้าง)
+  vehicleType: string;            // ลักษณะตัวถัง เช่น กระบะตอนเดียวตู้ทึบ, กระบะคอก, 4 ล้อใหญ่
+  brand: string;                  // ยี่ห้อ เช่น Toyota, Isuzu
+  model: string;                  // รุ่นรถ เช่น Hilux Revo 2.4
+  modelYear?: string;             // ปีรถ เช่น 2023 หรือ 2566
+  color?: string;                 // สีรถ
+  fuelType?: string;              // ประเภทเชื้อเพลิง เช่น ดีเซล, เบนซิน, EV
+  status: FleetVehicleStatus;     // 'active' | 'maintenance' | 'inactive'
+  driverName?: string;            // พนักงานขับรถประจำคัน
+  driverPhone?: string;           // เบอร์โทรคนขับ
+  currentMileage?: number;        // เลขไมล์ล่าสุด (กม.)
+  taxExpiryDate?: string;         // วันหมดอายุภาษีรถยนต์ (YYYY-MM-DD)
+  taxCost?: number;               // ค่าต่อภาษีล่าสุด (บาท)
+  prbCompany?: string;            // บริษัท พ.ร.บ.
+  prbPolicyNumber?: string;       // เลขที่กรมธรรม์ พ.ร.บ.
+  prbExpiryDate?: string;         // วันหมดอายุ พ.ร.บ. (YYYY-MM-DD)
+  prbCost?: number;               // ค่าเบี้ย พ.ร.บ. (บาท)
+  insuranceCompany?: string;      // บริษัทประกันภัยภาคสมัครใจ
+  insuranceType?: string;         // ประเภทประกัน เช่น ชั้น 1, ชั้น 2+, ชั้น 3+, ชั้น 3, ไม่มี
+  insurancePolicyNumber?: string; // เลขที่กรมธรรม์ประกันภัย
+  insuranceExpiryDate?: string;   // วันหมดอายุประกันภัย (YYYY-MM-DD)
+  insuranceCost?: number;         // ค่าเบี้ยประกันภัย (บาท)
+  photoUrls?: string[];           // ลิงก์รูปรถและภาพถ่ายเอกสารบน Google Drive
+  notes?: string;                 // หมายเหตุเพิ่มเติม
+  updatedAt?: string;             // วันเวลาที่อัปเดตล่าสุด (ISO)
+  syncedToSheets?: boolean;
+  sheetsRowIndex?: number;
+}
+
+

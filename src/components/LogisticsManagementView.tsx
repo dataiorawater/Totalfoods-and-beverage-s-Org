@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Order, OrderStatus, StaffUser, Route } from '../types';
+import { Order, OrderStatus, StaffUser, Route, FleetVehicle } from '../types';
 import { normalizeThaiPhone, toTelHref } from '../utils/phoneUtils';
 import { parseDateRobust, formatThaiDateShort } from '../utils/dateUtils';
 import {
@@ -45,6 +45,7 @@ interface LogisticsManagementViewProps {
   currentUser: StaffUser;
   staffList: StaffUser[];
   routes: Route[];
+  fleetVehicles?: FleetVehicle[];
   onUpdateStatus: (orderId: string, newStatus: OrderStatus) => void;
   onUpdateOrder: (order: Order) => Promise<void> | void;
   onSelectOrder: (order: Order) => void;
@@ -69,6 +70,7 @@ export const LogisticsManagementView: React.FC<LogisticsManagementViewProps> = (
   currentUser,
   staffList,
   routes,
+  fleetVehicles = [],
   onUpdateStatus,
   onUpdateOrder,
   onSelectOrder,
@@ -1277,9 +1279,48 @@ export const LogisticsManagementView: React.FC<LogisticsManagementViewProps> = (
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   ทะเบียนรถ / ข้อมูลยานพาหนะ
                 </label>
+                {fleetVehicles.length > 0 && (
+                  <select
+                    value={
+                      fleetVehicles.find((v) => assignedVehicle.startsWith(v.plateNumber))
+                        ?.plateNumber || ''
+                    }
+                    onChange={(e) => {
+                      const selectedPlate = e.target.value;
+                      if (!selectedPlate) return;
+                      const match = fleetVehicles.find((v) => v.plateNumber === selectedPlate);
+                      if (match) {
+                        const label = match.vehicleType
+                          ? `${match.plateNumber} (${match.vehicleType})`
+                          : match.plateNumber;
+                        setAssignedVehicle(label);
+                        if (!assignedDriverId && match.driverName) {
+                          const matchedStaff = deliveryStaff.find(
+                            (s) =>
+                              s.name.trim().toLowerCase() ===
+                              match.driverName!.trim().toLowerCase()
+                          );
+                          if (matchedStaff) setAssignedDriverId(matchedStaff.id);
+                        }
+                      }
+                    }}
+                    className="w-full text-sm border border-slate-200 rounded-xl px-3 py-2.5 mb-2 bg-slate-50 focus:bg-white focus:border-indigo-500 focus:outline-none"
+                  >
+                    <option value="">-- เลือกรถจากทะเบียนกองรถ (จัดการรถ) --</option>
+                    {fleetVehicles
+                      .filter((v) => v.status !== 'inactive')
+                      .map((v) => (
+                        <option key={v.id} value={v.plateNumber}>
+                          {v.plateNumber} · {v.vehicleType || v.model} (
+                          {v.ownershipType === 'company' ? 'รถบริษัท' : 'รถร่วม'}
+                          {v.driverName ? ` · ${v.driverName}` : ''})
+                        </option>
+                      ))}
+                  </select>
+                )}
                 <input
                   type="text"
-                  placeholder="เช่น 1ฒศ-8899 (กระบะตู้ทึบ 1)"
+                  placeholder="หรือพิมพ์ทะเบียนรถเพิ่มเติม เช่น 1ฒศ-8899 (กระบะตู้ทึบ 1)"
                   value={assignedVehicle}
                   onChange={(e) => setAssignedVehicle(e.target.value)}
                   className="w-full text-sm border border-slate-200 rounded-xl px-3.5 py-2.5 focus:border-indigo-500 focus:outline-none"

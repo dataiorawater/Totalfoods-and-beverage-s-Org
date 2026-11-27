@@ -4,9 +4,11 @@ import {
   VehicleMaintenanceRecord,
   HiredVehicleTripRecord,
   DepositRecord,
+  FleetVehicle,
 } from '../types';
 import {
   Truck,
+  Car,
   CheckCircle2,
   Clock,
   Wrench,
@@ -18,17 +20,20 @@ import {
   Package,
   AlertTriangle,
 } from 'lucide-react';
-import { parseDateRobust, THAI_SHORT_MONTHS } from '../utils/dateUtils';
+import { parseDateRobust, formatThaiDateShort, THAI_SHORT_MONTHS } from '../utils/dateUtils';
+import { getVehicleComplianceAlerts, EXPIRY_WARNING_DAYS } from '../utils/fleetUtils';
 
 interface LogisticsDashboardViewProps {
   orders: Order[];
   maintenanceRecords: VehicleMaintenanceRecord[];
   hiredVehicles: HiredVehicleTripRecord[];
   deposits: DepositRecord[];
+  fleetVehicles: FleetVehicle[];
   onNavigateToLogistics: () => void;
   onNavigateToMaintenance: () => void;
   onNavigateToHiredVehicles: () => void;
   onNavigateToDeposits: () => void;
+  onNavigateToFleet: () => void;
 }
 
 export const LogisticsDashboardView: React.FC<LogisticsDashboardViewProps> = React.memo(({
@@ -36,10 +41,12 @@ export const LogisticsDashboardView: React.FC<LogisticsDashboardViewProps> = Rea
   maintenanceRecords,
   hiredVehicles,
   deposits,
+  fleetVehicles,
   onNavigateToLogistics,
   onNavigateToMaintenance,
   onNavigateToHiredVehicles,
   onNavigateToDeposits,
+  onNavigateToFleet,
 }) => {
   const [period, setPeriod] = useState<'today' | '7days' | 'month' | 'all'>('month');
 
@@ -250,6 +257,19 @@ export const LogisticsDashboardView: React.FC<LogisticsDashboardViewProps> = Rea
     };
   }, [maintenanceRecords, period]);
 
+  // 4. Fleet Compliance Alerts (Tax / PRB / Insurance <= 30 days)
+  const fleetStats = useMemo(() => {
+    const summary = getVehicleComplianceAlerts(fleetVehicles, EXPIRY_WARNING_DAYS);
+    const companyCount = fleetVehicles.filter((v) => v.ownershipType === 'company').length;
+    const hiredCount = fleetVehicles.filter((v) => v.ownershipType === 'hired').length;
+    return {
+      total: fleetVehicles.length,
+      companyCount,
+      hiredCount,
+      ...summary,
+    };
+  }, [fleetVehicles]);
+
   const periodLabel =
     period === 'today'
       ? 'วันนี้'
@@ -394,6 +414,94 @@ export const LogisticsDashboardView: React.FC<LogisticsDashboardViewProps> = Rea
           </div>
         </div>
       </div>
+
+      {/* =========================================================================
+          FLEET TAX / PRB / INSURANCE EXPIRY ALERTS (<= 30 DAYS)
+         ========================================================================= */}
+      <section className="bg-[#FFFFFF] rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="p-4 sm:p-5 border-b border-slate-200 bg-[#F1F5F9]/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                fleetStats.expiredCount > 0
+                  ? 'bg-[#DC2626] text-white'
+                  : fleetStats.warningCount > 0
+                  ? 'bg-[#D97706] text-white'
+                  : 'bg-[#1D4ED8] text-white'
+              }`}
+            >
+              <Car className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm sm:text-base font-bold text-[#0F172A] tracking-tight">
+                แจ้งเตือนภาษี / พ.ร.บ. / ประกันภัยกองรถ (ล่วงหน้า {EXPIRY_WARNING_DAYS} วัน)
+              </h3>
+              <p className="text-xs text-slate-600 mt-0.5 tabular-nums">
+                กองรถทั้งหมด {fleetStats.total} คัน (รถบริษัท {fleetStats.companyCount} · รถร่วม {fleetStats.hiredCount}) ·
+                เลยกำหนด <span className="font-bold text-[#DC2626]">{fleetStats.expiredCount}</span> · ใกล้ครบกำหนด{' '}
+                <span className="font-bold text-[#D97706]">{fleetStats.warningCount}</span>
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onNavigateToFleet}
+            className="self-start sm:self-auto inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-xs font-bold transition-colors cursor-pointer shrink-0"
+          >
+            <span>จัดการรถทั้งหมด</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="p-4 sm:p-5">
+          {fleetStats.alerts.length === 0 ? (
+            <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-emerald-50/60 border border-emerald-200 text-xs">
+              <div className="flex items-center gap-2 text-[#16A34A] font-bold">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>ภาษี พ.ร.บ. และประกันภัยของรถทุกคันอยู่ในเกณฑ์ปกติ (ไม่มีรายการครบกำหนดภายใน 30 วัน)</span>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 tabular-nums">
+              {fleetStats.alerts.slice(0, 6).map((alert) => {
+                const isExpired = alert.severity === 'expired';
+                return (
+                  <div
+                    key={alert.id}
+                    onClick={onNavigateToFleet}
+                    className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 cursor-pointer transition-colors ${
+                      isExpired
+                        ? 'bg-rose-50/60 border-rose-200 hover:border-rose-300'
+                        : 'bg-amber-50/50 border-amber-200 hover:border-amber-300'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 text-xs font-extrabold text-[#0F172A]">
+                        <span className="truncate">{alert.plateNumber}</span>
+                        <span className="text-slate-400 font-normal">·</span>
+                        <span className="text-[11px] font-semibold text-slate-600">
+                          {alert.ownershipType === 'company' ? 'รถบริษัท' : 'รถร่วม'}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-600 mt-0.5 truncate">
+                        {alert.docLabel} · ครบกำหนด {formatThaiDateShort(alert.expiryDate)}
+                      </div>
+                    </div>
+                    <span
+                      className={`text-[11px] font-extrabold shrink-0 ${
+                        isExpired ? 'text-[#DC2626]' : 'text-[#D97706]'
+                      }`}
+                    >
+                      {alert.statusLabel}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* =========================================================================
           VEHICLE MAINTENANCE BUDGET DASHBOARD (Moved from Sales Dashboard)

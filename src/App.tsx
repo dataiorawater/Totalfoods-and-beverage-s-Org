@@ -13,6 +13,7 @@ import {
   DepositRecord,
   HiredVehicleTripRecord,
   VehicleMaintenanceRecord,
+  FleetVehicle,
   DailyRouteSchedule,
   RouteScheduleHistoryEntry,
   RouteScheduleActionType,
@@ -26,12 +27,14 @@ import {
   DEFAULT_LINE_SETTINGS,
   INITIAL_HIRED_VEHICLES,
   INITIAL_MAINTENANCE_RECORDS,
+  INITIAL_FLEET_VEHICLES,
   INITIAL_ROUTES,
 } from './data/mockData';
 import { formatNowUtcPlus7Iso, getThaiDayFromDate, doesRouteRunOnDay } from './utils/callPlanUtils';
 import { normalizeThaiPhone } from './utils/phoneUtils';
 import { parseDateRobust, formatThaiDateTime } from './utils/dateUtils';
 import { getRoleShortLabel } from './utils/roleUtils';
+import { getVehicleComplianceAlerts, EXPIRY_WARNING_DAYS } from './utils/fleetUtils';
 
 import {
   appendOrderToSheet,
@@ -67,6 +70,10 @@ import {
   updateMaintenanceInSheet,
   deleteMaintenanceFromSheet,
   fetchMaintenanceFromSheet,
+  syncFleetVehicleToSheets,
+  updateFleetVehicleInSheet,
+  deleteFleetVehicleFromSheet,
+  fetchFleetVehiclesFromSheet,
   DEFAULT_GAS_URL,
   LEGACY_DEFAULT_GAS_URL,
   fetchSharedSystemConfig,
@@ -108,6 +115,7 @@ const LogisticsDashboardView = lazy(() => import('./components/LogisticsDashboar
 const LogisticsManagementView = lazy(() => import('./components/LogisticsManagementView').then((m) => ({ default: m.LogisticsManagementView })));
 const DepositManagementView = lazy(() => import('./components/DepositManagementView').then((m) => ({ default: m.DepositManagementView })));
 const HiredVehicleExpensesView = lazy(() => import('./components/HiredVehicleExpensesView').then((m) => ({ default: m.HiredVehicleExpensesView })));
+const FleetManagementView = lazy(() => import('./components/FleetManagementView').then((m) => ({ default: m.FleetManagementView })));
 const VehicleMaintenanceView = lazy(() => import('./components/VehicleMaintenanceView').then((m) => ({ default: m.VehicleMaintenanceView })));
 
 import {
@@ -138,6 +146,7 @@ type AppTab =
   | 'logistics'
   | 'deposits'
   | 'hired_vehicles'
+  | 'fleet_vehicles'
   | 'maintenance';
 
 const SALES_ALLOWED_TABS: ReadonlyArray<AppTab> = [
@@ -449,6 +458,16 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
+          const mockIds = new Set([
+            'CUST-001',
+            'CUST-002',
+            'CUST-003',
+            'CUST-004',
+            'CUST-005',
+            'CUST-006',
+            'CUST-007',
+            'CUST-008',
+          ]);
           const mockNames = [
             'คอฟฟี่คอร์เนอร์',
             'สยามซอฟต์',
@@ -457,9 +476,19 @@ export default function App() {
             'ชาบูหม้อไฟทอง',
             'ปรีชา ลัดดาวัลย์',
             'สไมล์พลัส',
+            'ร้านเจ๊พร มินิมาร์ท',
+            'บิ๊กเกอร์ มาร์เก็ต',
+            'ร้านโกรเซอรี่ 24',
+            'ร้านกาแฟชาวดอย แยกลำสาลี',
+            'สหฟู้ดส์ ตลาดไท',
+            'ร้านป้าแมว ของชำ',
+            'มหาชัยซีฟู้ดแอนด์มาร์ท',
+            'ร้านค้าชุมชนศาลายา',
           ];
           const nonMock = parsed.filter(
-            (c: Customer) => !mockNames.some((m) => c.name?.includes(m))
+            (c: Customer) =>
+              !mockIds.has(String(c?.id || '')) &&
+              !mockNames.some((m) => c.name?.includes(m))
           );
           return sanitizeCustomerData(nonMock);
         }
@@ -484,7 +513,11 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) {
+          return parsed.filter(
+            (t: HiredVehicleTripRecord) => !String(t?.id || '').startsWith('trip-demo-')
+          );
+        }
       } catch (e) {}
     }
     return INITIAL_HIRED_VEHICLES;
@@ -495,10 +528,42 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) {
+          const mockMaintenanceIds = new Set([
+            'mnt-2026-001',
+            'mnt-2026-002',
+            'mnt-2026-003',
+            'mnt-2026-004',
+            'mnt-2026-005',
+            'mnt-2026-006',
+            'mnt-2026-007',
+            'mnt-2026-008',
+            'mnt-2026-009',
+            'mnt-2026-010',
+            'mnt-2026-011',
+            'mnt-2026-012',
+          ]);
+          return parsed.filter(
+            (m: VehicleMaintenanceRecord) => !mockMaintenanceIds.has(String(m?.id || ''))
+          );
+        }
       } catch (e) {}
     }
     return INITIAL_MAINTENANCE_RECORDS;
+  });
+
+  const [fleetVehicles, setFleetVehicles] = useState<FleetVehicle[]>(() => {
+    const saved = localStorage.getItem('iora_fleet_vehicles');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          const mockFleetIds = new Set(['veh-001', 'veh-002', 'veh-003', 'veh-004', 'veh-005']);
+          return parsed.filter((v: FleetVehicle) => !mockFleetIds.has(String(v?.id || '')));
+        }
+      } catch (e) {}
+    }
+    return INITIAL_FLEET_VEHICLES;
   });
 
   const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
@@ -670,6 +735,11 @@ export default function App() {
     if (!hasMountedRef.current) return;
     scheduleStorageSave('iora_vehicle_maintenance', maintenanceRecords);
   }, [maintenanceRecords]);
+
+  useEffect(() => {
+    if (!hasMountedRef.current) return;
+    scheduleStorageSave('iora_fleet_vehicles', fleetVehicles);
+  }, [fleetVehicles]);
 
   useEffect(() => {
     if (!hasMountedRef.current) return;
@@ -868,6 +938,7 @@ export default function App() {
       let sheetDeposits: DepositRecord[] | null = null;
       let sheetHiredVehicles: HiredVehicleTripRecord[] | null = null;
       let sheetMaintenance: VehicleMaintenanceRecord[] | null = null;
+      let sheetFleetVehicles: FleetVehicle[] | null = null;
       let sheetDailySchedules: Record<string, DailyRouteSchedule> | null = null;
       let sheetRouteHistory: RouteScheduleHistoryEntry[] | null = null;
 
@@ -884,6 +955,7 @@ export default function App() {
           if (Array.isArray((bulkData as any).deposits)) sheetDeposits = (bulkData as any).deposits;
           if (Array.isArray((bulkData as any).hiredVehicles)) sheetHiredVehicles = (bulkData as any).hiredVehicles;
           if (Array.isArray((bulkData as any).maintenanceRecords)) sheetMaintenance = (bulkData as any).maintenanceRecords;
+          if (Array.isArray((bulkData as any).fleetVehicles)) sheetFleetVehicles = (bulkData as any).fleetVehicles;
           if ((bulkData as any).dailySchedules && typeof (bulkData as any).dailySchedules === 'object') {
             sheetDailySchedules = (bulkData as any).dailySchedules;
           }
@@ -909,6 +981,7 @@ export default function App() {
       const needsDeposits = !isSalesOnly && !sheetDeposits;
       const needsHiredVehicles = !isSalesOnly && !sheetHiredVehicles;
       const needsMaintenance = !isSalesOnly && !sheetMaintenance;
+      const needsFleetVehicles = !isSalesOnly && !sheetFleetVehicles;
       const needsDailySchedules = !sheetDailySchedules;
       const needsRouteHistory = !sheetRouteHistory;
 
@@ -923,6 +996,7 @@ export default function App() {
         depositsRes,
         hiredRes,
         mntRes,
+        fleetRes,
         dailySchedulesRes,
         routeHistoryRes,
       ] = await Promise.allSettled([
@@ -936,6 +1010,7 @@ export default function App() {
         needsDeposits ? fetchDepositsFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetDeposits),
         needsHiredVehicles ? fetchHiredVehicleTripsFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetHiredVehicles),
         needsMaintenance ? fetchMaintenanceFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetMaintenance),
+        needsFleetVehicles ? fetchFleetVehiclesFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetFleetVehicles),
         needsDailySchedules ? fetchDailyRouteSchedulesFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetDailySchedules),
         needsRouteHistory ? fetchRouteScheduleHistoryFromSheet(sheetsConfig.spreadsheetId) : Promise.resolve(sheetRouteHistory),
       ]);
@@ -976,11 +1051,14 @@ export default function App() {
       if (depositsRes.status === 'fulfilled' && Array.isArray(depositsRes.value)) {
         setDeposits(depositsRes.value);
       }
-      if (hiredRes.status === 'fulfilled' && Array.isArray(hiredRes.value) && hiredRes.value.length > 0) {
+      if (hiredRes.status === 'fulfilled' && Array.isArray(hiredRes.value)) {
         setHiredVehicles(hiredRes.value);
       }
-      if (mntRes.status === 'fulfilled' && Array.isArray(mntRes.value) && mntRes.value.length > 0) {
+      if (mntRes.status === 'fulfilled' && Array.isArray(mntRes.value)) {
         setMaintenanceRecords(mntRes.value);
+      }
+      if (fleetRes.status === 'fulfilled' && Array.isArray(fleetRes.value)) {
+        setFleetVehicles(fleetRes.value);
       }
       if (dailySchedulesRes.status === 'fulfilled' && dailySchedulesRes.value && typeof dailySchedulesRes.value === 'object') {
         setDailySchedules(dailySchedulesRes.value);
@@ -1362,6 +1440,29 @@ export default function App() {
         }
       } catch (e) {
         console.warn('Sync expenses failed', e);
+      }
+      try {
+        const [fetchedDeposits, fetchedHired, fetchedMaintenance, fetchedFleet] =
+          await Promise.allSettled([
+            fetchDepositsFromSheet(sheetsConfig.spreadsheetId),
+            fetchHiredVehicleTripsFromSheet(sheetsConfig.spreadsheetId),
+            fetchMaintenanceFromSheet(sheetsConfig.spreadsheetId),
+            fetchFleetVehiclesFromSheet(sheetsConfig.spreadsheetId),
+          ]);
+        if (fetchedDeposits.status === 'fulfilled' && Array.isArray(fetchedDeposits.value)) {
+          setDeposits(fetchedDeposits.value);
+        }
+        if (fetchedHired.status === 'fulfilled' && Array.isArray(fetchedHired.value)) {
+          setHiredVehicles(fetchedHired.value);
+        }
+        if (fetchedMaintenance.status === 'fulfilled' && Array.isArray(fetchedMaintenance.value)) {
+          setMaintenanceRecords(fetchedMaintenance.value);
+        }
+        if (fetchedFleet.status === 'fulfilled' && Array.isArray(fetchedFleet.value)) {
+          setFleetVehicles(fetchedFleet.value);
+        }
+      } catch (e) {
+        console.warn('Sync logistics tables failed', e);
       }
       try {
         const [fetchedDaily, fetchedHist] = await Promise.all([
@@ -1900,9 +2001,67 @@ export default function App() {
     return maintenanceRecords.filter((m) => m.status !== 'completed').length;
   }, [maintenanceRecords]);
 
-  // Vehicle Maintenance Handlers
+  // Fleet compliance alerts count (<= 30 days + expired) for Navbar badge
+  const fleetAlertCount = useMemo(() => {
+    return getVehicleComplianceAlerts(fleetVehicles, EXPIRY_WARNING_DAYS).alerts.length;
+  }, [fleetVehicles]);
+
+  // Fleet Management Handlers
+  const handleSaveFleetVehicle = async (newVehicle: FleetVehicle) => {
+    setFleetVehicles((prev) => [newVehicle, ...prev]);
+    showToast('success', 'บันทึกข้อมูลรถสำเร็จ', `เพิ่มทะเบียน ${newVehicle.plateNumber} เข้าสู่กองรถเรียบร้อยแล้ว`);
+
+    if (sheetsConfig?.spreadsheetId) {
+      syncFleetVehicleToSheets(sheetsConfig.spreadsheetId, newVehicle).catch((e) => {
+        console.warn('Sync fleet vehicle error:', e);
+      });
+    }
+  };
+
+  const handleUpdateFleetVehicle = async (updatedVehicle: FleetVehicle) => {
+    setFleetVehicles((prev) => prev.map((v) => (v.id === updatedVehicle.id ? updatedVehicle : v)));
+    showToast('success', 'อัปเดตข้อมูลรถสำเร็จ', `บันทึกข้อมูลรถ ${updatedVehicle.plateNumber} เรียบร้อยแล้ว`);
+
+    if (sheetsConfig?.spreadsheetId) {
+      updateFleetVehicleInSheet(sheetsConfig.spreadsheetId, updatedVehicle).catch((e) => {
+        console.warn('Update fleet vehicle error:', e);
+      });
+    }
+  };
+
+  const handleDeleteFleetVehicle = async (vehicleId: string) => {
+    setFleetVehicles((prev) => prev.filter((v) => v.id !== vehicleId));
+    showToast('success', 'ลบข้อมูลรถสำเร็จ', 'ลบทะเบียนรถออกจากกองรถเรียบร้อยแล้ว');
+
+    if (sheetsConfig?.spreadsheetId) {
+      deleteFleetVehicleFromSheet(sheetsConfig.spreadsheetId, vehicleId).catch((e) => {
+        console.warn('Delete fleet vehicle error:', e);
+      });
+    }
+  };
+
+  // Vehicle Maintenance Handlers (also keep fleet currentMileage synced if newer)
+  const syncFleetMileageFromMaintenance = (plate: string, mileage?: number) => {
+    if (!plate || !mileage || mileage <= 0) return;
+    const target = fleetVehicles.find(
+      (v) => v.plateNumber.trim().toLowerCase() === plate.trim().toLowerCase()
+    );
+    if (target && mileage > (target.currentMileage || 0)) {
+      const updated: FleetVehicle = {
+        ...target,
+        currentMileage: mileage,
+        updatedAt: new Date().toISOString(),
+      };
+      setFleetVehicles((prev) => prev.map((v) => (v.id === updated.id ? updated : v)));
+      if (sheetsConfig?.spreadsheetId) {
+        updateFleetVehicleInSheet(sheetsConfig.spreadsheetId, updated).catch(() => {});
+      }
+    }
+  };
+
   const handleSaveMaintenance = async (newRecord: VehicleMaintenanceRecord) => {
     setMaintenanceRecords((prev) => [newRecord, ...prev]);
+    syncFleetMileageFromMaintenance(newRecord.vehiclePlate, newRecord.currentMileage);
     showToast('success', 'บันทึกสำเร็จ', `บันทึกงานบำรุงรักษาของ ${newRecord.vehiclePlate} เรียบร้อยแล้ว`);
 
     if (sheetsConfig?.spreadsheetId) {
@@ -1914,6 +2073,7 @@ export default function App() {
 
   const handleUpdateMaintenance = async (updatedRecord: VehicleMaintenanceRecord) => {
     setMaintenanceRecords((prev) => prev.map((m) => (m.id === updatedRecord.id ? updatedRecord : m)));
+    syncFleetMileageFromMaintenance(updatedRecord.vehiclePlate, updatedRecord.currentMileage);
     showToast('success', 'อัปเดตสำเร็จ', `บันทึกข้อมูลงานซ่อม ${updatedRecord.vehiclePlate} เรียบร้อยแล้ว`);
 
     if (sheetsConfig?.spreadsheetId) {
@@ -2072,6 +2232,8 @@ export default function App() {
         deliveryCount={pendingDeliveriesCount}
         depositCount={activeDepositsCount}
         hiredVehicleCount={pendingHiredPayoutsCount}
+        fleetVehicleCount={fleetVehicles.length}
+        fleetAlertCount={fleetAlertCount}
         maintenanceCount={activeMaintenanceCount}
         isLoadingData={isLoadingData}
         onRefreshDatabase={handleRefreshDatabaseFromNav}
@@ -2228,10 +2390,12 @@ export default function App() {
               maintenanceRecords={maintenanceRecords}
               hiredVehicles={hiredVehicles}
               deposits={deposits}
+              fleetVehicles={fleetVehicles}
               onNavigateToLogistics={() => setActiveTab('logistics')}
               onNavigateToMaintenance={() => setActiveTab('maintenance')}
               onNavigateToHiredVehicles={() => setActiveTab('hired_vehicles')}
               onNavigateToDeposits={() => setActiveTab('deposits')}
+              onNavigateToFleet={() => setActiveTab('fleet_vehicles')}
             />
           ) : activeTab === 'logistics' ? (
             <LogisticsManagementView
@@ -2239,6 +2403,7 @@ export default function App() {
               currentUser={currentUser}
               staffList={staffList}
               routes={routes}
+              fleetVehicles={fleetVehicles}
               onUpdateStatus={handleUpdateStatus}
               onUpdateOrder={handleUpdateOrder}
               onSelectOrder={(ord) => setSelectedOrderForDetail(ord)}
@@ -2270,9 +2435,23 @@ export default function App() {
               onDeleteTrip={handleDeleteHiredTrip}
               sheetsConnected={!!sheetsConfig?.spreadsheetId}
             />
+          ) : activeTab === 'fleet_vehicles' ? (
+            <FleetManagementView
+              vehicles={fleetVehicles}
+              maintenanceRecords={maintenanceRecords}
+              currentUser={currentUser}
+              staffList={staffList}
+              onSaveVehicle={handleSaveFleetVehicle}
+              onUpdateVehicle={handleUpdateFleetVehicle}
+              onDeleteVehicle={handleDeleteFleetVehicle}
+              sheetsConnected={!!sheetsConfig?.spreadsheetId}
+              onNavigateToMaintenance={() => setActiveTab('maintenance')}
+              onShowToast={showToast}
+            />
           ) : activeTab === 'maintenance' ? (
             <VehicleMaintenanceView
               records={maintenanceRecords}
+              fleetVehicles={fleetVehicles}
               currentUser={currentUser}
               staffList={staffList}
               routes={routes}

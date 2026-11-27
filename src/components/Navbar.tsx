@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   CircleDollarSign,
   Wrench,
+  Car,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
@@ -37,6 +38,7 @@ export type NavTabId =
   | 'logistics'
   | 'deposits'
   | 'hired_vehicles'
+  | 'fleet_vehicles'
   | 'maintenance';
 
 interface NavbarProps {
@@ -58,6 +60,8 @@ interface NavbarProps {
   deliveryCount?: number;
   depositCount?: number;
   hiredVehicleCount?: number;
+  fleetVehicleCount?: number;
+  fleetAlertCount?: number;
   maintenanceCount?: number;
   isLoadingData?: boolean;
   onRefreshDatabase?: () => void;
@@ -114,6 +118,8 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({
   deliveryCount = 0,
   depositCount = 0,
   hiredVehicleCount = 0,
+  fleetVehicleCount = 0,
+  fleetAlertCount = 0,
   maintenanceCount = 0,
   isLoadingData = false,
   onRefreshDatabase,
@@ -451,6 +457,79 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({
               ),
           },
           {
+            key: 'fleet_vehicles',
+            sidebarId: 'sidebar-tab-fleet-vehicles',
+            tab: 'fleet_vehicles',
+            icon: Car,
+            title:
+              fleetAlertCount > 0
+                ? `จัดการรถ (แจ้งเตือนภาษี/ประกัน ${fleetAlertCount} รายการ)`
+                : fleetVehicleCount > 0
+                ? `จัดการรถ (${fleetVehicleCount} คัน)`
+                : 'จัดการรถ',
+            label: 'จัดการรถ',
+            subtitle: 'ทะเบียน รุ่น ภาษี & ประกันภัย',
+            badgeCount: fleetAlertCount > 0 ? fleetAlertCount : fleetVehicleCount,
+            collapsedBadgeColor: fleetAlertCount > 0 ? 'bg-rose-600' : 'bg-blue-600',
+            showInMobileDrawer: true,
+            desktopBadge: (isActive) =>
+              fleetAlertCount > 0 ? (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
+                    isActive ? 'bg-blue-600 text-white' : 'bg-rose-100 text-rose-700'
+                  }`}
+                >
+                  เตือน {fleetAlertCount}
+                </span>
+              ) : fleetVehicleCount > 0 ? (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
+                    isActive
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80'
+                  }`}
+                >
+                  {fleetVehicleCount}
+                </span>
+              ) : (
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                    isActive
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80'
+                  }`}
+                >
+                  กองรถ
+                </span>
+              ),
+            mobileBadge: (isActive) =>
+              fleetAlertCount > 0 ? (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
+                    isActive ? 'bg-blue-600 text-white' : 'bg-rose-100 text-rose-700'
+                  }`}
+                >
+                  เตือน {fleetAlertCount}
+                </span>
+              ) : fleetVehicleCount > 0 ? (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
+                    isActive ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {fleetVehicleCount}
+                </span>
+              ) : (
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                    isActive ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'
+                  }`}
+                >
+                  กองรถ
+                </span>
+              ),
+          },
+          {
             key: 'maintenance',
             sidebarId: 'sidebar-tab-maintenance',
             tab: 'maintenance',
@@ -598,6 +677,8 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({
     deliveryCount,
     depositCount,
     hiredVehicleCount,
+    fleetVehicleCount,
+    fleetAlertCount,
     maintenanceCount,
     isSales,
     isAdminOrManager,
