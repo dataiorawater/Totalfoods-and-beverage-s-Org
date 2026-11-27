@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import { Customer, Order, StoreCheckIn } from '../types';
 import { getStatusLabelThai } from './googleSheets';
 import { calculateDistanceMeters, extractCustomerCoords, formatDistance } from '../utils/geoUtils';
@@ -10,10 +9,11 @@ export interface ExcelExportOptions {
   status?: string; // "all" or specific
 }
 
-export const exportOrdersToExcel = (
+export const exportOrdersToExcel = async (
   orders: Order[],
   options: ExcelExportOptions = {}
 ) => {
+  const XLSX = await import('xlsx');
   let filtered = [...orders];
 
   if (options.month && options.month !== 'all') {
@@ -155,11 +155,12 @@ export const exportOrdersToExcel = (
   XLSX.writeFile(wb, fileName);
 };
 
-export const exportCheckInsToExcel = (
+export const exportCheckInsToExcel = async (
   checkIns: StoreCheckIn[],
   options: ExcelExportOptions = {},
   customers: Customer[] = []
 ) => {
+  const XLSX = await import('xlsx');
   let filtered = [...checkIns];
 
   if (options.month && options.month !== 'all') {
@@ -253,10 +254,11 @@ export const exportCheckInsToExcel = (
   XLSX.writeFile(wb, fileName);
 };
 
-export const exportExpensesToExcel = (
+export const exportExpensesToExcel = async (
   expenses: import('../types').Expense[],
   options: ExcelExportOptions = {}
 ) => {
+  const XLSX = await import('xlsx');
   let filtered = [...expenses];
 
   if (options.month && options.month !== 'all') {

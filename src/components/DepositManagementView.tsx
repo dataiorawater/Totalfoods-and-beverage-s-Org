@@ -29,7 +29,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
-import * as XLSX from 'xlsx';
+import { formatThaiDateShort } from '../utils/dateUtils';
 
 interface DepositManagementViewProps {
   deposits: DepositRecord[];
@@ -52,20 +52,7 @@ const CONTAINER_PRESETS = [
   { name: 'กำหนดเอง', unitPrice: 0, unit: 'หน่วย' },
 ];
 
-function formatDateThai(dateStr?: string): string {
-  if (!dateStr) return '-';
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return String(dateStr);
-    const thaiMonths = [
-      'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
-      'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
-    ];
-    return `${d.getDate()} ${thaiMonths[d.getMonth()]} ${d.getFullYear() + 543}`;
-  } catch {
-    return String(dateStr);
-  }
-}
+const formatDateThai = (dateStr?: string): string => formatThaiDateShort(dateStr);
 
 // Convert numbers to Thai Baht text e.g. 1,000 -> หนึ่งพันบาทถ้วน
 function bahtText(num: number): string {
@@ -374,7 +361,7 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
   };
 
   // Export to Excel
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     if (deposits.length === 0) {
       alert('ไม่มีข้อมูลเงินประกันสำหรับส่งออก');
       return;
@@ -409,6 +396,7 @@ export const DepositManagementView: React.FC<DepositManagementViewProps> = ({
       'หมายเหตุ': d.notes || '-',
     }));
 
+    const XLSX = await import('xlsx');
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'รายการเงินประกัน');

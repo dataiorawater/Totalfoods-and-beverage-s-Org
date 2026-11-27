@@ -8,6 +8,7 @@ import {
   VehicleRateConfig,
 } from '../types';
 import { TotalEmblem } from './TotalLogo';
+import { formatThaiDateShort } from '../utils/dateUtils';
 import {
   CircleDollarSign,
   Truck,
@@ -108,21 +109,8 @@ function bahtText(num: number): string {
 }
 
 // Format Thai Date
-function formatThaiDate(dateStr?: string, showYear = true): string {
-  if (!dateStr) return '-';
-  const parts = dateStr.split('-');
-  if (parts.length !== 3) return dateStr;
-  const year = parseInt(parts[0], 10);
-  const month = parseInt(parts[1], 10);
-  const day = parseInt(parts[2], 10);
-  const thaiMonths = [
-    'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
-    'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
-  ];
-  const mName = thaiMonths[month - 1] || '';
-  const thaiYear = year > 2400 ? year : year + 543;
-  return showYear ? `${day} ${mName} ${thaiYear}` : `${day} ${mName}`;
-}
+const formatThaiDate = (dateStr?: string, showYear = true): string =>
+  formatThaiDateShort(dateStr, { showYear });
 
 export const HiredVehicleExpensesView: React.FC<HiredVehicleExpensesViewProps> = ({
   trips,

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Order, OrderStatus, StaffUser, Route } from '../types';
 import { normalizeThaiPhone, toTelHref } from '../utils/phoneUtils';
+import { parseDateRobust, formatThaiDateShort } from '../utils/dateUtils';
 import {
   Truck,
   Calendar,
@@ -53,53 +54,7 @@ interface LogisticsManagementViewProps {
   onShowToast?: (type: 'success' | 'error' | 'info', title: string, message: string) => void;
 }
 
-// Helper to robustly parse date strings
-function parseDateRobust(dateStr: string): Date {
-  if (!dateStr) return new Date();
-  const trimmed = String(dateStr).trim();
-  const parsed = new Date(trimmed);
-  if (!isNaN(parsed.getTime()) && trimmed.includes('-') && !trimmed.includes('/')) {
-    if (parsed.getFullYear() > 2400) {
-      parsed.setFullYear(parsed.getFullYear() - 543);
-    }
-    return parsed;
-  }
-
-  const parts = trimmed.split(' ')[0] || '';
-  if (parts.includes('/') || parts.includes('-')) {
-    const sep = parts.includes('/') ? '/' : '-';
-    const dParts = parts.split(sep);
-    let day = 1;
-    let month = 1;
-    let year = new Date().getFullYear();
-
-    if (dParts.length === 3) {
-      if (dParts[0].length === 4) {
-        year = parseInt(dParts[0], 10) || year;
-        month = parseInt(dParts[1], 10) || 1;
-        day = parseInt(dParts[2], 10) || 1;
-      } else {
-        day = parseInt(dParts[0], 10) || 1;
-        month = parseInt(dParts[1], 10) || 1;
-        year = parseInt(dParts[2], 10) || year;
-      }
-    }
-    if (year > 2400) year -= 543;
-    const res = new Date(year, month - 1, day);
-    if (!isNaN(res.getTime())) return res;
-  }
-  return isNaN(parsed.getTime()) ? new Date() : parsed;
-}
-
-function formatDateThai(dateStr?: string): string {
-  if (!dateStr) return '-';
-  const d = parseDateRobust(dateStr);
-  const thaiMonths = [
-    'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
-    'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
-  ];
-  return `${d.getDate()} ${thaiMonths[d.getMonth()]} ${d.getFullYear() + 543}`;
-}
+const formatDateThai = (dateStr?: string): string => formatThaiDateShort(dateStr);
 
 function isSameDay(d1: Date, d2: Date): boolean {
   return (

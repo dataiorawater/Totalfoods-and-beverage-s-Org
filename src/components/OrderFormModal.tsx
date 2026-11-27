@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { TotalEmblem } from './TotalLogo';
 import { Order, OrderItem, Product, StaffUser, Customer, FreebieItem, TaxInvoiceDetails } from '../types';
 import { toTelHref } from '../utils/phoneUtils';
+import { parseDateRobust } from '../utils/dateUtils';
 import {
   X,
   Plus,
@@ -50,26 +51,7 @@ interface OrderFormModalProps {
 }
 
 
-// Helper to parse dates that might be in Thai format (DD/MM/YYYY)
-function parseDateRobust(dateStr: string): Date {
-  if (!dateStr) return new Date();
-  const parsed = new Date(dateStr);
-  if (!isNaN(parsed.getTime()) && dateStr.includes('-')) {
-    return parsed;
-  }
-  const parts = dateStr.split(' ');
-  const datePart = parts[0];
-  const timePart = parts[1] || '00:00:00';
 
-  if (datePart.includes('/')) {
-    const [day, month, year] = datePart.split('/');
-    let y = parseInt(year);
-    if (y > 2500) y -= 543;
-    const [hour, min, sec] = timePart.split(':');
-    return new Date(y, parseInt(month) - 1, parseInt(day), parseInt(hour || '0'), parseInt(min || '0'), parseInt(sec || '0'));
-  }
-  return parsed;
-}
 
 export const OrderFormModal: React.FC<OrderFormModalProps> = ({
   isOpen,

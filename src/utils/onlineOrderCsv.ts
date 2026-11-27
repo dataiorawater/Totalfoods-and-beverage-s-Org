@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+// Online order CSV & Excel parsing utilities
 import { normalizeThaiPhone } from './phoneUtils';
 
 export type OnlineDeliveryStatus = 'pending' | 'delivering' | 'completed' | 'cancelled';
@@ -399,14 +399,14 @@ export function parseOnlineOrdersFromCsv(csvText: string): {
 /**
  * Unified parser supporting both Excel (.xlsx / .xls) and CSV (UTF-8 / Windows-874) files.
  */
-export function parseOnlineOrdersFromFileBuffer(
+export async function parseOnlineOrdersFromFileBuffer(
   buffer: ArrayBuffer,
   fileName: string
-): {
+): Promise<{
   headers: string[];
   rows: OnlineOrderRawRow[];
   formatLabel: string;
-} {
+}> {
   const lower = fileName.toLowerCase();
   const bytes = new Uint8Array(buffer);
   const isZipMagic = bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
@@ -414,6 +414,7 @@ export function parseOnlineOrdersFromFileBuffer(
   const isExcel = lower.endsWith('.xlsx') || lower.endsWith('.xls') || isZipMagic || isOleMagic;
 
   if (isExcel) {
+    const XLSX = await import('xlsx');
     const workbook = XLSX.read(buffer, { type: 'array' });
     let bestMatrix: unknown[][] = [];
 

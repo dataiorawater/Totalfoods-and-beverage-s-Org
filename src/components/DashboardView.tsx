@@ -15,9 +15,9 @@ import {
   ChevronRight,
   ArrowUpRight,
   ArrowRight,
-  Wrench,
 } from 'lucide-react';
 import { doesRouteBelongToUser, isCustomerBelongingToUser } from '../utils/callPlanUtils';
+import { parseDateRobust, THAI_SHORT_MONTHS } from '../utils/dateUtils';
 
 interface DashboardViewProps {
   orders: Order[];
@@ -27,36 +27,11 @@ interface DashboardViewProps {
   onOpenExportExcel?: () => void;
   onOpenNewOrder: () => void;
   onNavigateToLogistics?: () => void;
-  onNavigateToMaintenance?: () => void;
   onNavigateToCustomers?: () => void;
 }
 
 
-// Helper to parse dates that might be in Thai format (DD/MM/YYYY)
-function parseDateRobust(dateStr: string): Date {
-  if (!dateStr) return new Date();
-  const parsed = new Date(dateStr);
-  if (!isNaN(parsed.getTime()) && dateStr.includes('-')) {
-    return parsed;
-  }
-  const parts = dateStr.split(' ');
-  const datePart = parts[0];
-  const timePart = parts[1] || '00:00:00';
 
-  if (datePart.includes('/')) {
-    const [day, month, year] = datePart.split('/');
-    let y = parseInt(year);
-    if (y > 2500) y -= 543;
-    const [hour, min, sec] = timePart.split(':');
-    return new Date(y, parseInt(month) - 1, parseInt(day), parseInt(hour || '0'), parseInt(min || '0'), parseInt(sec || '0'));
-  }
-  return parsed;
-}
-
-const THAI_SHORT_MONTHS = [
-  'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
-  'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.',
-];
 
 // Extract the earliest reliable acquisition/registration date of a customer
 function resolveCustomerAcquiredDate(
@@ -94,14 +69,13 @@ function resolveCustomerAcquiredDate(
   return null;
 }
 
-export const DashboardView: React.FC<DashboardViewProps> = ({
+export const DashboardView: React.FC<DashboardViewProps> = React.memo(({
   orders,
   customers = [],
   routes = [],
   currentUser,
   onOpenNewOrder,
   onNavigateToLogistics,
-  onNavigateToMaintenance,
   onNavigateToCustomers,
 }) => {
   const [period, setPeriod] = useState<'today' | '7days' | 'month' | 'all'>('7days');
@@ -489,38 +463,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
       </div>
-
-      {/* Fleet Maintenance Budget Overview Shortcut Banner (Manager Focus) */}
-      {onNavigateToMaintenance && (
-        <div
-          onClick={onNavigateToMaintenance}
-          className="bg-[#F1F5F9] text-[#0F172A] rounded-2xl p-4 sm:p-5 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer hover:border-[#1D4ED8]/50 hover:shadow-sm transition-all group"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#1D4ED8] group-hover:bg-[#1E40AF] flex items-center justify-center text-white shrink-0 shadow-xs transition-colors">
-              <Wrench className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h4 className="text-sm font-bold text-[#0F172A] tracking-tight">
-                  แดชบอร์ดงบประมาณบำรุงรักษารถยนต์ (Vehicle Maintenance Budget)
-                </h4>
-                <span className="text-[10px] font-bold bg-[#FFFFFF] text-[#1D4ED8] border border-blue-200 px-2 py-0.5 rounded-full">
-                  Fleet Analytics
-                </span>
-              </div>
-              <p className="text-xs text-slate-600 mt-0.5">
-                ดูกราฟเปรียบเทียบค่าใช้จ่ายรายเดือนและรายคันรถ สัดส่วนค่าอะไหล่ vs ค่าแรง และการวิเคราะห์ต้นทุน/กม.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
-            <span className="text-xs font-bold text-[#1D4ED8] group-hover:text-[#1E40AF] flex items-center gap-1 transition-colors">
-              เปิดแดชบอร์ดงบประมาณ &rarr;
-            </span>
-          </div>
-        </div>
-      )}
 
       {/* Main Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -964,4 +906,4 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
     </div>
   );
-};
+});

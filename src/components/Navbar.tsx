@@ -1,22 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { TotalEmblem } from './TotalLogo';
 import {
-  Package,
   PlusCircle,
   Download,
   Settings,
-  ChevronDown,
-  Shield,
-  Briefcase,
   Truck,
-  Eye,
   BarChart3,
   ListOrdered,
   Users,
-  UserPlus,
-  LogOut,
   RefreshCw,
-  ExternalLink,
   MapPin,
   Navigation,
   Wallet,
@@ -29,11 +21,27 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
-import { StaffUser, StaffRole, SheetsConfig, LineSettings } from '../types';
+import { StaffUser, SheetsConfig, LineSettings } from '../types';
+
+export type NavTabId =
+  | 'orders'
+  | 'dashboard'
+  | 'customers'
+  | 'checkin'
+  | 'expenses'
+  | 'users'
+  | 'routes'
+  | 'export'
+  | 'new_order'
+  | 'logistics_dashboard'
+  | 'logistics'
+  | 'deposits'
+  | 'hired_vehicles'
+  | 'maintenance';
 
 interface NavbarProps {
-  activeTab: 'orders' | 'dashboard' | 'customers' | 'checkin' | 'expenses' | 'users' | 'routes' | 'export' | 'new_order' | 'logistics' | 'deposits' | 'hired_vehicles' | 'maintenance';
-  setActiveTab: (tab: 'orders' | 'dashboard' | 'customers' | 'checkin' | 'expenses' | 'users' | 'routes' | 'export' | 'new_order' | 'logistics' | 'deposits' | 'hired_vehicles' | 'maintenance') => void;
+  activeTab: NavTabId;
+  setActiveTab: (tab: NavTabId) => void;
   currentUser: StaffUser;
   onOpenNewOrder: () => void;
   onOpenNewCustomer?: () => void;
@@ -55,17 +63,37 @@ interface NavbarProps {
   onRefreshDatabase?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({
+interface NavItemConfig {
+  key: string;
+  sidebarId: string;
+  tab?: NavTabId;
+  onClick?: () => void;
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  label: string;
+  subtitle: React.ReactNode;
+  badgeCount?: number;
+  collapsedBadgeColor?: string;
+  desktopBadge?: (isActive: boolean) => React.ReactNode;
+  mobileBadge?: (isActive: boolean) => React.ReactNode;
+  showDot?: boolean;
+  showInMobileDrawer?: boolean;
+}
+
+interface NavGroupConfig {
+  key: string;
+  label: string;
+  englishLabel: string;
+  showDividerWhenCollapsed?: boolean;
+  items: NavItemConfig[];
+}
+
+export const Navbar: React.FC<NavbarProps> = React.memo(({
   activeTab,
   setActiveTab,
   currentUser,
   onOpenNewOrder,
-  onOpenNewCustomer,
-  onOpenRoleSwitcher,
   onOpenSettings,
-  onOpenUserManagement,
-  onOpenRouteManagement,
-  onLogout,
   sheetsConfig = {
     spreadsheetId: '',
     spreadsheetName: '',
@@ -110,43 +138,577 @@ export const Navbar: React.FC<NavbarProps> = ({
       return next;
     });
   };
-  const getRoleIcon = (role: StaffRole) => {
-    switch (role) {
-      case 'admin':
-        return <Shield className="w-3.5 h-3.5 text-purple-600" />;
-      case 'manager':
-        return <Briefcase className="w-3.5 h-3.5 text-indigo-600" />;
-      case 'sales':
-        return <Briefcase className="w-3.5 h-3.5 text-blue-600" />;
-      case 'delivery':
-        return <Truck className="w-3.5 h-3.5 text-amber-600" />;
-      case 'viewer':
-        return <Eye className="w-3.5 h-3.5 text-slate-600" />;
-      default:
-        return null;
-    }
-  };
-
-  const getRoleName = (role: StaffRole) => {
-    switch (role) {
-      case 'admin':
-        return 'Admin สูงสุด';
-      case 'manager':
-        return 'ผู้จัดการฝ่าย';
-      case 'sales':
-        return 'พนักงานขาย';
-      case 'delivery':
-        return 'ทีมจัดส่ง';
-      case 'viewer':
-        return 'ผู้ตรวจสอบ';
-      default:
-        return role;
-    }
-  };
 
   const isViewer = currentUser.role === 'viewer';
-  const isAdmin = currentUser.role === 'admin';
+  const isAdminOrManager = currentUser.role === 'admin' || currentUser.role === 'manager';
   const isSales = currentUser.role === 'sales';
+
+  const navGroups = useMemo<NavGroupConfig[]>(() => {
+    const salesItems: NavItemConfig[] = [
+      {
+        key: 'customers',
+        sidebarId: 'sidebar-tab-customers',
+        tab: 'customers',
+        icon: Users,
+        title: customerCount > 0 ? `ข้อมูลลูกค้า (${customerCount})` : 'ข้อมูลลูกค้า',
+        label: 'ข้อมูลลูกค้า',
+        subtitle: 'รายชื่อลูกค้า & พิกัดร้าน',
+        badgeCount: customerCount,
+        collapsedBadgeColor: 'bg-blue-600',
+        showInMobileDrawer: false,
+        desktopBadge: (isActive) =>
+          customerCount > 0 ? (
+            <span
+              className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
+                isActive
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80 group-hover:border-blue-200'
+              }`}
+            >
+              {customerCount}
+            </span>
+          ) : null,
+      },
+      {
+        key: 'checkin',
+        sidebarId: 'sidebar-tab-checkin',
+        tab: 'checkin',
+        icon: MapPin,
+        title: 'เช็คอินร้านค้า (GPS)',
+        label: 'เช็คอินร้านค้า',
+        subtitle: 'บันทึกการเข้าพบหน้าร้าน',
+        showInMobileDrawer: false,
+        desktopBadge: (isActive) => (
+          <span
+            className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+              isActive ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700'
+            }`}
+          >
+            GPS
+          </span>
+        ),
+      },
+      {
+        key: 'orders',
+        sidebarId: 'sidebar-tab-orders',
+        tab: 'orders',
+        icon: ListOrdered,
+        title: `รายการออเดอร์ (${orderCount})`,
+        label: 'รายการออเดอร์',
+        subtitle: 'คำสั่งซื้อ & ออกบิล',
+        badgeCount: orderCount,
+        collapsedBadgeColor: 'bg-blue-600',
+        showInMobileDrawer: false,
+        desktopBadge: (isActive) => (
+          <span
+            className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
+              isActive
+                ? 'bg-blue-600 text-white'
+                : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80 group-hover:border-blue-200'
+            }`}
+          >
+            {orderCount}
+          </span>
+        ),
+      },
+      {
+        key: 'expenses',
+        sidebarId: 'sidebar-tab-expenses',
+        tab: 'expenses',
+        icon: Wallet,
+        title: 'บันทึกค่าใช้จ่าย',
+        label: 'บันทึกค่าใช้จ่าย',
+        subtitle: 'ค่าน้ำมัน & เบิกจ่าย',
+        showInMobileDrawer: true,
+      },
+      {
+        key: 'dashboard',
+        sidebarId: 'sidebar-tab-dashboard',
+        tab: 'dashboard',
+        icon: BarChart3,
+        title: `ยอดขายวันนี้ (฿${(todaySalesAmount ?? 0).toLocaleString()})`,
+        label: 'ยอดขายวันนี้',
+        subtitle: 'สรุปภาพรวมแดชบอร์ด',
+        showInMobileDrawer: true,
+        desktopBadge: (isActive) => (
+          <span
+            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0 ${
+              isActive
+                ? 'bg-blue-600 text-white'
+                : 'bg-[#FFFFFF] text-[#0F172A] border border-slate-200/80'
+            }`}
+          >
+            ฿{(todaySalesAmount ?? 0).toLocaleString()}
+          </span>
+        ),
+        mobileBadge: (isActive) => (
+          <span
+            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0 ${
+              isActive ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700'
+            }`}
+          >
+            ฿{(todaySalesAmount ?? 0).toLocaleString()}
+          </span>
+        ),
+      },
+    ];
+
+    const groups: NavGroupConfig[] = [
+      {
+        key: 'sales',
+        label: 'เมนูพนักงานขาย',
+        englishLabel: 'Sales',
+        showDividerWhenCollapsed: false,
+        items: salesItems,
+      },
+    ];
+
+    if (!isSales) {
+      groups.push({
+        key: 'logistics',
+        label: 'เมนูโลจิสติกส์',
+        englishLabel: 'Logistics',
+        showDividerWhenCollapsed: true,
+        items: [
+          {
+            key: 'logistics_dashboard',
+            sidebarId: 'sidebar-tab-logistics-dashboard',
+            tab: 'logistics_dashboard',
+            icon: BarChart3,
+            title: 'แดชบอร์ดสรุปงานจัดส่ง',
+            label: 'แดชบอร์ดสรุปงานจัดส่ง',
+            subtitle: 'ภาพรวมจัดส่ง & งบประมาณรถ',
+            showInMobileDrawer: true,
+            desktopBadge: (isActive) => (
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                  isActive
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80'
+                }`}
+              >
+                ภาพรวม
+              </span>
+            ),
+            mobileBadge: (isActive) => (
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                  isActive ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'
+                }`}
+              >
+                ภาพรวม
+              </span>
+            ),
+          },
+          {
+            key: 'logistics',
+            sidebarId: 'sidebar-tab-logistics',
+            tab: 'logistics',
+            icon: Truck,
+            title: deliveryCount > 0 ? `จัดการแผนงานจัดส่ง (${deliveryCount})` : 'จัดการแผนงานจัดส่ง',
+            label: 'จัดการแผนงานจัดส่ง',
+            subtitle: 'จัดลำดับจุดส่ง & แผนเที่ยวรถ',
+            badgeCount: deliveryCount,
+            collapsedBadgeColor: 'bg-amber-500',
+            showInMobileDrawer: true,
+            desktopBadge: (isActive) =>
+              deliveryCount > 0 ? (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
+                    isActive ? 'bg-blue-600 text-white' : 'bg-amber-100 text-amber-800'
+                  }`}
+                >
+                  {deliveryCount}
+                </span>
+              ) : (
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                    isActive
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80'
+                  }`}
+                >
+                  แผนส่ง
+                </span>
+              ),
+            mobileBadge: (isActive) =>
+              deliveryCount > 0 ? (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
+                    isActive ? 'bg-blue-600 text-white' : 'bg-amber-100 text-amber-800'
+                  }`}
+                >
+                  {deliveryCount}
+                </span>
+              ) : (
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                    isActive ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'
+                  }`}
+                >
+                  แผนส่ง
+                </span>
+              ),
+          },
+          {
+            key: 'deposits',
+            sidebarId: 'sidebar-tab-deposits',
+            tab: 'deposits',
+            icon: ShieldCheck,
+            title: depositCount > 0 ? `จัดการเงินประกัน (${depositCount})` : 'จัดการเงินประกัน',
+            label: 'จัดการเงินประกัน',
+            subtitle: 'เงินมัดจำถัง & ค้ำประกัน',
+            badgeCount: depositCount,
+            collapsedBadgeColor: 'bg-emerald-600',
+            showInMobileDrawer: true,
+            desktopBadge: (isActive) =>
+              depositCount > 0 ? (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
+                    isActive ? 'bg-blue-600 text-white' : 'bg-emerald-100 text-emerald-800'
+                  }`}
+                >
+                  {depositCount}
+                </span>
+              ) : (
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                    isActive
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80'
+                  }`}
+                >
+                  มัดจำ
+                </span>
+              ),
+            mobileBadge: (isActive) =>
+              depositCount > 0 ? (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
+                    isActive ? 'bg-blue-600 text-white' : 'bg-emerald-100 text-emerald-800'
+                  }`}
+                >
+                  {depositCount}
+                </span>
+              ) : (
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                    isActive ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'
+                  }`}
+                >
+                  มัดจำ
+                </span>
+              ),
+          },
+          {
+            key: 'hired_vehicles',
+            sidebarId: 'sidebar-tab-hired-vehicles',
+            tab: 'hired_vehicles',
+            icon: CircleDollarSign,
+            title: hiredVehicleCount > 0 ? `ค่าใช้จ่ายรถจ้าง (${hiredVehicleCount})` : 'ค่าใช้จ่ายรถจ้าง',
+            label: 'ค่าใช้จ่ายรถจ้าง',
+            subtitle: 'สรุปค่าเที่ยว & ทำจ่ายรถร่วม',
+            badgeCount: hiredVehicleCount,
+            collapsedBadgeColor: 'bg-amber-500',
+            showInMobileDrawer: true,
+            desktopBadge: (isActive) =>
+              hiredVehicleCount > 0 ? (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
+                    isActive ? 'bg-blue-600 text-white' : 'bg-amber-100 text-amber-800'
+                  }`}
+                >
+                  {hiredVehicleCount}
+                </span>
+              ) : (
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                    isActive
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80'
+                  }`}
+                >
+                  รถจ้าง
+                </span>
+              ),
+            mobileBadge: (isActive) =>
+              hiredVehicleCount > 0 ? (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
+                    isActive ? 'bg-blue-600 text-white' : 'bg-amber-100 text-amber-800'
+                  }`}
+                >
+                  {hiredVehicleCount}
+                </span>
+              ) : (
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                    isActive ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'
+                  }`}
+                >
+                  รถจ้าง
+                </span>
+              ),
+          },
+          {
+            key: 'maintenance',
+            sidebarId: 'sidebar-tab-maintenance',
+            tab: 'maintenance',
+            icon: Wrench,
+            title: maintenanceCount > 0 ? `บันทึกบำรุงรักษารถ (${maintenanceCount})` : 'บันทึกบำรุงรักษารถ',
+            label: 'บันทึกบำรุงรักษารถ',
+            subtitle: 'ประวัติซ่อม & เตือนเช็คระยะ',
+            badgeCount: maintenanceCount,
+            collapsedBadgeColor: 'bg-indigo-600',
+            showInMobileDrawer: true,
+            desktopBadge: (isActive) =>
+              maintenanceCount > 0 ? (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
+                    isActive ? 'bg-blue-600 text-white' : 'bg-indigo-100 text-indigo-800'
+                  }`}
+                >
+                  {maintenanceCount}
+                </span>
+              ) : (
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                    isActive
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80'
+                  }`}
+                >
+                  ซ่อมบำรุง
+                </span>
+              ),
+            mobileBadge: (isActive) =>
+              maintenanceCount > 0 ? (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
+                    isActive ? 'bg-blue-600 text-white' : 'bg-indigo-100 text-indigo-800'
+                  }`}
+                >
+                  {maintenanceCount}
+                </span>
+              ) : (
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                    isActive ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'
+                  }`}
+                >
+                  ซ่อมบำรุง
+                </span>
+              ),
+          },
+        ],
+      });
+
+      const toolItems: NavItemConfig[] = [];
+      if (isAdminOrManager) {
+        toolItems.push(
+          {
+            key: 'users',
+            sidebarId: 'sidebar-btn-users',
+            tab: 'users',
+            icon: Users,
+            title: 'จัดการสิทธิ์ผู้ใช้งาน',
+            label: 'จัดการสิทธิ์ผู้ใช้งาน',
+            subtitle: 'กำหนดบทบาทและทีม',
+            showInMobileDrawer: true,
+            desktopBadge: (isActive) => (
+              <span
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                  isActive
+                    ? 'bg-[#1D4ED8] text-white'
+                    : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80'
+                }`}
+              >
+                Admin
+              </span>
+            ),
+            mobileBadge: (isActive) => (
+              <span
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                  isActive ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                Admin
+              </span>
+            ),
+          },
+          {
+            key: 'routes',
+            sidebarId: 'sidebar-btn-routes',
+            tab: 'routes',
+            icon: Navigation,
+            title: 'จัดการสายการเข้าเยี่ยม',
+            label: 'จัดการสายการเข้าเยี่ยม',
+            subtitle: 'สายส่ง & โซนพื้นที่',
+            showInMobileDrawer: true,
+          }
+        );
+      }
+
+      toolItems.push({
+        key: 'export',
+        sidebarId: 'sidebar-btn-export',
+        tab: 'export',
+        icon: Download,
+        title: 'ส่งออกรายงาน (Excel)',
+        label: 'ส่งออกรายงาน (Excel)',
+        subtitle: 'ดาวน์โหลดไฟล์ข้อมูล',
+        showInMobileDrawer: true,
+      });
+
+      if (isAdminOrManager) {
+        toolItems.push({
+          key: 'settings',
+          sidebarId: 'sidebar-btn-settings',
+          onClick: onOpenSettings,
+          icon: Settings,
+          title: 'ตั้งค่าระบบ & เชื่อมต่อ (Google Sheets & LINE)',
+          label: 'ตั้งค่าระบบ & เชื่อมต่อ',
+          subtitle: (
+            <span className="inline-flex items-center gap-1">
+              <BrandLogo brand="google-sheets" className="w-2.5 h-2.5 text-[#34A853] shrink-0" />
+              <span>Google Sheets &amp;</span>
+              <BrandLogo brand="line" className="w-2.5 h-2.5 text-[#00C300] shrink-0" />
+              <span>LINE</span>
+            </span>
+          ),
+          showDot: Boolean(lineSettings?.enabled),
+          showInMobileDrawer: true,
+        });
+      }
+
+      groups.push({
+        key: 'tools',
+        label: 'เครื่องมือ & การจัดการ',
+        englishLabel: 'Tools',
+        showDividerWhenCollapsed: true,
+        items: toolItems,
+      });
+    }
+
+    return groups;
+  }, [
+    customerCount,
+    orderCount,
+    todaySalesAmount,
+    deliveryCount,
+    depositCount,
+    hiredVehicleCount,
+    maintenanceCount,
+    isSales,
+    isAdminOrManager,
+    lineSettings?.enabled,
+    onOpenSettings,
+  ]);
+
+  const renderDesktopItem = (item: NavItemConfig) => {
+    const Icon = item.icon;
+    const isActive = item.tab ? activeTab === item.tab : false;
+    const handleClick = item.onClick || (item.tab ? () => setActiveTab(item.tab!) : undefined);
+
+    return (
+      <button
+        key={item.key}
+        id={item.sidebarId}
+        onClick={handleClick}
+        title={item.title}
+        className={`w-full flex items-center ${
+          isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
+        } rounded-xl text-xs font-semibold transition-all cursor-pointer group relative ${
+          isActive
+            ? 'bg-[#FFFFFF] text-[#1D4ED8] font-bold border border-blue-200/90 shadow-xs'
+            : 'text-[#0F172A]/80 hover:text-[#0F172A] hover:bg-[#FFFFFF]/80 border border-transparent'
+        }`}
+      >
+        <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
+          <div
+            className={`${
+              isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
+            } flex items-center justify-center shrink-0 transition-colors relative ${
+              isActive
+                ? 'bg-[#1D4ED8] text-white shadow-2xs'
+                : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80 group-hover:border-blue-200 group-hover:text-[#1D4ED8]'
+            }`}
+          >
+            <Icon className="w-4 h-4" />
+            {isSidebarCollapsed && item.badgeCount !== undefined && item.badgeCount > 0 && (
+              <span
+                className={`absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full ${
+                  item.collapsedBadgeColor || 'bg-blue-600'
+                } text-white text-[9px] font-bold flex items-center justify-center leading-none ring-2 ring-white`}
+              >
+                {item.badgeCount > 99 ? '99+' : item.badgeCount}
+              </span>
+            )}
+            {isSidebarCollapsed && item.showDot && (
+              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-blue-500 ring-2 ring-white"></span>
+            )}
+          </div>
+          {!isSidebarCollapsed && (
+            <div className="flex flex-col text-left min-w-0">
+              <span className="leading-tight truncate">{item.label}</span>
+              <span className="text-[10px] text-slate-400 font-normal truncate">
+                {item.subtitle}
+              </span>
+            </div>
+          )}
+        </div>
+        {!isSidebarCollapsed && item.desktopBadge && item.desktopBadge(isActive)}
+        {!isSidebarCollapsed && item.showDot && (
+          <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" title="LINE แจ้งเตือนเปิดใช้งาน"></span>
+        )}
+      </button>
+    );
+  };
+
+  const renderMobileDrawerItem = (item: NavItemConfig) => {
+    const Icon = item.icon;
+    const isActive = item.tab ? activeTab === item.tab : false;
+    const handleClick = () => {
+      if (item.onClick) {
+        item.onClick();
+      } else if (item.tab) {
+        setActiveTab(item.tab);
+      }
+      setIsMobileMenuOpen(false);
+    };
+
+    return (
+      <button
+        key={item.key}
+        onClick={handleClick}
+        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
+          isActive
+            ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
+            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
+        }`}
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div
+            className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+              isActive
+                ? 'bg-blue-600 text-white shadow-2xs'
+                : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
+            }`}
+          >
+            <Icon className="w-4 h-4" />
+          </div>
+          <div className="flex flex-col text-left min-w-0">
+            <span className="leading-tight truncate">{item.label}</span>
+            <span className="text-[10px] text-slate-400 font-normal truncate">
+              {item.subtitle}
+            </span>
+          </div>
+        </div>
+        {item.mobileBadge && item.mobileBadge(isActive)}
+        {item.showDot && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>}
+      </button>
+    );
+  };
 
   return (
     <>
@@ -269,728 +831,52 @@ export const Navbar: React.FC<NavbarProps> = ({
             isSidebarCollapsed ? 'px-2.5 py-3 space-y-3' : 'p-3.5 space-y-5'
           } flex flex-col`}
         >
-          {/* Group 1: Sales Menu */}
-          <div>
-            {!isSidebarCollapsed && (
-              <div className="px-3 mb-2 flex items-center justify-between">
-                <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
-                  เมนูพนักงานขาย
-                </span>
-                <span className="text-[10px] font-semibold text-slate-400">
-                  Sales
-                </span>
-              </div>
-            )}
-            <nav className="space-y-1">
-              {/* Primary Action inside Sales Menu: New Order */}
-              {!isViewer && (
-                <div className={isSidebarCollapsed ? 'flex justify-center pb-1' : 'pb-1.5'}>
-                  <button
-                    id="sidebar-btn-new-order"
-                    onClick={onOpenNewOrder}
-                    title="ลงออเดอร์ใหม่"
-                    className={`${
-                      isSidebarCollapsed
-                        ? 'w-10 h-10 p-0 rounded-xl'
-                        : 'w-full py-2.5 px-3 rounded-xl gap-2'
-                    } flex items-center justify-center bg-[#1D4ED8] hover:bg-[#1E40AF] active:scale-98 text-white font-bold text-xs shadow-sm shadow-blue-700/20 transition-all cursor-pointer ${
-                      activeTab === 'new_order' ? 'ring-2 ring-[#1D4ED8]/30 ring-offset-1 ring-offset-[#F1F5F9]' : ''
-                    }`}
-                  >
-                    <PlusCircle className={`${isSidebarCollapsed ? 'w-5 h-5' : 'w-4 h-4'} shrink-0`} />
-                    {!isSidebarCollapsed && <span>ลงออเดอร์ใหม่</span>}
-                  </button>
+          {navGroups.map((group) => (
+            <div key={group.key}>
+              {isSidebarCollapsed ? (
+                group.showDividerWhenCollapsed && <div className="border-t border-slate-200/80 mx-2 mb-3" />
+              ) : (
+                <div className="px-3 mb-2 flex items-center justify-between">
+                  <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
+                    {group.label}
+                  </span>
+                  <span className="text-[10px] font-semibold text-slate-400">
+                    {group.englishLabel}
+                  </span>
                 </div>
               )}
 
-              {/* 1. Customers */}
-              <button
-                id="sidebar-tab-customers"
-                onClick={() => setActiveTab('customers')}
-                title={customerCount > 0 ? `ข้อมูลลูกค้า (${customerCount})` : 'ข้อมูลลูกค้า'}
-                className={`w-full flex items-center ${
-                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
-                } rounded-xl text-xs font-semibold transition-all cursor-pointer group relative ${
-                  activeTab === 'customers'
-                    ? 'bg-[#FFFFFF] text-[#1D4ED8] font-bold border border-blue-200/90 shadow-xs'
-                    : 'text-[#0F172A]/80 hover:text-[#0F172A] hover:bg-[#FFFFFF]/80 border border-transparent'
-                }`}
-              >
-                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
-                  <div
-                    className={`${
-                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
-                    } flex items-center justify-center shrink-0 transition-colors relative ${
-                      activeTab === 'customers'
-                        ? 'bg-[#1D4ED8] text-white shadow-2xs'
-                        : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80 group-hover:border-blue-200 group-hover:text-[#1D4ED8]'
-                    }`}
-                  >
-                    <Users className="w-4 h-4" />
-                    {isSidebarCollapsed && customerCount > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-blue-600 text-white text-[9px] font-bold flex items-center justify-center leading-none ring-2 ring-white">
-                        {customerCount > 99 ? '99+' : customerCount}
-                      </span>
-                    )}
-                  </div>
-                  {!isSidebarCollapsed && (
-                    <div className="flex flex-col text-left min-w-0">
-                      <span className="leading-tight truncate">ข้อมูลลูกค้า</span>
-                      <span className="text-[10px] text-slate-400 font-normal truncate">
-                        รายชื่อลูกค้า & พิกัดร้าน
-                      </span>
-                    </div>
-                  )}
-                </div>
-                {!isSidebarCollapsed && customerCount > 0 && (
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
-                      activeTab === 'customers'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80 group-hover:border-blue-200'
-                    }`}
-                  >
-                    {customerCount}
-                  </span>
-                )}
-              </button>
-
-              {/* 2. Store Check-in */}
-              <button
-                id="sidebar-tab-checkin"
-                onClick={() => setActiveTab('checkin')}
-                title="เช็คอินร้านค้า (GPS)"
-                className={`w-full flex items-center ${
-                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
-                } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                  activeTab === 'checkin'
-                    ? 'bg-[#FFFFFF] text-[#1D4ED8] font-bold border border-blue-200/90 shadow-xs'
-                    : 'text-[#0F172A]/80 hover:text-[#0F172A] hover:bg-[#FFFFFF]/80 border border-transparent'
-                }`}
-              >
-                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
-                  <div
-                    className={`${
-                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
-                    } flex items-center justify-center shrink-0 transition-colors ${
-                      activeTab === 'checkin'
-                        ? 'bg-[#1D4ED8] text-white shadow-2xs'
-                        : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80 group-hover:border-blue-200 group-hover:text-[#1D4ED8]'
-                    }`}
-                  >
-                    <MapPin className="w-4 h-4" />
-                  </div>
-                  {!isSidebarCollapsed && (
-                    <div className="flex flex-col text-left min-w-0">
-                      <span className="leading-tight truncate">เช็คอินร้านค้า</span>
-                      <span className="text-[10px] text-slate-400 font-normal truncate">
-                        บันทึกการเข้าพบหน้าร้าน
-                      </span>
-                    </div>
-                  )}
-                </div>
-                {!isSidebarCollapsed && (
-                  <span
-                    className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
-                      activeTab === 'checkin'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-blue-50 text-blue-700'
-                    }`}
-                  >
-                    GPS
-                  </span>
-                )}
-              </button>
-
-              {/* 3. Orders */}
-              <button
-                id="sidebar-tab-orders"
-                onClick={() => setActiveTab('orders')}
-                title={`รายการออเดอร์ (${orderCount})`}
-                className={`w-full flex items-center ${
-                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
-                } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                  activeTab === 'orders'
-                    ? 'bg-[#FFFFFF] text-[#1D4ED8] font-bold border border-blue-200/90 shadow-xs'
-                    : 'text-[#0F172A]/80 hover:text-[#0F172A] hover:bg-[#FFFFFF]/80 border border-transparent'
-                }`}
-              >
-                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
-                  <div
-                    className={`${
-                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
-                    } flex items-center justify-center shrink-0 transition-colors relative ${
-                      activeTab === 'orders'
-                        ? 'bg-[#1D4ED8] text-white shadow-2xs'
-                        : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80 group-hover:border-blue-200 group-hover:text-[#1D4ED8]'
-                    }`}
-                  >
-                    <ListOrdered className="w-4 h-4" />
-                    {isSidebarCollapsed && orderCount > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-blue-600 text-white text-[9px] font-bold flex items-center justify-center leading-none ring-2 ring-white">
-                        {orderCount > 99 ? '99+' : orderCount}
-                      </span>
-                    )}
-                  </div>
-                  {!isSidebarCollapsed && (
-                    <div className="flex flex-col text-left min-w-0">
-                      <span className="leading-tight truncate">รายการออเดอร์</span>
-                      <span className="text-[10px] text-slate-400 font-normal truncate">
-                        คำสั่งซื้อ & ออกบิล
-                      </span>
-                    </div>
-                  )}
-                </div>
-                {!isSidebarCollapsed && (
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
-                      activeTab === 'orders'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80 group-hover:border-blue-200'
-                    }`}
-                  >
-                    {orderCount}
-                  </span>
-                )}
-              </button>
-
-              {/* 4. Expenses */}
-              <button
-                id="sidebar-tab-expenses"
-                onClick={() => setActiveTab('expenses')}
-                title="บันทึกค่าใช้จ่าย"
-                className={`w-full flex items-center ${
-                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
-                } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                  activeTab === 'expenses'
-                    ? 'bg-[#FFFFFF] text-[#1D4ED8] font-bold border border-blue-200/90 shadow-xs'
-                    : 'text-[#0F172A]/80 hover:text-[#0F172A] hover:bg-[#FFFFFF]/80 border border-transparent'
-                }`}
-              >
-                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
-                  <div
-                    className={`${
-                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
-                    } flex items-center justify-center shrink-0 transition-colors ${
-                      activeTab === 'expenses'
-                        ? 'bg-[#1D4ED8] text-white shadow-2xs'
-                        : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80 group-hover:border-blue-200 group-hover:text-[#1D4ED8]'
-                    }`}
-                  >
-                    <Wallet className="w-4 h-4" />
-                  </div>
-                  {!isSidebarCollapsed && (
-                    <div className="flex flex-col text-left min-w-0">
-                      <span className="leading-tight truncate">บันทึกค่าใช้จ่าย</span>
-                      <span className="text-[10px] text-slate-400 font-normal truncate">
-                        ค่าน้ำมัน & เบิกจ่าย
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </button>
-
-              {/* 5. Dashboard */}
-              <button
-                id="sidebar-tab-dashboard"
-                onClick={() => setActiveTab('dashboard')}
-                title={`ยอดขายวันนี้ (฿${(todaySalesAmount ?? 0).toLocaleString()})`}
-                className={`w-full flex items-center ${
-                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
-                } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                  activeTab === 'dashboard'
-                    ? 'bg-[#FFFFFF] text-[#1D4ED8] font-bold border border-blue-200/90 shadow-xs'
-                    : 'text-[#0F172A]/80 hover:text-[#0F172A] hover:bg-[#FFFFFF]/80 border border-transparent'
-                }`}
-              >
-                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
-                  <div
-                    className={`${
-                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
-                    } flex items-center justify-center shrink-0 transition-colors ${
-                      activeTab === 'dashboard'
-                        ? 'bg-[#1D4ED8] text-white shadow-2xs'
-                        : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80 group-hover:border-blue-200 group-hover:text-[#1D4ED8]'
-                    }`}
-                  >
-                    <BarChart3 className="w-4 h-4" />
-                  </div>
-                  {!isSidebarCollapsed && (
-                    <div className="flex flex-col text-left min-w-0">
-                      <span className="leading-tight truncate">ยอดขายวันนี้</span>
-                      <span className="text-[10px] text-slate-400 font-normal truncate">
-                        สรุปภาพรวมแดชบอร์ด
-                      </span>
-                    </div>
-                  )}
-                </div>
-                {!isSidebarCollapsed && (
-                  <span
-                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0 ${
-                      activeTab === 'dashboard'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-[#FFFFFF] text-[#0F172A] border border-slate-200/80'
-                    }`}
-                  >
-                    ฿{(todaySalesAmount ?? 0).toLocaleString()}
-                  </span>
-                )}
-              </button>
-            </nav>
-          </div>
-
-          {/* Group 2: Logistics Menu (แยกออกจากเมนูพนักงานขายอย่างชัดเจน - ซ่อนสำหรับพนักงานขาย) */}
-          {!isSales && (
-          <div>
-            {isSidebarCollapsed ? (
-              <div className="border-t border-slate-200/80 mx-2 mb-3" />
-            ) : (
-              <div className="px-3 mb-2 flex items-center justify-between">
-                <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
-                  เมนูโลจิสติกส์
-                </span>
-                <span className="text-[10px] font-semibold text-slate-400">
-                  Logistics
-                </span>
-              </div>
-            )}
-            <nav className="space-y-1">
-              <button
-                id="sidebar-tab-logistics"
-                onClick={() => setActiveTab('logistics')}
-                title={deliveryCount > 0 ? `จัดการแผนงานจัดส่ง (${deliveryCount})` : 'จัดการแผนงานจัดส่ง'}
-                className={`w-full flex items-center ${
-                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
-                } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                  activeTab === 'logistics'
-                    ? 'bg-[#FFFFFF] text-[#1D4ED8] font-bold border border-blue-200/90 shadow-xs'
-                    : 'text-[#0F172A]/80 hover:text-[#0F172A] hover:bg-[#FFFFFF]/80 border border-transparent'
-                }`}
-              >
-                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
-                  <div
-                    className={`${
-                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
-                    } flex items-center justify-center shrink-0 transition-colors relative ${
-                      activeTab === 'logistics'
-                        ? 'bg-[#1D4ED8] text-white shadow-2xs'
-                        : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80 group-hover:border-blue-200 group-hover:text-[#1D4ED8]'
-                    }`}
-                  >
-                    <Truck className="w-4 h-4" />
-                    {isSidebarCollapsed && deliveryCount > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center leading-none ring-2 ring-white">
-                        {deliveryCount > 99 ? '99+' : deliveryCount}
-                      </span>
-                    )}
-                  </div>
-                  {!isSidebarCollapsed && (
-                    <div className="flex flex-col text-left min-w-0">
-                      <span className="leading-tight truncate">จัดการแผนงานจัดส่ง</span>
-                      <span className="text-[10px] text-slate-400 font-normal truncate">
-                        จัดลำดับจุดส่ง & แผนเที่ยวรถ
-                      </span>
-                    </div>
-                  )}
-                </div>
-                {!isSidebarCollapsed && (deliveryCount > 0 ? (
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
-                      activeTab === 'logistics'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-amber-100 text-amber-800'
-                    }`}
-                  >
-                    {deliveryCount}
-                  </span>
-                ) : (
-                  <span
-                    className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
-                      activeTab === 'logistics'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80'
-                    }`}
-                  >
-                    แผนส่ง
-                  </span>
-                ))}
-              </button>
-
-              {/* 2. Security Deposits Management (จัดการเงินประกัน) */}
-              <button
-                id="sidebar-tab-deposits"
-                onClick={() => setActiveTab('deposits')}
-                title={depositCount > 0 ? `จัดการเงินประกัน (${depositCount})` : 'จัดการเงินประกัน'}
-                className={`w-full flex items-center ${
-                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
-                } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                  activeTab === 'deposits'
-                    ? 'bg-[#FFFFFF] text-[#1D4ED8] font-bold border border-blue-200/90 shadow-xs'
-                    : 'text-[#0F172A]/80 hover:text-[#0F172A] hover:bg-[#FFFFFF]/80 border border-transparent'
-                }`}
-              >
-                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
-                  <div
-                    className={`${
-                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
-                    } flex items-center justify-center shrink-0 transition-colors relative ${
-                      activeTab === 'deposits'
-                        ? 'bg-[#1D4ED8] text-white shadow-2xs'
-                        : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80 group-hover:border-blue-200 group-hover:text-[#1D4ED8]'
-                    }`}
-                  >
-                    <ShieldCheck className="w-4 h-4" />
-                    {isSidebarCollapsed && depositCount > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-emerald-600 text-white text-[9px] font-bold flex items-center justify-center leading-none ring-2 ring-white">
-                        {depositCount > 99 ? '99+' : depositCount}
-                      </span>
-                    )}
-                  </div>
-                  {!isSidebarCollapsed && (
-                    <div className="flex flex-col text-left min-w-0">
-                      <span className="leading-tight truncate">จัดการเงินประกัน</span>
-                      <span className="text-[10px] text-slate-400 font-normal truncate">
-                        เงินมัดจำถัง & ค้ำประกัน
-                      </span>
-                    </div>
-                  )}
-                </div>
-                {!isSidebarCollapsed && (depositCount > 0 ? (
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
-                      activeTab === 'deposits'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-emerald-100 text-emerald-800'
-                    }`}
-                  >
-                    {depositCount}
-                  </span>
-                ) : (
-                  <span
-                    className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
-                      activeTab === 'deposits'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80'
-                    }`}
-                  >
-                    มัดจำ
-                  </span>
-                ))}
-              </button>
-
-              {/* 3. Hired Vehicle Expenses & Payouts (ค่าใช้จ่ายรถจ้าง) */}
-              <button
-                id="sidebar-tab-hired-vehicles"
-                onClick={() => setActiveTab('hired_vehicles')}
-                title={hiredVehicleCount > 0 ? `ค่าใช้จ่ายรถจ้าง (${hiredVehicleCount})` : 'ค่าใช้จ่ายรถจ้าง'}
-                className={`w-full flex items-center ${
-                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
-                } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                  activeTab === 'hired_vehicles'
-                    ? 'bg-[#FFFFFF] text-[#1D4ED8] font-bold border border-blue-200/90 shadow-xs'
-                    : 'text-[#0F172A]/80 hover:text-[#0F172A] hover:bg-[#FFFFFF]/80 border border-transparent'
-                }`}
-              >
-                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
-                  <div
-                    className={`${
-                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
-                    } flex items-center justify-center shrink-0 transition-colors relative ${
-                      activeTab === 'hired_vehicles'
-                        ? 'bg-[#1D4ED8] text-white shadow-2xs'
-                        : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80 group-hover:border-blue-200 group-hover:text-[#1D4ED8]'
-                    }`}
-                  >
-                    <CircleDollarSign className="w-4 h-4" />
-                    {isSidebarCollapsed && hiredVehicleCount > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center leading-none ring-2 ring-white">
-                        {hiredVehicleCount > 99 ? '99+' : hiredVehicleCount}
-                      </span>
-                    )}
-                  </div>
-                  {!isSidebarCollapsed && (
-                    <div className="flex flex-col text-left min-w-0">
-                      <span className="leading-tight truncate">ค่าใช้จ่ายรถจ้าง</span>
-                      <span className="text-[10px] text-slate-400 font-normal truncate">
-                        สรุปค่าเที่ยว & ทำจ่ายรถร่วม
-                      </span>
-                    </div>
-                  )}
-                </div>
-                {!isSidebarCollapsed && (hiredVehicleCount > 0 ? (
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
-                      activeTab === 'hired_vehicles'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-amber-100 text-amber-800'
-                    }`}
-                  >
-                    {hiredVehicleCount}
-                  </span>
-                ) : (
-                  <span
-                    className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
-                      activeTab === 'hired_vehicles'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80'
-                    }`}
-                  >
-                    รถจ้าง
-                  </span>
-                ))}
-              </button>
-
-              {/* 4. Vehicle Maintenance Log (บันทึกบำรุงรักษารถ) */}
-              <button
-                id="sidebar-tab-maintenance"
-                onClick={() => setActiveTab('maintenance')}
-                title={maintenanceCount > 0 ? `บันทึกบำรุงรักษารถ (${maintenanceCount})` : 'บันทึกบำรุงรักษารถ'}
-                className={`w-full flex items-center ${
-                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
-                } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                  activeTab === 'maintenance'
-                    ? 'bg-[#FFFFFF] text-[#1D4ED8] font-bold border border-blue-200/90 shadow-xs'
-                    : 'text-[#0F172A]/80 hover:text-[#0F172A] hover:bg-[#FFFFFF]/80 border border-transparent'
-                }`}
-              >
-                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
-                  <div
-                    className={`${
-                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
-                    } flex items-center justify-center shrink-0 transition-colors relative ${
-                      activeTab === 'maintenance'
-                        ? 'bg-[#1D4ED8] text-white shadow-2xs'
-                        : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80 group-hover:border-blue-200 group-hover:text-[#1D4ED8]'
-                    }`}
-                  >
-                    <Wrench className="w-4 h-4" />
-                    {isSidebarCollapsed && maintenanceCount > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-indigo-600 text-white text-[9px] font-bold flex items-center justify-center leading-none ring-2 ring-white">
-                        {maintenanceCount > 99 ? '99+' : maintenanceCount}
-                      </span>
-                    )}
-                  </div>
-                  {!isSidebarCollapsed && (
-                    <div className="flex flex-col text-left min-w-0">
-                      <span className="leading-tight truncate">บันทึกบำรุงรักษารถ</span>
-                      <span className="text-[10px] text-slate-400 font-normal truncate">
-                        ประวัติซ่อม & เตือนเช็คระยะ
-                      </span>
-                    </div>
-                  )}
-                </div>
-                {!isSidebarCollapsed && (maintenanceCount > 0 ? (
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
-                      activeTab === 'maintenance'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-indigo-100 text-indigo-800'
-                    }`}
-                  >
-                    {maintenanceCount}
-                  </span>
-                ) : (
-                  <span
-                    className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
-                      activeTab === 'maintenance'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80'
-                    }`}
-                  >
-                    ซ่อมบำรุง
-                  </span>
-                ))}
-              </button>
-            </nav>
-          </div>
-          )}
-
-          {/* Group 3: Tools & Administration (ซ่อนสำหรับพนักงานขาย) */}
-          {!isSales && (
-          <div>
-            {isSidebarCollapsed ? (
-              <div className="border-t border-slate-200/80 mx-2 mb-3" />
-            ) : (
-              <div className="px-3 mb-2 flex items-center justify-between">
-                <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
-                  เครื่องมือ & การจัดการ
-                </span>
-                <span className="text-[10px] font-semibold text-slate-400">
-                  Tools
-                </span>
-              </div>
-            )}
-            <nav className="space-y-1">
-              {/* Admin User Management */}
-              {(isAdmin || currentUser.role === 'manager') && (
-                <button
-                  id="sidebar-btn-users"
-                  onClick={() => setActiveTab('users')}
-                  title="จัดการสิทธิ์ผู้ใช้งาน"
-                  className={`w-full flex items-center ${
-                    isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
-                  } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                    activeTab === 'users'
-                      ? 'bg-[#FFFFFF] text-[#1D4ED8] font-bold border border-blue-200/90 shadow-xs'
-                      : 'text-[#0F172A]/80 hover:text-[#0F172A] hover:bg-[#FFFFFF]/80 border border-transparent'
-                  }`}
-                >
-                  <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
-                    <div
+              <nav className="space-y-1">
+                {/* Primary Action inside Sales Menu: New Order */}
+                {group.key === 'sales' && !isViewer && (
+                  <div className={isSidebarCollapsed ? 'flex justify-center pb-1' : 'pb-1.5'}>
+                    <button
+                      id="sidebar-btn-new-order"
+                      onClick={onOpenNewOrder}
+                      title="ลงออเดอร์ใหม่"
                       className={`${
-                        isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
-                      } flex items-center justify-center shrink-0 transition-colors ${
-                        activeTab === 'users'
-                          ? 'bg-[#1D4ED8] text-white shadow-2xs'
-                          : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80 group-hover:border-blue-200 group-hover:text-[#1D4ED8]'
+                        isSidebarCollapsed
+                          ? 'w-10 h-10 p-0 rounded-xl'
+                          : 'w-full py-2.5 px-3 rounded-xl gap-2'
+                      } flex items-center justify-center bg-[#1D4ED8] hover:bg-[#1E40AF] active:scale-98 text-white font-bold text-xs shadow-sm shadow-blue-700/20 transition-all cursor-pointer ${
+                        activeTab === 'new_order' ? 'ring-2 ring-[#1D4ED8]/30 ring-offset-1 ring-offset-[#F1F5F9]' : ''
                       }`}
                     >
-                      <Users className="w-4 h-4" />
-                    </div>
-                    {!isSidebarCollapsed && (
-                      <div className="flex flex-col text-left min-w-0">
-                        <span className="leading-tight truncate">จัดการสิทธิ์ผู้ใช้งาน</span>
-                        <span className="text-[10px] text-slate-400 font-normal truncate">
-                          กำหนดบทบาทและทีม
-                        </span>
-                      </div>
-                    )}
+                      <PlusCircle className={`${isSidebarCollapsed ? 'w-5 h-5' : 'w-4 h-4'} shrink-0`} />
+                      {!isSidebarCollapsed && <span>ลงออเดอร์ใหม่</span>}
+                    </button>
                   </div>
-                  {!isSidebarCollapsed && (
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                        activeTab === 'users'
-                          ? 'bg-[#1D4ED8] text-white'
-                          : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80'
-                      }`}
-                    >
-                      Admin
-                    </span>
-                  )}
-                </button>
-              )}
+                )}
 
-              {/* Admin Route Management */}
-              {(isAdmin || currentUser.role === 'manager') && (
-                <button
-                  id="sidebar-btn-routes"
-                  onClick={() => setActiveTab('routes')}
-                  title="จัดการสายการเข้าเยี่ยม"
-                  className={`w-full flex items-center ${
-                    isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
-                  } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                    activeTab === 'routes'
-                      ? 'bg-[#FFFFFF] text-[#1D4ED8] font-bold border border-blue-200/90 shadow-xs'
-                      : 'text-[#0F172A]/80 hover:text-[#0F172A] hover:bg-[#FFFFFF]/80 border border-transparent'
-                  }`}
-                >
-                  <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
-                    <div
-                      className={`${
-                        isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
-                      } flex items-center justify-center shrink-0 transition-colors ${
-                        activeTab === 'routes'
-                          ? 'bg-[#1D4ED8] text-white shadow-2xs'
-                          : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80 group-hover:border-blue-200 group-hover:text-[#1D4ED8]'
-                      }`}
-                    >
-                      <Navigation className="w-4 h-4" />
-                    </div>
-                    {!isSidebarCollapsed && (
-                      <div className="flex flex-col text-left min-w-0">
-                        <span className="leading-tight truncate">จัดการสายการเข้าเยี่ยม</span>
-                        <span className="text-[10px] text-slate-400 font-normal truncate">
-                          สายส่ง & โซนพื้นที่
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </button>
-              )}
-
-              {/* Export Button */}
-              <button
-                id="sidebar-btn-export"
-                onClick={() => setActiveTab('export')}
-                title="ส่งออกรายงาน (Excel)"
-                className={`w-full flex items-center ${
-                  isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
-                } rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                  activeTab === 'export'
-                    ? 'bg-[#FFFFFF] text-[#1D4ED8] font-bold border border-blue-200/90 shadow-xs'
-                    : 'text-[#0F172A]/80 hover:text-[#0F172A] hover:bg-[#FFFFFF]/80 border border-transparent'
-                }`}
-              >
-                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
-                  <div
-                    className={`${
-                      isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
-                    } flex items-center justify-center shrink-0 transition-colors ${
-                      activeTab === 'export'
-                        ? 'bg-[#1D4ED8] text-white shadow-2xs'
-                        : 'bg-[#FFFFFF] text-slate-600 border border-slate-200/80 group-hover:border-blue-200 group-hover:text-[#1D4ED8]'
-                    }`}
-                  >
-                    <Download className="w-4 h-4" />
-                  </div>
-                  {!isSidebarCollapsed && (
-                    <div className="flex flex-col text-left min-w-0">
-                      <span className="leading-tight truncate">ส่งออกรายงาน (Excel)</span>
-                      <span className="text-[10px] text-slate-400 font-normal truncate">
-                        ดาวน์โหลดไฟล์ข้อมูล
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </button>
-
-              {/* System Settings (Sheets & LINE) */}
-              {(isAdmin || currentUser.role === 'manager') && (
-                <button
-                  id="sidebar-btn-settings"
-                  onClick={onOpenSettings}
-                  title="ตั้งค่าระบบ & เชื่อมต่อ (Google Sheets & LINE)"
-                  className={`w-full flex items-center ${
-                    isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2.5'
-                  } rounded-xl text-xs font-semibold text-[#0F172A]/80 hover:text-[#0F172A] hover:bg-[#FFFFFF]/80 border border-transparent transition-all cursor-pointer group`}
-                >
-                  <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-2.5 min-w-0'}`}>
-                    <div
-                      className={`${
-                        isSidebarCollapsed ? 'w-9 h-9 rounded-xl' : 'w-7 h-7 rounded-lg'
-                      } bg-[#FFFFFF] text-slate-600 border border-slate-200/80 group-hover:border-blue-200 group-hover:text-[#1D4ED8] flex items-center justify-center shrink-0 transition-colors relative`}
-                    >
-                      <Settings className="w-4 h-4" />
-                      {isSidebarCollapsed && lineSettings?.enabled && (
-                        <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-blue-500 ring-2 ring-white"></span>
-                      )}
-                    </div>
-                    {!isSidebarCollapsed && (
-                      <div className="flex flex-col text-left min-w-0">
-                        <span className="leading-tight truncate">ตั้งค่าระบบ & เชื่อมต่อ</span>
-                        <span className="text-[10px] text-slate-400 font-normal truncate inline-flex items-center gap-1">
-                          <BrandLogo brand="google-sheets" className="w-2.5 h-2.5 text-[#34A853] shrink-0" />
-                          <span>Google Sheets &amp;</span>
-                          <BrandLogo brand="line" className="w-2.5 h-2.5 text-[#00C300] shrink-0" />
-                          <span>LINE</span>
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  {!isSidebarCollapsed && lineSettings?.enabled && (
-                    <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" title="LINE แจ้งเตือนเปิดใช้งาน"></span>
-                  )}
-                </button>
-              )}
-            </nav>
-          </div>
-          )}
-
+                {group.items.map(renderDesktopItem)}
+              </nav>
+            </div>
+          ))}
         </div>
       </aside>
 
       {/* =========================================================================
-          3. MOBILE BOTTOM NAVIGATION BAR (Visible only on screens below lg:)
+          2. MOBILE BOTTOM NAVIGATION BAR (Visible only on screens below lg:)
          ========================================================================= */}
       <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white gpu-layer border-t border-slate-200 px-2 py-1.5 shadow-lg">
         <div className="flex items-center justify-around">
@@ -1073,422 +959,33 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <X className="w-5 h-5" />
               </button>
             </div>
-            
+
             {/* Scrollable Content */}
             <div className="p-4 overflow-y-auto space-y-5 pb-8">
-              {/* Menu Group: Sales */}
-              <div>
-                <div className="px-3 mb-2 flex items-center justify-between">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                    เมนูพนักงานขาย
-                  </span>
-                  <span className="text-[10px] font-semibold text-slate-400">
-                    Sales
-                  </span>
-                </div>
-                <div className="space-y-1">
-                  <button
-                    onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                      activeTab === 'dashboard'
-                        ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div
-                        className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
-                          activeTab === 'dashboard'
-                            ? 'bg-blue-600 text-white shadow-2xs'
-                            : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
-                        }`}
-                      >
-                        <BarChart3 className="w-4 h-4" />
-                      </div>
-                      <div className="flex flex-col text-left min-w-0">
-                        <span className="leading-tight truncate">ยอดขายวันนี้</span>
-                        <span className="text-[10px] text-slate-400 font-normal truncate">
-                          สรุปภาพรวมแดชบอร์ด
-                        </span>
-                      </div>
-                    </div>
-                    <span
-                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0 ${
-                        activeTab === 'dashboard'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-slate-100 text-slate-700'
-                      }`}
-                    >
-                      ฿{(todaySalesAmount ?? 0).toLocaleString()}
-                    </span>
-                  </button>
+              {navGroups.map((group) => {
+                // On mobile drawer, show dashboard before expenses in sales group (matching original order)
+                const mobileItems = group.items.filter((i) => i.showInMobileDrawer !== false);
+                if (group.key === 'sales') {
+                  mobileItems.sort((a, b) => (a.key === 'dashboard' ? -1 : b.key === 'dashboard' ? 1 : 0));
+                }
+                if (mobileItems.length === 0) return null;
 
-                  <button
-                    onClick={() => { setActiveTab('expenses'); setIsMobileMenuOpen(false); }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                      activeTab === 'expenses'
-                        ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div
-                        className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
-                          activeTab === 'expenses'
-                            ? 'bg-blue-600 text-white shadow-2xs'
-                            : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
-                        }`}
-                      >
-                        <Wallet className="w-4 h-4" />
-                      </div>
-                      <div className="flex flex-col text-left min-w-0">
-                        <span className="leading-tight truncate">บันทึกค่าใช้จ่าย</span>
-                        <span className="text-[10px] text-slate-400 font-normal truncate">
-                          ค่าน้ำมัน & เบิกจ่าย
-                        </span>
-                      </div>
+                return (
+                  <div key={group.key}>
+                    <div className="px-3 mb-2 flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        {group.label}
+                      </span>
+                      <span className="text-[10px] font-semibold text-slate-400">
+                        {group.englishLabel}
+                      </span>
                     </div>
-                  </button>
-                </div>
-              </div>
-
-              {/* Menu Group: Logistics (แยกออกจากเมนูพนักงานขาย - ซ่อนสำหรับพนักงานขาย) */}
-              {!isSales && (
-              <div>
-                <div className="px-3 mb-2 flex items-center justify-between">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                    เมนูโลจิสติกส์
-                  </span>
-                  <span className="text-[10px] font-semibold text-slate-400">
-                    Logistics
-                  </span>
-                </div>
-                <div className="space-y-1">
-                  <button
-                    onClick={() => { setActiveTab('logistics'); setIsMobileMenuOpen(false); }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                      activeTab === 'logistics'
-                        ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div
-                        className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
-                          activeTab === 'logistics'
-                            ? 'bg-blue-600 text-white shadow-2xs'
-                            : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
-                        }`}
-                      >
-                        <Truck className="w-4 h-4" />
-                      </div>
-                      <div className="flex flex-col text-left min-w-0">
-                        <span className="leading-tight truncate">จัดการแผนงานจัดส่ง</span>
-                        <span className="text-[10px] text-slate-400 font-normal truncate">
-                          จัดลำดับจุดส่ง & แผนเที่ยวรถ
-                        </span>
-                      </div>
+                    <div className="space-y-1">
+                      {mobileItems.map(renderMobileDrawerItem)}
                     </div>
-                    {deliveryCount > 0 ? (
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
-                          activeTab === 'logistics'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-amber-100 text-amber-800'
-                        }`}
-                      >
-                        {deliveryCount}
-                      </span>
-                    ) : (
-                      <span
-                        className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
-                          activeTab === 'logistics'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-100 text-slate-500'
-                        }`}
-                      >
-                        แผนส่ง
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={() => { setActiveTab('deposits'); setIsMobileMenuOpen(false); }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                      activeTab === 'deposits'
-                        ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div
-                        className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
-                          activeTab === 'deposits'
-                            ? 'bg-blue-600 text-white shadow-2xs'
-                            : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
-                        }`}
-                      >
-                        <ShieldCheck className="w-4 h-4" />
-                      </div>
-                      <div className="flex flex-col text-left min-w-0">
-                        <span className="leading-tight truncate">จัดการเงินประกัน</span>
-                        <span className="text-[10px] text-slate-400 font-normal truncate">
-                          เงินมัดจำถัง & ค้ำประกัน
-                        </span>
-                      </div>
-                    </div>
-                    {depositCount > 0 ? (
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
-                          activeTab === 'deposits'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-emerald-100 text-emerald-800'
-                        }`}
-                      >
-                        {depositCount}
-                      </span>
-                    ) : (
-                      <span
-                        className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
-                          activeTab === 'deposits'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-100 text-slate-500'
-                        }`}
-                      >
-                        มัดจำ
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={() => { setActiveTab('hired_vehicles'); setIsMobileMenuOpen(false); }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                      activeTab === 'hired_vehicles'
-                        ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div
-                        className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
-                          activeTab === 'hired_vehicles'
-                            ? 'bg-blue-600 text-white shadow-2xs'
-                            : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
-                        }`}
-                      >
-                        <CircleDollarSign className="w-4 h-4" />
-                      </div>
-                      <div className="flex flex-col text-left min-w-0">
-                        <span className="leading-tight truncate">ค่าใช้จ่ายรถจ้าง</span>
-                        <span className="text-[10px] text-slate-400 font-normal truncate">
-                          สรุปค่าเที่ยว & ทำจ่ายรถร่วม
-                        </span>
-                      </div>
-                    </div>
-                    {hiredVehicleCount > 0 ? (
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
-                          activeTab === 'hired_vehicles'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-amber-100 text-amber-800'
-                        }`}
-                      >
-                        {hiredVehicleCount}
-                      </span>
-                    ) : (
-                      <span
-                        className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
-                          activeTab === 'hired_vehicles'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-100 text-slate-500'
-                        }`}
-                      >
-                        รถจ้าง
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={() => { setActiveTab('maintenance'); setIsMobileMenuOpen(false); }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                      activeTab === 'maintenance'
-                        ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div
-                        className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
-                          activeTab === 'maintenance'
-                            ? 'bg-blue-600 text-white shadow-2xs'
-                            : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
-                        }`}
-                      >
-                        <Wrench className="w-4 h-4" />
-                      </div>
-                      <div className="flex flex-col text-left min-w-0">
-                        <span className="leading-tight truncate">บันทึกบำรุงรักษารถ</span>
-                        <span className="text-[10px] text-slate-400 font-normal truncate">
-                          ประวัติซ่อม & เตือนเช็คระยะ
-                        </span>
-                      </div>
-                    </div>
-                    {maintenanceCount > 0 ? (
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
-                          activeTab === 'maintenance'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-indigo-100 text-indigo-800'
-                        }`}
-                      >
-                        {maintenanceCount}
-                      </span>
-                    ) : (
-                      <span
-                        className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
-                          activeTab === 'maintenance'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-100 text-slate-500'
-                        }`}
-                      >
-                        ซ่อมบำรุง
-                      </span>
-                    )}
-                  </button>
-                </div>
-              </div>
-              )}
-
-              {/* Menu Group: Admin (ซ่อนสำหรับพนักงานขาย) */}
-              {!isSales && (
-              <div>
-                <div className="px-3 mb-2 flex items-center justify-between">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                    เครื่องมือ & การจัดการ
-                  </span>
-                  <span className="text-[10px] font-semibold text-slate-400">
-                    Tools
-                  </span>
-                </div>
-                <div className="space-y-1">
-                  {(isAdmin || currentUser.role === 'manager') && (
-                    <button
-                      onClick={() => { setActiveTab('users'); setIsMobileMenuOpen(false); }}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                        activeTab === 'users'
-                          ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div
-                          className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
-                            activeTab === 'users'
-                              ? 'bg-blue-600 text-white shadow-2xs'
-                              : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
-                          }`}
-                        >
-                          <Users className="w-4 h-4" />
-                        </div>
-                        <div className="flex flex-col text-left min-w-0">
-                          <span className="leading-tight truncate">จัดการสิทธิ์ผู้ใช้งาน</span>
-                          <span className="text-[10px] text-slate-400 font-normal truncate">
-                            กำหนดบทบาทและทีม
-                          </span>
-                        </div>
-                      </div>
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                          activeTab === 'users'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-100 text-slate-600'
-                        }`}
-                      >
-                        Admin
-                      </span>
-                    </button>
-                  )}
-                  {(isAdmin || currentUser.role === 'manager') && (
-                    <button
-                      onClick={() => { setActiveTab('routes'); setIsMobileMenuOpen(false); }}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                        activeTab === 'routes'
-                          ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div
-                          className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
-                            activeTab === 'routes'
-                              ? 'bg-blue-600 text-white shadow-2xs'
-                              : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
-                          }`}
-                        >
-                          <Navigation className="w-4 h-4" />
-                        </div>
-                        <div className="flex flex-col text-left min-w-0">
-                          <span className="leading-tight truncate">จัดการสายการเข้าเยี่ยม</span>
-                          <span className="text-[10px] text-slate-400 font-normal truncate">
-                            สายส่ง & โซนพื้นที่
-                          </span>
-                        </div>
-                      </div>
-                    </button>
-                  )}
-                  <button
-                    onClick={() => { setActiveTab('export'); setIsMobileMenuOpen(false); }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer group ${
-                      activeTab === 'export'
-                        ? 'bg-blue-50 text-blue-800 font-bold border border-blue-200/80 shadow-2xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div
-                        className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
-                          activeTab === 'export'
-                            ? 'bg-blue-600 text-white shadow-2xs'
-                            : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800'
-                        }`}
-                      >
-                        <Download className="w-4 h-4" />
-                      </div>
-                      <div className="flex flex-col text-left min-w-0">
-                        <span className="leading-tight truncate">ส่งออกรายงาน (Excel)</span>
-                        <span className="text-[10px] text-slate-400 font-normal truncate">
-                          ดาวน์โหลดไฟล์ข้อมูล
-                        </span>
-                      </div>
-                    </div>
-                  </button>
-                  {(isAdmin || currentUser.role === 'manager') && (
-                    <button
-                      onClick={() => { onOpenSettings(); setIsMobileMenuOpen(false); }}
-                      className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent transition-all cursor-pointer group"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 group-hover:bg-slate-200/70 group-hover:text-slate-800 flex items-center justify-center shrink-0 transition-colors">
-                          <Settings className="w-4 h-4" />
-                        </div>
-                        <div className="flex flex-col text-left min-w-0">
-                          <span className="leading-tight truncate">ตั้งค่าระบบ & เชื่อมต่อ</span>
-                          <span className="text-[10px] text-slate-400 font-normal truncate inline-flex items-center gap-1">
-                            <BrandLogo brand="google-sheets" className="w-2.5 h-2.5 text-[#34A853] shrink-0" />
-                            <span>Google Sheets &amp;</span>
-                            <BrandLogo brand="line" className="w-2.5 h-2.5 text-[#00C300] shrink-0" />
-                            <span>LINE</span>
-                          </span>
-                        </div>
-                      </div>
-                      {lineSettings?.enabled && (
-                        <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>
-                      )}
-                    </button>
-                  )}
-                </div>
-              </div>
-              )}
+                  </div>
+                );
+              })}
 
               {/* Database Refresh Action on Mobile */}
               {sheetsConfig?.spreadsheetId && onRefreshDatabase && (
@@ -1513,5 +1010,4 @@ export const Navbar: React.FC<NavbarProps> = ({
       )}
     </>
   );
-};
-
+});

@@ -8,6 +8,7 @@ import {
   Route,
 } from '../types';
 import { TotalEmblem } from './TotalLogo';
+import { formatThaiDateShort, THAI_SHORT_MONTHS } from '../utils/dateUtils';
 import {
   Wrench,
   Truck,
@@ -172,32 +173,15 @@ const STATUS_MAP: Record<
   },
 };
 
-function formatThaiDate(dateStr?: string, showYear = true): string {
-  if (!dateStr) return '-';
-  const parts = dateStr.split('-');
-  if (parts.length !== 3) return dateStr;
-  const year = parseInt(parts[0], 10);
-  const month = parseInt(parts[1], 10);
-  const day = parseInt(parts[2], 10);
-  const thaiMonths = [
-    'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
-    'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
-  ];
-  const mName = thaiMonths[month - 1] || '';
-  const thaiYear = year > 2400 ? year : year + 543;
-  return showYear ? `${day} ${mName} ${thaiYear}` : `${day} ${mName}`;
-}
+const formatThaiDate = (dateStr?: string, showYear = true): string =>
+  formatThaiDateShort(dateStr, { showYear });
 
 function formatThaiMonthYear(yearMonthStr: string): string {
   const parts = yearMonthStr.split('-');
   if (parts.length !== 2) return yearMonthStr;
   const year = parseInt(parts[0], 10);
   const month = parseInt(parts[1], 10);
-  const thaiMonths = [
-    'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
-    'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
-  ];
-  const mName = thaiMonths[month - 1] || '';
+  const mName = THAI_SHORT_MONTHS[month - 1] || '';
   const thaiYear = year > 2400 ? year % 100 : (year + 543) % 100;
   return `${mName} ${thaiYear}`;
 }

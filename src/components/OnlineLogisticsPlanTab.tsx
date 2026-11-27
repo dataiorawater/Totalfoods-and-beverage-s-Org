@@ -340,13 +340,13 @@ export const OnlineLogisticsPlanTab: React.FC<OnlineLogisticsPlanTabProps> = ({
   }, [activeRows, postalMappingMap]);
 
   // Process uploaded CSV / Excel ArrayBuffer
-  const processArrayBuffer = (
+  const processArrayBuffer = async (
     buffer: ArrayBuffer,
     sourceFileName: string,
     sourceType: 'upload' | 'sample' = 'upload'
   ) => {
     setUploadError(null);
-    const { rows, formatLabel } = parseOnlineOrdersFromFileBuffer(buffer, sourceFileName);
+    const { rows, formatLabel } = await parseOnlineOrdersFromFileBuffer(buffer, sourceFileName);
 
     if (rows.length === 0) {
       setUploadError('ไม่พบข้อมูลออเดอร์ในไฟล์ กรุณาตรวจสอบรูปแบบไฟล์ CSV หรือ Excel อีกครั้ง');

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Order, OrderStatus, StaffUser } from '../types';
 import { getLineShareUrl } from '../services/lineNotify';
+import { parseDateRobust } from '../utils/dateUtils';
 import {
   Search,
   Phone,
@@ -36,28 +37,7 @@ interface OrderListProps {
 }
 
 
-// Helper to parse dates that might be in Thai format (DD/MM/YYYY)
-function parseDateRobust(dateStr: string): Date {
-  if (!dateStr) return new Date();
-  const parsed = new Date(dateStr);
-  if (!isNaN(parsed.getTime()) && dateStr.includes('-')) {
-    return parsed;
-  }
-  const parts = dateStr.split(' ');
-  const datePart = parts[0];
-  const timePart = parts[1] || '00:00:00';
-
-  if (datePart.includes('/')) {
-    const [day, month, year] = datePart.split('/');
-    let y = parseInt(year);
-    if (y > 2500) y -= 543;
-    const [hour, min, sec] = timePart.split(':');
-    return new Date(y, parseInt(month) - 1, parseInt(day), parseInt(hour || '0'), parseInt(min || '0'), parseInt(sec || '0'));
-  }
-  return parsed;
-}
-
-export const OrderList: React.FC<OrderListProps> = ({
+export const OrderList: React.FC<OrderListProps> = React.memo(({
   orders,
   currentUser,
   onSelectOrder,
@@ -544,4 +524,4 @@ export const OrderList: React.FC<OrderListProps> = ({
       )}
     </div>
   );
-};
+});

@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { StaffUser, Order, OrderItem, FreebieItem, Product, Customer, Route } from '../types';
+import { parseDateRobust } from '../utils/dateUtils';
 import {
   X,
   Phone,
@@ -38,62 +39,7 @@ interface OrderDetailModalProps {
   routes?: Route[];
 }
 
-// Robust Date Parser supporting ISO and Thai Buddhist Era formats
-function parseDateRobust(dateStr: string): Date {
-  if (!dateStr) return new Date();
-  const trimmed = String(dateStr).trim();
 
-  // Try standard ISO parsing
-  const parsed = new Date(trimmed);
-  if (!isNaN(parsed.getTime()) && trimmed.includes('-') && !trimmed.includes('/')) {
-    if (parsed.getFullYear() > 2400) {
-      parsed.setFullYear(parsed.getFullYear() - 543);
-    }
-    return parsed;
-  }
-
-  // Handle DD/MM/YYYY or DD-MM-YYYY
-  const normalized = trimmed.replace('T', ' ');
-  const parts = normalized.split(' ');
-  const datePart = parts[0] || '';
-  const timePart = parts[1] || '00:00:00';
-
-  if (datePart.includes('/') || datePart.includes('-')) {
-    const separator = datePart.includes('/') ? '/' : '-';
-    const dParts = datePart.split(separator);
-    let day = 1;
-    let month = 1;
-    let year = new Date().getFullYear();
-
-    if (dParts.length === 3) {
-      if (dParts[0].length === 4) {
-        // YYYY-MM-DD
-        year = parseInt(dParts[0], 10) || year;
-        month = parseInt(dParts[1], 10) || 1;
-        day = parseInt(dParts[2], 10) || 1;
-      } else {
-        // DD/MM/YYYY
-        day = parseInt(dParts[0], 10) || 1;
-        month = parseInt(dParts[1], 10) || 1;
-        year = parseInt(dParts[2], 10) || year;
-      }
-    }
-
-    if (year > 2400) year -= 543;
-
-    const tParts = timePart.split(':');
-    const hour = parseInt(tParts[0] || '0', 10);
-    const min = parseInt(tParts[1] || '0', 10);
-    const sec = parseInt(tParts[2] || '0', 10);
-
-    const result = new Date(year, month - 1, day, hour, min, sec);
-    if (!isNaN(result.getTime())) {
-      return result;
-    }
-  }
-
-  return isNaN(parsed.getTime()) ? new Date() : parsed;
-}
 
 // Format Thai Date & Time cleanly
 function formatThaiDateTimeFull(dateStr: string): string {

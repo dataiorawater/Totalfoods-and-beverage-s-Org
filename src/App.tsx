@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import {
   Order,
   OrderStatus,
@@ -30,6 +30,8 @@ import {
 } from './data/mockData';
 import { formatNowUtcPlus7Iso, getThaiDayFromDate, doesRouteRunOnDay } from './utils/callPlanUtils';
 import { normalizeThaiPhone } from './utils/phoneUtils';
+import { parseDateRobust, formatThaiDateTime } from './utils/dateUtils';
+import { getRoleShortLabel } from './utils/roleUtils';
 
 import {
   appendOrderToSheet,
@@ -82,28 +84,31 @@ import { playNotificationChime } from './utils/audio';
 import { extractCustomerCoords } from './utils/geoUtils';
 import { getDriveImageDisplayUrl } from './services/googleDrive';
 
-// Components
+// Eager Core Components (always needed on initial load)
 import { Navbar } from './components/Navbar';
 import { TotalEmblem } from './components/TotalLogo';
-import { OrderList } from './components/OrderList';
-import { DashboardView } from './components/DashboardView';
-import { CustomerManagementView } from './components/CustomerManagementView';
-import { StoreCheckInView } from './components/StoreCheckInView';
-import { ExpenseManagementView } from './components/ExpenseManagementView';
-import { NewCustomerModal } from './components/NewCustomerModal';
-import { RouteManagementView } from './components/RouteManagementView';
-import { OrderFormModal } from './components/OrderFormModal';
-import { OrderDetailModal } from './components/OrderDetailModal';
-import { ExportReportView } from './components/ExportReportView';
-import { SettingsModal } from './components/SettingsModal';
-import { RoleSwitcherModal } from './components/RoleSwitcherModal';
-import { UserManagementView } from './components/UserManagementView';
-import { LogisticsManagementView } from './components/LogisticsManagementView';
-import { DepositManagementView } from './components/DepositManagementView';
-import { HiredVehicleExpensesView } from './components/HiredVehicleExpensesView';
-import { VehicleMaintenanceView } from './components/VehicleMaintenanceView';
 import { LoginScreen } from './components/LoginScreen';
 import { ConfirmModal } from './components/ConfirmModal';
+
+// Lazy-Loaded Views & Modals (code-split into separate chunks)
+const OrderList = lazy(() => import('./components/OrderList').then((m) => ({ default: m.OrderList })));
+const DashboardView = lazy(() => import('./components/DashboardView').then((m) => ({ default: m.DashboardView })));
+const CustomerManagementView = lazy(() => import('./components/CustomerManagementView').then((m) => ({ default: m.CustomerManagementView })));
+const StoreCheckInView = lazy(() => import('./components/StoreCheckInView').then((m) => ({ default: m.StoreCheckInView })));
+const ExpenseManagementView = lazy(() => import('./components/ExpenseManagementView').then((m) => ({ default: m.ExpenseManagementView })));
+const NewCustomerModal = lazy(() => import('./components/NewCustomerModal').then((m) => ({ default: m.NewCustomerModal })));
+const RouteManagementView = lazy(() => import('./components/RouteManagementView').then((m) => ({ default: m.RouteManagementView })));
+const OrderFormModal = lazy(() => import('./components/OrderFormModal').then((m) => ({ default: m.OrderFormModal })));
+const OrderDetailModal = lazy(() => import('./components/OrderDetailModal').then((m) => ({ default: m.OrderDetailModal })));
+const ExportReportView = lazy(() => import('./components/ExportReportView').then((m) => ({ default: m.ExportReportView })));
+const SettingsModal = lazy(() => import('./components/SettingsModal').then((m) => ({ default: m.SettingsModal })));
+const RoleSwitcherModal = lazy(() => import('./components/RoleSwitcherModal').then((m) => ({ default: m.RoleSwitcherModal })));
+const UserManagementView = lazy(() => import('./components/UserManagementView').then((m) => ({ default: m.UserManagementView })));
+const LogisticsDashboardView = lazy(() => import('./components/LogisticsDashboardView').then((m) => ({ default: m.LogisticsDashboardView })));
+const LogisticsManagementView = lazy(() => import('./components/LogisticsManagementView').then((m) => ({ default: m.LogisticsManagementView })));
+const DepositManagementView = lazy(() => import('./components/DepositManagementView').then((m) => ({ default: m.DepositManagementView })));
+const HiredVehicleExpensesView = lazy(() => import('./components/HiredVehicleExpensesView').then((m) => ({ default: m.HiredVehicleExpensesView })));
+const VehicleMaintenanceView = lazy(() => import('./components/VehicleMaintenanceView').then((m) => ({ default: m.VehicleMaintenanceView })));
 
 import {
   CheckCircle2,
@@ -113,92 +118,105 @@ import {
   MapPin,
   Phone,
   Store,
+  Loader2,
 } from 'lucide-react';
 
-// Helper to parse dates that might be in Thai format (DD/MM/YYYY) or ISO
-export function parseDateRobust(dateStr: string): Date {
-  if (!dateStr) return new Date();
-  const trimmed = String(dateStr).trim();
-  
-  // Try standard ISO parsing if it has a clean format
-  const parsed = new Date(trimmed);
-  if (!isNaN(parsed.getTime()) && trimmed.includes('-') && !trimmed.includes('/')) {
-    // If Buddhist year was parsed e.g. 2567-2569
-    if (parsed.getFullYear() > 2400) {
-      parsed.setFullYear(parsed.getFullYear() - 543);
-    }
-    return parsed;
-  }
+// Re-export shared date utilities for backwards compatibility with any child modules
+export { parseDateRobust, formatThaiDateTime };
 
-  // Handle DD/MM/YYYY or DD-MM-YYYY with optional time
-  const normalized = trimmed.replace('T', ' ');
-  const parts = normalized.split(' ');
-  const datePart = parts[0] || '';
-  const timePart = parts[1] || '00:00:00';
+type AppTab =
+  | 'orders'
+  | 'dashboard'
+  | 'customers'
+  | 'checkin'
+  | 'expenses'
+  | 'users'
+  | 'routes'
+  | 'export'
+  | 'new_order'
+  | 'logistics_dashboard'
+  | 'logistics'
+  | 'deposits'
+  | 'hired_vehicles'
+  | 'maintenance';
 
-  if (datePart.includes('/') || datePart.includes('-')) {
-    const separator = datePart.includes('/') ? '/' : '-';
-    const dParts = datePart.split(separator);
-    let day = 1;
-    let month = 1;
-    let year = new Date().getFullYear();
+const SALES_ALLOWED_TABS: ReadonlyArray<AppTab> = [
+  'customers',
+  'checkin',
+  'orders',
+  'expenses',
+  'dashboard',
+  'new_order',
+];
 
-    if (dParts.length === 3) {
-      if (dParts[0].length === 4) {
-        // YYYY-MM-DD
-        year = parseInt(dParts[0], 10) || year;
-        month = parseInt(dParts[1], 10) || 1;
-        day = parseInt(dParts[2], 10) || 1;
-      } else {
-        // DD/MM/YYYY
-        day = parseInt(dParts[0], 10) || 1;
-        month = parseInt(dParts[1], 10) || 1;
-        year = parseInt(dParts[2], 10) || year;
-      }
-    }
+// Lightweight fallback shown briefly while a lazy tab chunk loads
+const ViewLoadingFallback: React.FC = () => (
+  <div className="flex flex-col items-center justify-center py-20 text-slate-500 gap-3">
+    <div className="w-11 h-11 rounded-2xl bg-[#F1F5F9] border border-slate-200 flex items-center justify-center shadow-2xs">
+      <Loader2 className="w-5 h-5 text-[#1D4ED8] animate-spin" />
+    </div>
+    <p className="text-xs font-semibold text-slate-500">กำลังโหลดหน้าจอ...</p>
+  </div>
+);
 
-    if (year > 2400) year -= 543;
-
-    const tParts = timePart.split(':');
-    const hour = parseInt(tParts[0] || '0', 10);
-    const min = parseInt(tParts[1] || '0', 10);
-    const sec = parseInt(tParts[2] || '0', 10);
-
-    const result = new Date(year, month - 1, day, hour, min, sec);
-    if (!isNaN(result.getTime())) {
-      return result;
-    }
-  }
-
-  return isNaN(parsed.getTime()) ? new Date() : parsed;
-}
-
-export function formatThaiDateTime(dateStr: string): string {
-  if (!dateStr) return '-';
+// Safe immediate write to localStorage
+function safeSave(key: string, value: unknown) {
   try {
-    const d = parseDateRobust(dateStr);
-    if (isNaN(d.getTime())) return String(dateStr);
-    
-    const day = d.getDate();
-    const thaiMonths = [
-      'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
-      'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
-    ];
-    const month = thaiMonths[d.getMonth()];
-    const year = d.getFullYear() + 543;
-    const hours = String(d.getHours()).padStart(2, '0');
-    const minutes = String(d.getMinutes()).padStart(2, '0');
-
-    // If time was 00:00 and string didn't have time
-    const hasTime = dateStr.includes(':') || dateStr.includes('T');
-    if (hasTime && (d.getHours() > 0 || d.getMinutes() > 0)) {
-      return `${day} ${month} ${year} เวลา ${hours}:${minutes} น.`;
-    }
-    return `${day} ${month} ${year}`;
-  } catch {
-    return String(dateStr);
+    localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+  } catch (e) {
+    console.warn(`[Storage] Safe save skipped for ${key}:`, e);
   }
 }
+
+// Debounced & idle-scheduled localStorage writer to prevent main-thread jank on large collections
+const pendingStorageWrites = new Map<string, unknown>();
+const pendingStorageTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function flushStorageKey(key: string) {
+  const timer = pendingStorageTimers.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    pendingStorageTimers.delete(key);
+  }
+  if (pendingStorageWrites.has(key)) {
+    const val = pendingStorageWrites.get(key);
+    pendingStorageWrites.delete(key);
+    safeSave(key, val);
+  }
+}
+
+function flushAllPendingStorageWrites() {
+  for (const key of Array.from(pendingStorageWrites.keys())) {
+    flushStorageKey(key);
+  }
+}
+
+function scheduleStorageSave(key: string, value: unknown, delayMs = 350) {
+  pendingStorageWrites.set(key, value);
+  const existing = pendingStorageTimers.get(key);
+  if (existing) clearTimeout(existing);
+
+  const timer = setTimeout(() => {
+    pendingStorageTimers.delete(key);
+    const performWrite = () => {
+      if (pendingStorageWrites.has(key)) {
+        const latest = pendingStorageWrites.get(key);
+        pendingStorageWrites.delete(key);
+        safeSave(key, latest);
+      }
+    };
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      (window as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number })
+        .requestIdleCallback(performWrite, { timeout: 1000 });
+    } else {
+      performWrite();
+    }
+  }, delayMs);
+
+  pendingStorageTimers.set(key, timer);
+}
+
+
 
 export function sanitizeOrderData(orderList: Order[]): Order[] {
   if (!Array.isArray(orderList)) return [];
@@ -483,19 +501,10 @@ export default function App() {
     return INITIAL_MAINTENANCE_RECORDS;
   });
 
-  const [activeTab, setActiveTab] = useState<'orders' | 'dashboard' | 'customers' | 'checkin' | 'expenses' | 'users' | 'routes' | 'export' | 'new_order' | 'logistics' | 'deposits' | 'hired_vehicles' | 'maintenance'>('dashboard');
+  const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
   const [checkInEntryCount, setCheckInEntryCount] = useState<number>(0);
 
-  const SALES_ALLOWED_TABS: ReadonlyArray<typeof activeTab> = [
-    'customers',
-    'checkin',
-    'orders',
-    'expenses',
-    'dashboard',
-    'new_order',
-  ];
-
-  const handleSelectTab = (tab: typeof activeTab) => {
+  const handleSelectTab = useCallback((tab: AppTab) => {
     if (currentUser.role === 'sales' && !SALES_ALLOWED_TABS.includes(tab)) {
       return;
     }
@@ -503,7 +512,7 @@ export default function App() {
       setCheckInEntryCount((prev) => prev + 1);
     }
     setActiveTab(tab);
-  };
+  }, [currentUser.role]);
 
   useEffect(() => {
     if (currentUser.role === 'sales' && !SALES_ALLOWED_TABS.includes(activeTab)) {
@@ -594,80 +603,107 @@ export default function App() {
     message: string;
   } | null>(null);
 
-  const showToast = (type: 'success' | 'error' | 'info', title: string, message: string) => {
+  const showToast = useCallback((type: 'success' | 'error' | 'info', title: string, message: string) => {
     const id = Date.now().toString();
     setToast({ id, type, title, message });
     setTimeout(() => {
       setToast((prev) => (prev?.id === id ? null : prev));
     }, 5000);
-  };
+  }, []);
 
-  // Sync to LocalStorage safely (prevent crash on storage quota limit on low-spec phones)
-  const safeSave = (key: string, value: any) => {
-    try {
-      localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
-    } catch (e) {
-      console.warn(`[Storage] Safe save skipped for ${key}:`, e);
-    }
-  };
-
+  // Skip initial mount re-serialization; flush pending debounced writes before page unload
+  const hasMountedRef = useRef(false);
   useEffect(() => {
-    safeSave('iora_orders', orders);
+    hasMountedRef.current = true;
+    const handleBeforeUnload = () => flushAllPendingStorageWrites();
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handleBeforeUnload);
+      flushAllPendingStorageWrites();
+    };
+  }, []);
+
+  // Debounced / idle-scheduled LocalStorage persistence for large data collections
+  useEffect(() => {
+    if (!hasMountedRef.current) return;
+    scheduleStorageSave('iora_orders', orders);
   }, [orders]);
 
   useEffect(() => {
-    safeSave('iora_staff_list', staffList);
+    if (!hasMountedRef.current) return;
+    scheduleStorageSave('iora_staff_list', staffList);
   }, [staffList]);
 
   useEffect(() => {
-    safeSave('iora_products', products);
+    if (!hasMountedRef.current) return;
+    scheduleStorageSave('iora_products', products);
   }, [products]);
 
   useEffect(() => {
-    safeSave('iora_customers', customers);
+    if (!hasMountedRef.current) return;
+    scheduleStorageSave('iora_customers', customers);
   }, [customers]);
 
   useEffect(() => {
-    safeSave('iora_checkins', checkIns);
+    if (!hasMountedRef.current) return;
+    scheduleStorageSave('iora_checkins', checkIns);
   }, [checkIns]);
 
   useEffect(() => {
-    safeSave('iora_expenses', expenses);
+    if (!hasMountedRef.current) return;
+    scheduleStorageSave('iora_expenses', expenses);
   }, [expenses]);
 
   useEffect(() => {
-    safeSave('iora_deposits', deposits);
+    if (!hasMountedRef.current) return;
+    scheduleStorageSave('iora_deposits', deposits);
   }, [deposits]);
 
   useEffect(() => {
-    safeSave('iora_hired_vehicles', hiredVehicles);
+    if (!hasMountedRef.current) return;
+    scheduleStorageSave('iora_hired_vehicles', hiredVehicles);
   }, [hiredVehicles]);
 
   useEffect(() => {
-    safeSave('iora_vehicle_maintenance', maintenanceRecords);
+    if (!hasMountedRef.current) return;
+    scheduleStorageSave('iora_vehicle_maintenance', maintenanceRecords);
   }, [maintenanceRecords]);
 
   useEffect(() => {
-    safeSave('iora_routes', routes);
+    if (!hasMountedRef.current) return;
+    scheduleStorageSave('iora_routes', routes);
   }, [routes]);
 
   useEffect(() => {
-    safeSave('iora_call_plan_daily_schedule', dailySchedules);
+    if (!hasMountedRef.current) return;
+    scheduleStorageSave('iora_call_plan_daily_schedule', dailySchedules);
   }, [dailySchedules]);
 
   useEffect(() => {
+    if (!hasMountedRef.current) return;
+    scheduleStorageSave('iora_route_schedule_history', routeScheduleHistory);
+  }, [routeScheduleHistory]);
+
+  // Immediate persistence for tiny critical auth/config keys
+  useEffect(() => {
+    if (!hasMountedRef.current) return;
     safeSave('iora_current_user', currentUser);
   }, [currentUser]);
 
   useEffect(() => {
+    if (!hasMountedRef.current) return;
     safeSave('iora_logged_in', isLoggedIn ? 'true' : 'false');
   }, [isLoggedIn]);
 
   useEffect(() => {
+    if (!hasMountedRef.current) return;
     safeSave('iora_sheets_config', sheetsConfig);
   }, [sheetsConfig]);
 
   useEffect(() => {
+    if (!hasMountedRef.current) return;
     safeSave('iora_line_settings', lineSettings);
   }, [lineSettings]);
 
@@ -703,7 +739,6 @@ export default function App() {
             storePhotoFolderId: nextStoreFolder,
             checkInPhotoFolderId: nextCheckInFolder,
           };
-          safeSave('iora_sheets_config', merged);
           return merged;
         });
       } else {
@@ -777,7 +812,6 @@ export default function App() {
 
   const handleUpdateSheetsConfig = useCallback((updated: SheetsConfig) => {
     setSheetsConfig(updated);
-    safeSave('iora_sheets_config', updated);
     if (updated?.spreadsheetId) {
       saveSharedSystemConfig(
         updated.spreadsheetId,
@@ -863,7 +897,8 @@ export default function App() {
 
       options?.onProgress?.('กำลังตรวจสอบและอัปเดตข้อมูลแยกแท็บ...', 60);
 
-      // 3. If any tables are missing from bulk, fetch in parallel
+      // 3. If any tables are missing from bulk, fetch in parallel (skip logistics-only tables for sales role)
+      const isSalesOnly = currentUser?.role === 'sales';
       const needsOrders = !sheetOrders;
       const needsUsers = !sheetUsers;
       const needsProducts = !sheetProducts;
@@ -871,9 +906,9 @@ export default function App() {
       const needsRoutes = !sheetRoutes;
       const needsCheckIns = !sheetCheckIns;
       const needsExpenses = !sheetExpenses;
-      const needsDeposits = !sheetDeposits;
-      const needsHiredVehicles = !sheetHiredVehicles;
-      const needsMaintenance = !sheetMaintenance;
+      const needsDeposits = !isSalesOnly && !sheetDeposits;
+      const needsHiredVehicles = !isSalesOnly && !sheetHiredVehicles;
+      const needsMaintenance = !isSalesOnly && !sheetMaintenance;
       const needsDailySchedules = !sheetDailySchedules;
       const needsRouteHistory = !sheetRouteHistory;
 
@@ -908,13 +943,10 @@ export default function App() {
       options?.onProgress?.('กำลังประมวลผลข้อมูลและเตรียมระบบ...', 85);
 
       if (ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value)) {
-        const cleanOrders = sanitizeOrderData(ordersRes.value);
-        setOrders(cleanOrders);
-        safeSave('iora_orders', cleanOrders);
+        setOrders(sanitizeOrderData(ordersRes.value));
       }
       if (usersRes.status === 'fulfilled' && Array.isArray(usersRes.value) && usersRes.value.length > 0) {
         setStaffList(usersRes.value);
-        safeSave('iora_staff_list', usersRes.value);
         const matched = usersRes.value.find(
           (u: StaffUser) => u?.email?.toLowerCase() === currentUser?.email?.toLowerCase()
         );
@@ -928,45 +960,33 @@ export default function App() {
       }
       if (productsRes.status === 'fulfilled' && Array.isArray(productsRes.value)) {
         setProducts(productsRes.value);
-        safeSave('iora_products', productsRes.value);
       }
       if (customersRes.status === 'fulfilled' && Array.isArray(customersRes.value)) {
-        const cleanCustomers = sanitizeCustomerData(customersRes.value);
-        setCustomers(cleanCustomers);
-        safeSave('iora_customers', cleanCustomers);
+        setCustomers(sanitizeCustomerData(customersRes.value));
       }
       if (routesRes.status === 'fulfilled' && Array.isArray(routesRes.value)) {
         setRoutes(routesRes.value);
-        safeSave('iora_routes', routesRes.value);
       }
       if (checkInsRes.status === 'fulfilled' && Array.isArray(checkInsRes.value)) {
         setCheckIns(checkInsRes.value);
-        safeSave('iora_checkins', checkInsRes.value);
       }
       if (expensesRes.status === 'fulfilled' && Array.isArray(expensesRes.value)) {
         setExpenses(expensesRes.value);
-        safeSave('iora_expenses', expensesRes.value);
       }
       if (depositsRes.status === 'fulfilled' && Array.isArray(depositsRes.value)) {
         setDeposits(depositsRes.value);
-        safeSave('iora_deposits', depositsRes.value);
       }
       if (hiredRes.status === 'fulfilled' && Array.isArray(hiredRes.value) && hiredRes.value.length > 0) {
         setHiredVehicles(hiredRes.value);
-        safeSave('iora_hired_vehicles', hiredRes.value);
       }
       if (mntRes.status === 'fulfilled' && Array.isArray(mntRes.value) && mntRes.value.length > 0) {
         setMaintenanceRecords(mntRes.value);
-        safeSave('iora_vehicle_maintenance', mntRes.value);
       }
       if (dailySchedulesRes.status === 'fulfilled' && dailySchedulesRes.value && typeof dailySchedulesRes.value === 'object') {
-        const fetchedSchedules = dailySchedulesRes.value;
-        setDailySchedules(fetchedSchedules);
-        safeSave('iora_call_plan_daily_schedule', fetchedSchedules);
+        setDailySchedules(dailySchedulesRes.value);
       }
       if (routeHistoryRes.status === 'fulfilled' && Array.isArray(routeHistoryRes.value)) {
         setRouteScheduleHistory(routeHistoryRes.value);
-        safeSave('iora_route_schedule_history', routeHistoryRes.value);
       }
 
       options?.onProgress?.('ข้อมูลทั้งหมดพร้อมใช้งานเรียบร้อยแล้ว!', 100);
@@ -1034,7 +1054,6 @@ export default function App() {
           const freshUsers = await fetchUsersFromSheets(sheetsConfig.spreadsheetId);
           if (Array.isArray(freshUsers) && freshUsers.length > 0) {
             setStaffList(freshUsers);
-            safeSave('iora_staff_list', freshUsers);
             currentStaffList = freshUsers;
             matchedUser = freshUsers.find(u => String(u?.email || '').trim().toLowerCase() === cleanEmail);
           }
@@ -1058,7 +1077,6 @@ export default function App() {
 
       const finalUser = { ...matchedUser, lastLogin: new Date().toISOString() };
       setCurrentUser(finalUser);
-      safeSave('iora_current_user', finalUser);
 
       // Record login in background
       if (sheetsConfig?.spreadsheetId) {
@@ -1071,10 +1089,10 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     setIsLoggedIn(false);
     showToast('info', 'ออกจากระบบเรียบร้อย', 'ท่านสามารถเข้าสู่ระบบด้วยบัญชีอื่นได้');
-  };
+  }, [showToast]);
 
   // Handle Switch User / Role
   const handleSwitchUser = (user: StaffUser) => {
@@ -1352,11 +1370,9 @@ export default function App() {
         ]);
         if (fetchedDaily && typeof fetchedDaily === 'object') {
           setDailySchedules(fetchedDaily);
-          safeSave('iora_call_plan_daily_schedule', fetchedDaily);
         }
         if (Array.isArray(fetchedHist)) {
           setRouteScheduleHistory(fetchedHist);
-          safeSave('iora_route_schedule_history', fetchedHist);
         }
       } catch (e) {
         console.warn('Sync daily route schedules failed', e);
@@ -1464,7 +1480,6 @@ export default function App() {
         const fetched = await fetchCustomersFromSheet(sheetsConfig.spreadsheetId);
         const cleanCustomers = sanitizeCustomerData(fetched);
         setCustomers(cleanCustomers);
-        safeSave('iora_customers', cleanCustomers);
         showToast(
           'success',
           'ลบข้อมูลลูกค้าสำเร็จ',
@@ -1473,14 +1488,12 @@ export default function App() {
         return true;
       }
 
-      setCustomers((prev) => {
-        const updated = prev.filter((c) => {
+      setCustomers((prev) =>
+        prev.filter((c) => {
           if (customer.id && c.id) return c.id !== customer.id;
           return !(c.name === customer.name && c.phone === customer.phone);
-        });
-        safeSave('iora_customers', updated);
-        return updated;
-      });
+        })
+      );
       showToast('success', 'ลบข้อมูลลูกค้าสำเร็จ', `ลบ "${customer.name}" ออกจากระบบเรียบร้อยแล้ว`);
       return true;
     } catch (e: any) {
@@ -1503,15 +1516,12 @@ export default function App() {
         await saveRouteToSheet(sheetsConfig.spreadsheetId, routeData);
         const fetched = await fetchRoutesFromSheet(sheetsConfig.spreadsheetId);
         setRoutes(fetched);
-        safeSave('iora_routes', fetched);
         showToast('success', 'บันทึกสำเร็จ', 'อัปเดตข้อมูลสายการเข้าเยี่ยมแล้ว');
         return true;
       }
       setRoutes((prev) => {
         const idx = prev.findIndex((r) => r.id === routeData.id);
-        const updated = idx >= 0 ? prev.map((r, i) => (i === idx ? routeData : r)) : [...prev, routeData];
-        safeSave('iora_routes', updated);
-        return updated;
+        return idx >= 0 ? prev.map((r, i) => (i === idx ? routeData : r)) : [...prev, routeData];
       });
       showToast('success', 'บันทึกสำเร็จ', 'บันทึกข้อมูลสายการเข้าเยี่ยมในระบบแล้ว');
       return true;
@@ -1530,15 +1540,10 @@ export default function App() {
         await deleteRouteFromSheet(sheetsConfig.spreadsheetId, routeId);
         const fetched = await fetchRoutesFromSheet(sheetsConfig.spreadsheetId);
         setRoutes(fetched);
-        safeSave('iora_routes', fetched);
         showToast('success', 'ลบสำเร็จ', 'ลบข้อมูลสายการเข้าเยี่ยมแล้ว');
         return true;
       }
-      setRoutes((prev) => {
-        const updated = prev.filter((r) => r.id !== routeId);
-        safeSave('iora_routes', updated);
-        return updated;
-      });
+      setRoutes((prev) => prev.filter((r) => r.id !== routeId));
       showToast('success', 'ลบสำเร็จ', 'ลบข้อมูลสายการเข้าเยี่ยมแล้ว');
       return true;
     } catch (e: any) {
@@ -1576,11 +1581,7 @@ export default function App() {
         changedByRole: currentUser?.role || '',
         ...entryData,
       };
-      setRouteScheduleHistory((prev) => {
-        const updated = [entry, ...prev].slice(0, 500);
-        safeSave('iora_route_schedule_history', updated);
-        return updated;
-      });
+      setRouteScheduleHistory((prev) => [entry, ...prev].slice(0, 500));
       if (sheetsConfig?.spreadsheetId) {
         appendRouteScheduleHistoryToSheet(sheetsConfig.spreadsheetId, entry).catch((err) => {
           console.warn('[RouteScheduleHistory] Sync error:', err);
@@ -1599,17 +1600,15 @@ export default function App() {
       ]);
       if (fetchedSchedules && typeof fetchedSchedules === 'object') {
         setDailySchedules(fetchedSchedules);
-        safeSave('iora_call_plan_daily_schedule', fetchedSchedules);
       }
       if (Array.isArray(fetchedHistory)) {
         setRouteScheduleHistory(fetchedHistory);
-        safeSave('iora_route_schedule_history', fetchedHistory);
       }
       showToast('success', 'อัปเดตแผนวิ่งสายและประวัติแล้ว', `พบประวัติทั้งหมด ${fetchedHistory.length} รายการ`);
     } catch (e: any) {
       showToast('error', 'ไม่สามารถโหลดประวัติจาก Google Sheets ได้', e?.message || '');
     }
-  }, [sheetsConfig?.spreadsheetId]);
+  }, [sheetsConfig?.spreadsheetId, showToast]);
 
   const handleClearRouteCache = useCallback(async () => {
     try {
@@ -1637,9 +1636,6 @@ export default function App() {
         setRoutes(cleanRoutes);
         setDailySchedules(cleanSchedules);
         setRouteScheduleHistory(cleanHistory);
-        safeSave('iora_routes', cleanRoutes);
-        safeSave('iora_call_plan_daily_schedule', cleanSchedules);
-        safeSave('iora_route_schedule_history', cleanHistory);
 
         showToast(
           'success',
@@ -1671,11 +1667,7 @@ export default function App() {
       updatedAt: schedule.updatedAt || formatNowUtcPlus7Iso(),
     };
 
-    setDailySchedules((prev) => {
-      const updated = { ...prev, [dateStr]: enrichedSchedule };
-      safeSave('iora_call_plan_daily_schedule', updated);
-      return updated;
-    });
+    setDailySchedules((prev) => ({ ...prev, [dateStr]: enrichedSchedule }));
 
     const actionType: RouteScheduleActionType =
       meta?.actionType || (existing ? 'update_daily' : 'set_daily');
@@ -1730,7 +1722,6 @@ export default function App() {
     const deletedDateStrings = Object.keys(prevSchedules).filter((d) => !enrichedAll[d]);
 
     setDailySchedules(enrichedAll);
-    safeSave('iora_call_plan_daily_schedule', enrichedAll);
 
     const changedCount = Object.keys(changedOnly).length;
     const deletedCount = deletedDateStrings.length;
@@ -1780,7 +1771,6 @@ export default function App() {
     setDailySchedules((prev) => {
       const updated = { ...prev };
       delete updated[dateStr];
-      safeSave('iora_call_plan_daily_schedule', updated);
       return updated;
     });
 
@@ -1847,7 +1837,6 @@ export default function App() {
   // Deposit Management Handlers
   const handleSaveDeposit = async (newDeposit: DepositRecord) => {
     setDeposits((prev) => [newDeposit, ...prev]);
-    safeSave('iora_deposits', [newDeposit, ...deposits]);
     showToast('success', 'บันทึกสำเร็จ', `บันทึกรับเงินประกัน ${newDeposit.depositNumber} เรียบร้อยแล้ว`);
 
     if (sheetsConfig?.spreadsheetId) {
@@ -1859,8 +1848,6 @@ export default function App() {
 
   const handleUpdateDeposit = async (updatedDeposit: DepositRecord) => {
     setDeposits((prev) => prev.map((d) => (d.id === updatedDeposit.id ? updatedDeposit : d)));
-    const updatedList = deposits.map((d) => (d.id === updatedDeposit.id ? updatedDeposit : d));
-    safeSave('iora_deposits', updatedList);
     showToast('success', 'อัปเดตสำเร็จ', `บันทึกรายการคืนเงินประกัน ${updatedDeposit.depositNumber} เรียบร้อยแล้ว`);
 
     if (sheetsConfig?.spreadsheetId) {
@@ -1872,8 +1859,6 @@ export default function App() {
 
   const handleDeleteDeposit = async (depositId: string) => {
     setDeposits((prev) => prev.filter((d) => d.id !== depositId));
-    const filtered = deposits.filter((d) => d.id !== depositId);
-    safeSave('iora_deposits', filtered);
     showToast('success', 'ลบสำเร็จ', 'ลบรายการเงินประกันเรียบร้อยแล้ว');
   };
 
@@ -1885,8 +1870,6 @@ export default function App() {
   // Hired Vehicle Handlers
   const handleSaveHiredTrip = async (newTrip: HiredVehicleTripRecord) => {
     setHiredVehicles((prev) => [newTrip, ...prev]);
-    const updatedList = [newTrip, ...hiredVehicles];
-    safeSave('iora_hired_vehicles', updatedList);
     showToast('success', 'บันทึกสำเร็จ', `บันทึกรอบวิ่งของ ${newTrip.vehiclePlate} เรียบร้อยแล้ว`);
 
     if (sheetsConfig?.spreadsheetId) {
@@ -1898,8 +1881,6 @@ export default function App() {
 
   const handleUpdateHiredTrip = async (updatedTrip: HiredVehicleTripRecord) => {
     setHiredVehicles((prev) => prev.map((t) => (t.id === updatedTrip.id ? updatedTrip : t)));
-    const updatedList = hiredVehicles.map((t) => (t.id === updatedTrip.id ? updatedTrip : t));
-    safeSave('iora_hired_vehicles', updatedList);
     showToast('success', 'อัปเดตสำเร็จ', `บันทึกข้อมูลรถ ${updatedTrip.vehiclePlate} เรียบร้อยแล้ว`);
 
     if (sheetsConfig?.spreadsheetId) {
@@ -1911,8 +1892,6 @@ export default function App() {
 
   const handleDeleteHiredTrip = async (tripId: string) => {
     setHiredVehicles((prev) => prev.filter((t) => t.id !== tripId));
-    const filtered = hiredVehicles.filter((t) => t.id !== tripId);
-    safeSave('iora_hired_vehicles', filtered);
     showToast('success', 'ลบสำเร็จ', 'ลบรายการรอบวิ่งงานเรียบร้อยแล้ว');
   };
 
@@ -1924,8 +1903,6 @@ export default function App() {
   // Vehicle Maintenance Handlers
   const handleSaveMaintenance = async (newRecord: VehicleMaintenanceRecord) => {
     setMaintenanceRecords((prev) => [newRecord, ...prev]);
-    const updatedList = [newRecord, ...maintenanceRecords];
-    safeSave('iora_vehicle_maintenance', updatedList);
     showToast('success', 'บันทึกสำเร็จ', `บันทึกงานบำรุงรักษาของ ${newRecord.vehiclePlate} เรียบร้อยแล้ว`);
 
     if (sheetsConfig?.spreadsheetId) {
@@ -1937,8 +1914,6 @@ export default function App() {
 
   const handleUpdateMaintenance = async (updatedRecord: VehicleMaintenanceRecord) => {
     setMaintenanceRecords((prev) => prev.map((m) => (m.id === updatedRecord.id ? updatedRecord : m)));
-    const updatedList = maintenanceRecords.map((m) => (m.id === updatedRecord.id ? updatedRecord : m));
-    safeSave('iora_vehicle_maintenance', updatedList);
     showToast('success', 'อัปเดตสำเร็จ', `บันทึกข้อมูลงานซ่อม ${updatedRecord.vehiclePlate} เรียบร้อยแล้ว`);
 
     if (sheetsConfig?.spreadsheetId) {
@@ -1950,8 +1925,6 @@ export default function App() {
 
   const handleDeleteMaintenance = async (recordId: string) => {
     setMaintenanceRecords((prev) => prev.filter((m) => m.id !== recordId));
-    const filtered = maintenanceRecords.filter((m) => m.id !== recordId);
-    safeSave('iora_vehicle_maintenance', filtered);
     showToast('success', 'ลบสำเร็จ', 'ลบรายการบำรุงรักษาเรียบร้อยแล้ว');
 
     if (sheetsConfig?.spreadsheetId) {
@@ -1960,6 +1933,32 @@ export default function App() {
       });
     }
   };
+
+  // Stable callbacks for memoized Navbar
+  const handleOpenNewOrderTab = useCallback(() => {
+    setEditingOrder(null);
+    setActiveTab('new_order');
+  }, []);
+
+  const handleOpenNewCustomerModal = useCallback(() => {
+    setIsNewCustomerOpen(true);
+  }, []);
+
+  const handleOpenRoleSwitcherModal = useCallback(() => {
+    setIsRoleSwitcherOpen(true);
+  }, []);
+
+  const handleOpenSettingsModal = useCallback(() => {
+    setIsSettingsOpen(true);
+  }, []);
+
+  const handleRefreshDatabaseFromNav = useCallback(async () => {
+    showToast('info', 'กำลังซิงค์ฐานข้อมูล', 'กำลังดึงข้อมูลอัปเดตล่าสุดทั้งหมดจาก Google Sheets...');
+    const res = await loadAllDataFromDatabase();
+    if (res.success) {
+      showToast('success', 'ซิงค์สำเร็จ', 'ข้อมูลระบบทั้งหมดเป็นปัจจุบันพร้อมใช้งานแล้ว');
+    }
+  }, [loadAllDataFromDatabase, showToast]);
 
   // If user is not logged in, render the login screen
   if (!isLoggedIn) {
@@ -2060,10 +2059,10 @@ export default function App() {
         currentUser={currentUser}
         activeTab={activeTab}
         setActiveTab={handleSelectTab}
-        onOpenNewOrder={() => { setEditingOrder(null); setActiveTab('new_order'); }}
-        onOpenNewCustomer={() => setIsNewCustomerOpen(true)}
-        onOpenRoleSwitcher={() => setIsRoleSwitcherOpen(true)}
-        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenNewOrder={handleOpenNewOrderTab}
+        onOpenNewCustomer={handleOpenNewCustomerModal}
+        onOpenRoleSwitcher={handleOpenRoleSwitcherModal}
+        onOpenSettings={handleOpenSettingsModal}
         onLogout={handleLogout}
         sheetsConfig={sheetsConfig}
         lineSettings={lineSettings}
@@ -2075,13 +2074,7 @@ export default function App() {
         hiredVehicleCount={pendingHiredPayoutsCount}
         maintenanceCount={activeMaintenanceCount}
         isLoadingData={isLoadingData}
-        onRefreshDatabase={async () => {
-          showToast('info', 'กำลังซิงค์ฐานข้อมูล', 'กำลังดึงข้อมูลอัปเดตล่าสุดทั้งหมดจาก Google Sheets...');
-          const res = await loadAllDataFromDatabase();
-          if (res.success) {
-            showToast('success', 'ซิงค์สำเร็จ', 'ข้อมูลระบบทั้งหมดเป็นปัจจุบันพร้อมใช้งานแล้ว');
-          }
-        }}
+        onRefreshDatabase={handleRefreshDatabaseFromNav}
       />
 
       {/* Main Content Area */}
@@ -2113,7 +2106,7 @@ export default function App() {
             {/* Logged in employee name display button (constrained on mobile so it never overflows) */}
             <button
               id="desktop-header-user-badge"
-              onClick={() => setIsRoleSwitcherOpen(true)}
+              onClick={handleOpenRoleSwitcherModal}
               className="flex items-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl border border-slate-200 bg-[#F1F5F9] hover:bg-blue-50 hover:border-blue-200 active:bg-blue-100/70 transition-all text-left group cursor-pointer min-w-0 max-w-full"
               title={`เข้าสู่ระบบโดย: ${currentUser.name} - คลิกเพื่อสลับสิทธิ์ผู้ใช้งาน`}
             >
@@ -2129,17 +2122,7 @@ export default function App() {
                   <ChevronDown className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#1D4ED8] shrink-0" />
                 </div>
                 <div className="flex items-center gap-1 text-[9.5px] sm:text-[10px] text-[#1D4ED8] font-semibold min-w-0 leading-tight">
-                  <span className="truncate">
-                    {currentUser.role === 'admin'
-                      ? 'Admin สูงสุด'
-                      : currentUser.role === 'manager'
-                      ? 'ผู้จัดการฝ่าย'
-                      : currentUser.role === 'sales'
-                      ? 'พนักงานขาย'
-                      : currentUser.role === 'delivery'
-                      ? 'ทีมจัดส่ง'
-                      : 'ผู้ตรวจสอบ'}
-                  </span>
+                  <span className="truncate">{getRoleShortLabel(currentUser.role)}</span>
                 </div>
               </div>
             </button>
@@ -2147,6 +2130,7 @@ export default function App() {
         </header>
 
         <main className="flex-1 w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6">
+          <Suspense fallback={<ViewLoadingFallback />}>
           {activeTab === 'orders' ? (
             <OrderList
               orders={orders}
@@ -2237,6 +2221,17 @@ export default function App() {
               staffList={staffList}
               checkIns={checkIns}
               customers={customers}
+            />
+          ) : activeTab === 'logistics_dashboard' ? (
+            <LogisticsDashboardView
+              orders={orders}
+              maintenanceRecords={maintenanceRecords}
+              hiredVehicles={hiredVehicles}
+              deposits={deposits}
+              onNavigateToLogistics={() => setActiveTab('logistics')}
+              onNavigateToMaintenance={() => setActiveTab('maintenance')}
+              onNavigateToHiredVehicles={() => setActiveTab('hired_vehicles')}
+              onNavigateToDeposits={() => setActiveTab('deposits')}
             />
           ) : activeTab === 'logistics' ? (
             <LogisticsManagementView
@@ -2329,14 +2324,15 @@ export default function App() {
               currentUser={currentUser}
               onOpenNewOrder={() => { setEditingOrder(null); setActiveTab('new_order'); }}
               onNavigateToLogistics={() => setActiveTab('logistics')}
-              onNavigateToMaintenance={() => setActiveTab('maintenance')}
               onNavigateToCustomers={() => setActiveTab('customers')}
             />
           )}
+          </Suspense>
         </main>
       </div>
 
       {/* Modals */}
+      <Suspense fallback={null}>
       {isNewCustomerOpen && (
         <NewCustomerModal
           isOpen={isNewCustomerOpen}
@@ -2437,10 +2433,7 @@ export default function App() {
           }}
         />
       )}
-
-
-
-
+      </Suspense>
 
       {confirmDialog.isOpen && (
         <ConfirmModal
